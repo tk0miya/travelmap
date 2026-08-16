@@ -13,7 +13,8 @@ GPS 軌跡・チェックイン・写真・歩数などの個人データを自�
 |---|---|
 | [docs/concept.md](docs/concept.md) | 解く課題、既存 OSS との差別化、設計の2本柱、非目標 |
 | [docs/research.md](docs/research.md) | 既存 OSS 調査、データソース候補と各々の制約 |
-| [docs/data-model.md](docs/data-model.md) | Observation / Segment / Trip / Correction / Place の定義 |
+| [docs/data-model.md](docs/data-model.md) | Observation / Segment / Trip / Correction / Asset / Place の定義 |
+| [docs/photos.md](docs/photos.md) | 写真データの扱い（3層分離、取り込み経路、EXIF の落とし穴） |
 | [docs/features.md](docs/features.md) | 機能一覧（MVP / 第2段階 / 第3段階）と受け入れ条件 |
 | [docs/decisions.md](docs/decisions.md) | 設計判断とその理由 |
 

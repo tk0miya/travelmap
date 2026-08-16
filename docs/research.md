@@ -47,7 +47,7 @@
 | Swarm チェックイン | Webhook | **確定した場所名**とカテゴリ、時刻 | Foursquare は 2024 年末に City Guide を終了。Swarm 自体は継続だが API の将来性は不透明。**取り込んだデータを自前で保持する設計にすべき** |
 | Google Health 歩数 | Health Connect API | 歩数、（拡張すれば）心拍・睡眠・ワークアウト | 移動手段の推定材料になる。Android のみ。iOS は HealthKit が対応物 |
 | KML | ファイルアップロード | 軌跡、任意の地点情報 | 出所が様々（Google Earth、各種アプリ）。スキーマの揺れが大きい |
-| 写真（JPG / HEIC） | ファイル or 外部 API | EXIF の撮影時刻・GPS・向き | **HEIC の EXIF 抽出はライブラリ選定が必要**。位置情報が無い写真も多い（設定オフ、スクショ、受信画像） |
+| 写真（JPG / HEIC） | ファイル or 外部 API | EXIF の撮影時刻・GPS・向き | **HEIC の EXIF は ISO BMFF ボックス内**にあり JPEG 用パーサでは読めない。**EXIF の撮影時刻にタイムゾーンが無い**（`OffsetTimeOriginal` は機種依存）。位置情報が無い写真も多い（設定オフ、スクショ、受信画像）。詳細と対処は `docs/photos.md` |
 
 ### 追加候補 — A. 旅行の骨格を確定させる（最優先）
 
@@ -96,7 +96,7 @@
 
 | ソース | 状況 |
 |---|---|
-| **Google Photos API** | Library API のスコープが 2025 年に大幅制限され、**アプリが作成した写真しか読めない**。既存ライブラリの一括読み出しは実質不可。Takeout か Immich 経由が現実的 |
+| **Google Photos API** | 2025/3/31 に `photoslibrary.readonly` / `.sharing` / `photoslibrary` の各スコープが**削除**された。残るのは `photoslibrary.readonly.appcreateddata` のみで、**自アプリがアップロードしたものしか読めない**。代替の **Picker API** は「ユーザーが都度選ぶ」前提のため継続同期には使えない。**Takeout のワンショットか Immich 経由が現実的**。詳細は `docs/photos.md` |
 | Foursquare / Swarm | Foursquare は 2024 年末に City Guide 終了。Swarm は継続中だが API の将来性は不透明 |
 | OpenSky Network の履歴 API | 認証・レート制限が厳しい |
 

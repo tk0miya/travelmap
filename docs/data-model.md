@@ -25,6 +25,7 @@
 
   ┌─────────────────────────────────────────────┐
   │  Place         正規化された場所マスタ        │  ← 参照層
+  │  Asset         写真のメタ・サムネ・原本参照  │
   └─────────────────────────────────────────────┘
 ```
 
@@ -199,6 +200,49 @@ Observation から導出される「滞在」と「移動」。**再計算可能
 
 Correction と分けるのは、**性質が違うから**。訂正は「機械の間違いを直す」、
 注釈は「機械が知り得ないことを足す」。前者は再計算で解決しうるが、後者は絶対に失えない。
+
+---
+
+## Asset（写真・動画アセット）
+
+写真は Observation（`source = photo_exif`）として取り込むが、
+**サムネイルと原本参照を持つため専用のエンティティを別に持つ**。
+
+| フィールド | 型 | 説明 |
+|---|---|---|
+| `id` | ID | |
+| `observation_id` | ID | 対応する Observation |
+| `kind` | enum | `photo` / `video` / `live_photo` |
+| `group_id` | ID, nullable | Live Photo / バーストのグループ |
+| `is_group_primary` | bool | グループの代表か |
+| `captured_at` | timestamp | UTC。TZ 解決後の値 |
+| `captured_tz` | string, nullable | 解決した TZ |
+| `tz_source` | enum | `exif_offset` / `from_coords` / `borrowed_from_gps` / `from_trip` / `unknown` |
+| `lat` / `lon` | float, nullable | |
+| `location_source` | enum | `exif` / `inferred_from_gps` / `user_set` / `unknown` |
+| `orientation` | int | EXIF Orientation |
+| `thumbnail_path` | string | **自前で保持するサムネイル** |
+| `original_ref` | JSON | 原本への参照。`{"kind":"immich","asset_id":"..."}` / `{"kind":"file","path":"...","hash":"..."}` |
+| `dedup_key` | string | 重複判定キー（撮影時刻＋機種＋画素数） |
+| `camera_make` / `camera_model` | string, nullable | |
+
+### 設計判断
+
+**なぜ原本を持たず参照にするのか**
+
+原本は重く、所有権が曖昧（Immich にある / NAS にある / iPhone にしかない）。
+写真管理サーバの乗り換えは起きるし、そのたびに旅行記が壊れるのは許容できない。
+
+**`original_ref` が解決できなくなっても、`thumbnail_path` とメタデータで旅行記は成立する。**
+失われるのは拡大表示だけ。これが3層分離（メタ / サムネ / 原本）の実利である。
+
+**なぜ `tz_source` と `location_source` を持つのか**
+
+EXIF の `DateTimeOriginal` はタイムゾーンを持たず、位置情報を持たない写真も多い。
+どちらも推定で埋めることになるため、**推定なのか確定なのかを区別できないと訂正の判断がつかない**。
+Stay の `place_source`、Move の `mode_source` と同じ思想。
+
+詳細は `docs/photos.md`。
 
 ---
 
