@@ -299,33 +299,31 @@ is not listed below should appear in the development steps.
 
 ### Language and toolchain
 
-**The floor is Go 1.25** (`modernc.org/sqlite` v1.56.0 declares `go 1.25.0` in its `go.mod`).
-However, **use the latest stable release available at the time of starting**, not the floor.
-As of 2026-08-17 that is **go1.26.6** (1.27 is at rc3). Go supports only the two most recent
-releases, so 1.25 drops out of support the moment 1.27 goes GA. Installing the floor as-is means
-that once `govulncheck` in CI reports a toolchain vulnerability, there is no remedy other than
-upgrading.
+**Use `go 1.25` in `go.mod`.** Nothing needs deciding at start-up time; this is settled:
 
-Check <https://go.dev/dl/> for the latest stable release when starting, and align the `go`
-directive in `go.mod` and `actions/setup-go` in CI with it — but **not ahead of the linter**.
+- `modernc.org/sqlite` v1.56.0 requires at least 1.25, so that is the floor.
+- `golangci-lint` refuses to analyse a module whose `go` directive is newer than the Go version
+  the linter binary was built with. The copy pre-installed in the development container is
+  2.5.0, built with go1.25.1, so 1.25 is also the ceiling until it is upgraded:
 
-`golangci-lint` refuses to run when the Go version it was built with is older than the `go`
-directive it is analysing:
+  ```
+  can't load config: the Go language version (go1.25) used to build golangci-lint
+  is lower than the targeted Go version (1.26.0)
+  ```
 
-```
-can't load config: the Go language version (go1.25) used to build golangci-lint
-is lower than the targeted Go version (1.26.0)
-```
+- 1.25 is still supported (Go supports the two most recent releases; 1.26 is current and 1.27 is
+  at rc3), so `govulncheck` has nothing to complain about.
 
-It lags Go releases, and pre-installed copies lag further. Measured in this development
-container: Go 1.24.7 with `GOTOOLCHAIN=auto`, which builds and tests a `go 1.26.0` module fine
-(the toolchain is fetched automatically; ~25 s the first time, then nothing), but the
-pre-installed `golangci-lint` 2.5.0 is built with go1.25.1 and rejects the module until the
-directive drops to `1.25` or the linter is reinstalled.
+The installed Go does not have to match. The container has 1.24.7 with `GOTOOLCHAIN=auto`, which
+fetches whatever `go.mod` asks for — measured: a `go 1.26.0` module builds, passes
+`go test -race` and vets cleanly there, with `modernc.org/sqlite` and
+`http.NewCrossOriginProtection` both working. The fetch costs about 25 seconds once, then
+nothing. So there is no environment prerequisite to satisfy before starting.
 
-So the `go` directive is bounded below by `modernc.org/sqlite` (1.25) and above by whatever
-`golangci-lint` in use supports. Pick the highest version satisfying both, and upgrade the
-linter first when moving up.
+**Revisit when 1.27 goes GA**, at which point 1.25 drops out of support. That is the moment to
+upgrade `golangci-lint` first and then move the directive up — not before, since raising it
+early only breaks lint. Given 1.27 is already at rc3, expect this within weeks rather than
+months.
 
 ### Libraries
 
@@ -494,11 +492,7 @@ No application behaviour yet. Three small PRs, each settling conventions.
 
 ### Step 1: Toolchain and CI
 
-Prerequisite, not part of the diff: update the development environment's Go to the latest
-stable release. This environment has 1.24.7, below even the 1.25 floor (see
-"Language and toolchain").
-
-- [ ] `go.mod` and the directory skeleton from "Directory layout" (empty packages with a
+- [ ] `go.mod` with `go 1.25` (see "Language and toolchain") and the directory skeleton from "Directory layout" (empty packages with a
       doc comment each)
 - [ ] `Makefile`, `.gitignore` (Go plus `*.db`, `bin/`), `.golangci.yml`
 - [ ] `.github/workflows/go.yml` (build / test / lint / govulncheck)
