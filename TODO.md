@@ -307,7 +307,25 @@ that once `govulncheck` in CI reports a toolchain vulnerability, there is no rem
 upgrading.
 
 Check <https://go.dev/dl/> for the latest stable release when starting, and align the `go`
-directive in `go.mod` and `actions/setup-go` in CI with it.
+directive in `go.mod` and `actions/setup-go` in CI with it — but **not ahead of the linter**.
+
+`golangci-lint` refuses to run when the Go version it was built with is older than the `go`
+directive it is analysing:
+
+```
+can't load config: the Go language version (go1.25) used to build golangci-lint
+is lower than the targeted Go version (1.26.0)
+```
+
+It lags Go releases, and pre-installed copies lag further. Measured in this development
+container: Go 1.24.7 with `GOTOOLCHAIN=auto`, which builds and tests a `go 1.26.0` module fine
+(the toolchain is fetched automatically; ~25 s the first time, then nothing), but the
+pre-installed `golangci-lint` 2.5.0 is built with go1.25.1 and rejects the module until the
+directive drops to `1.25` or the linter is reinstalled.
+
+So the `go` directive is bounded below by `modernc.org/sqlite` (1.25) and above by whatever
+`golangci-lint` in use supports. Pick the highest version satisfying both, and upgrade the
+linter first when moving up.
 
 ### Libraries
 
