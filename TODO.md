@@ -327,8 +327,7 @@ is lower than the targeted Go version (1.26.0)
 A pre-installed binary therefore caps the `go` directive at whatever it happens to be built
 with — in the development container, an old 2.5.0 that caps it at 1.25. **`go tool` removes the
 ceiling by construction**: the linter is rebuilt from source with the module's own toolchain, so
-it always matches. Versions are pinned in `go.mod`, Dependabot updates them, and CI and local
-runs use the same build.
+it always matches. Versions are pinned in `go.mod`, and CI and local runs use the same build.
 
 Measured in the container: `go tool golangci-lint run` takes about 43 s the first time (it
 compiles the linter) and about 0.5 s afterwards. `gofumpt` runs in about 1 s. The installed Go
@@ -336,11 +335,23 @@ does not have to match the directive — 1.24.7 with `GOTOOLCHAIN=auto` builds, 
 `-race` and vets a `go 1.26` module fine, fetching the toolchain once. So there is no
 environment prerequisite before starting, and no setup script to maintain.
 
-Two caveats:
+Three caveats:
 
 - **`go get -tool` pulls the tools' entire dependency trees into `go.mod` as `// indirect`** —
-  about 214 entries for the three above. If that becomes unmanageable (Dependabot noise,
-  unreadable `go.mod`), move the tools into a separate `tools/go.mod`.
+  214 entries for the three above, measured in Step 1. If `go.mod` becomes unreadable because of
+  them, move the tools into a separate `tools/go.mod`.
+- **The tool modules themselves are recorded as `// indirect` too**, because no package in this
+  module imports them — `go mod tidy` restores the marker if it is removed by hand. Dependabot's
+  scheduled `gomod` updates cover direct dependencies only by default, which would leave the
+  tools pinned forever. `.github/dependabot.yml` therefore puts the whole ecosystem in scope with
+  `dependency-type: "all"` and groups minor and patch updates into one PR a week, so the tools'
+  transitive entries do not arrive one PR at a time. Major updates stay ungrouped, and the
+  existing auto-merge label workflow still works: `dependabot/fetch-metadata` reports the highest
+  semver change in a group, so a group holding only minor and patch updates is labelled. The open
+  PR limit is raised to 10 so that major updates waiting for review cannot starve the weekly group
+  PR out of the default limit of five. The group matches every module, which is right while the
+  tools are the only dependencies; once runtime dependencies exist, decide whether to keep them
+  out of it with `exclude-patterns` so that a chi or SQLite-driver bump is reviewed on its own.
 - **`govulncheck` cannot run in the development container**: the egress proxy blocks
   `vuln.go.dev` (`Forbidden`). Treat it as a CI-only check.
 
@@ -420,11 +431,16 @@ session cookie on the `/*` side. To be decided when Milestone H starts. The curr
 
 ### Development tools
 
-- `golangci-lint` — enable errcheck, govet, staticcheck, revive, gosec, bodyclose, sqlclosecheck
-  in `.golangci.yml`
+- `golangci-lint` — keep its standard set (errcheck, govet, ineffassign, staticcheck, unused) and
+  add revive, gosec, bodyclose, sqlclosecheck in `.golangci.yml`. Starting from the standard set
+  rather than listing every linter means new entries golangci-lint promotes into it arrive on
+  their own.
 - `gofumpt` — formatting
 - `govulncheck` — vulnerability scanning
-- `go test ./... -race -cover`
+- `go test ./... -race -cover -shuffle=on` (`-shuffle=on` catches tests that only pass in the
+  order they are written)
+- `go mod tidy -diff` in `make lint`, so a `go.mod` / `go.sum` left untidy fails CI instead of
+  turning up inside someone else's diff
 
 ### Makefile
 
@@ -433,7 +449,7 @@ A `docker` target comes with the packaging work in Milestone G.
 
 ### CI
 
-Add `.github/workflows/go.yml` with `build` / `test` (`-race`) / `lint` / `govulncheck` jobs.
+Add `.github/workflows/go.yml` with `build` / `test` / `lint` / `govulncheck` jobs.
 
 **Follow the conventions of the existing workflows** (see
 `.github/workflows/workflow-lint.yml`).
@@ -442,8 +458,9 @@ Add `.github/workflows/go.yml` with `build` / `test` (`-race`) / `lint` / `govul
 - Third-party actions are pinned to a full commit SHA with a `# vX.Y.Z` comment
 - `actions/checkout` is given `persist-credentials: false`
 
-Also add the `gomod` ecosystem to `.github/dependabot.yml` (weekly / `Asia/Tokyo` /
-7-day cooldown).
+Also add the `gomod` ecosystem to `.github/dependabot.yml`, on the same weekly / `Asia/Tokyo` /
+7-day-cooldown schedule as the existing `github-actions` entry. Its `allow` and `groups` settings
+are explained in "Language and toolchain".
 
 ### Distribution
 
@@ -485,7 +502,7 @@ testdata/golden/          golden JSON for upstream response shapes
 - Table-driven tests for handlers using `net/http/httptest` and a temporary SQLite database
 - **Pin JSON key names, types, and naming convention (camelCase / snake_case) with golden
   files.** This is where compatibility lives
-- Run `go test -race` in CI
+- Run the tests in CI, with the flags listed under "Development tools"
 
 ## Development Steps
 
@@ -511,15 +528,15 @@ No application behaviour yet. Three small PRs, each settling conventions.
 
 ### Step 1: Toolchain and CI
 
-- [ ] `go.mod` with `go 1.26` and `tool` directives for golangci-lint, govulncheck and gofumpt
+- [x] `go.mod` with `go 1.26` and `tool` directives for golangci-lint, govulncheck and gofumpt
       (see "Language and toolchain"), and the directory skeleton from "Directory layout"
       (empty packages with a doc comment each)
-- [ ] `Makefile` (targets invoke `go tool <name>`, so a checkout needs no tool installation),
+- [x] `Makefile` (targets invoke `go tool <name>`, so a checkout needs no tool installation),
       `.gitignore` (Go plus `*.db`, `bin/`), `.golangci.yml`
-- [ ] `.github/workflows/go.yml` (build / test / lint / govulncheck, all via `go tool`).
+- [x] `.github/workflows/go.yml` (build / test / lint / govulncheck, all via `go tool`).
       `govulncheck` runs only here — it cannot reach `vuln.go.dev` from the development
       container
-- [ ] Add `gomod` to `.github/dependabot.yml`
+- [x] Add `gomod` to `.github/dependabot.yml`
 
 **Settles**: directory layout, the enabled linter set, CI conventions.
 

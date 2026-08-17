@@ -1,0 +1,18 @@
+version: "2"
+
+linters:
+  # golangci-lint's standard set, plus the linters below.
+  default: standard
+  enable:
+    - bodyclose
+    - gosec  # this server handles credentials and hand-written SQL
+    - revive
+    - sqlclosecheck
+
+  # golangci-lint's own curated exclusions, covering the patterns that would
+  # otherwise need a `//nolint` on every deferred Close and fmt.Fprintf. Narrow
+  # them if something they hide turns out to matter.
+  exclusions:
+    presets:
+      - common-false-positives
+      - std-error-handling

@@ -10,3 +10,25 @@ updates:
       timezone: "Asia/Tokyo"
     cooldown:
       default-days: 7
+
+  - package-ecosystem: "gomod"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      timezone: "Asia/Tokyo"
+    cooldown:
+      default-days: 7
+    # Raised from the default of five so that major updates waiting for review
+    # cannot starve out the weekly group PR.
+    open-pull-requests-limit: 10
+    # `all` because the development tools are indirect requirements, and the
+    # group keeps their updates to one PR a week. Rationale in TODO.md.
+    allow:
+      - dependency-type: "all"
+    groups:
+      go-modules:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
