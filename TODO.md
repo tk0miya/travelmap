@@ -299,31 +299,50 @@ is not listed below should appear in the development steps.
 
 ### Language and toolchain
 
-**Use `go 1.25` in `go.mod`.** Nothing needs deciding at start-up time; this is settled:
+**Use `go 1.26` in `go.mod`** (the current stable release; the floor is 1.25, required by
+`modernc.org/sqlite` v1.56.0).
 
-- `modernc.org/sqlite` v1.56.0 requires at least 1.25, so that is the floor.
-- `golangci-lint` refuses to analyse a module whose `go` directive is newer than the Go version
-  the linter binary was built with. The copy pre-installed in the development container is
-  2.5.0, built with go1.25.1, so 1.25 is also the ceiling until it is upgraded:
+**Declare the development tools with `tool` directives in `go.mod`**, not as separately
+installed binaries:
 
-  ```
-  can't load config: the Go language version (go1.25) used to build golangci-lint
-  is lower than the targeted Go version (1.26.0)
-  ```
+```
+tool (
+	github.com/golangci/golangci-lint/v2/cmd/golangci-lint
+	golang.org/x/vuln/cmd/govulncheck
+	mvdan.cc/gofumpt
+)
+```
 
-- 1.25 is still supported (Go supports the two most recent releases; 1.26 is current and 1.27 is
-  at rc3), so `govulncheck` has nothing to complain about.
+added with `go get -tool <path>@<version>` (one `-tool` per invocation) and run as
+`go tool golangci-lint run`.
 
-The installed Go does not have to match. The container has 1.24.7 with `GOTOOLCHAIN=auto`, which
-fetches whatever `go.mod` asks for — measured: a `go 1.26.0` module builds, passes
-`go test -race` and vets cleanly there, with `modernc.org/sqlite` and
-`http.NewCrossOriginProtection` both working. The fetch costs about 25 seconds once, then
-nothing. So there is no environment prerequisite to satisfy before starting.
+This matters for more than convenience. `golangci-lint` refuses to analyse a module whose `go`
+directive is newer than the Go version the linter binary was built with:
 
-**Revisit when 1.27 goes GA**, at which point 1.25 drops out of support. That is the moment to
-upgrade `golangci-lint` first and then move the directive up — not before, since raising it
-early only breaks lint. Given 1.27 is already at rc3, expect this within weeks rather than
-months.
+```
+can't load config: the Go language version (go1.25) used to build golangci-lint
+is lower than the targeted Go version (1.26.0)
+```
+
+A pre-installed binary therefore caps the `go` directive at whatever it happens to be built
+with — in the development container, an old 2.5.0 that caps it at 1.25. **`go tool` removes the
+ceiling by construction**: the linter is rebuilt from source with the module's own toolchain, so
+it always matches. Versions are pinned in `go.mod`, Dependabot updates them, and CI and local
+runs use the same build.
+
+Measured in the container: `go tool golangci-lint run` takes about 43 s the first time (it
+compiles the linter) and about 0.5 s afterwards. `gofumpt` runs in about 1 s. The installed Go
+does not have to match the directive — 1.24.7 with `GOTOOLCHAIN=auto` builds, tests with
+`-race` and vets a `go 1.26` module fine, fetching the toolchain once. So there is no
+environment prerequisite before starting, and no setup script to maintain.
+
+Two caveats:
+
+- **`go get -tool` pulls the tools' entire dependency trees into `go.mod` as `// indirect`** —
+  about 214 entries for the three above. If that becomes unmanageable (Dependabot noise,
+  unreadable `go.mod`), move the tools into a separate `tools/go.mod`.
+- **`govulncheck` cannot run in the development container**: the egress proxy blocks
+  `vuln.go.dev` (`Forbidden`). Treat it as a CI-only check.
 
 ### Libraries
 
@@ -492,10 +511,14 @@ No application behaviour yet. Three small PRs, each settling conventions.
 
 ### Step 1: Toolchain and CI
 
-- [ ] `go.mod` with `go 1.25` (see "Language and toolchain") and the directory skeleton from "Directory layout" (empty packages with a
-      doc comment each)
-- [ ] `Makefile`, `.gitignore` (Go plus `*.db`, `bin/`), `.golangci.yml`
-- [ ] `.github/workflows/go.yml` (build / test / lint / govulncheck)
+- [ ] `go.mod` with `go 1.26` and `tool` directives for golangci-lint, govulncheck and gofumpt
+      (see "Language and toolchain"), and the directory skeleton from "Directory layout"
+      (empty packages with a doc comment each)
+- [ ] `Makefile` (targets invoke `go tool <name>`, so a checkout needs no tool installation),
+      `.gitignore` (Go plus `*.db`, `bin/`), `.golangci.yml`
+- [ ] `.github/workflows/go.yml` (build / test / lint / govulncheck, all via `go tool`).
+      `govulncheck` runs only here — it cannot reach `vuln.go.dev` from the development
+      container
 - [ ] Add `gomod` to `.github/dependabot.yml`
 
 **Settles**: directory layout, the enabled linter set, CI conventions.
