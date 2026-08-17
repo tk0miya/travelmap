@@ -41,11 +41,11 @@ re-fetched. A running Dawarich instance also serves the same document at `/api-d
 
 | Item | Decision | Rationale |
 | --- | --- | --- |
-| Data store | SQLite (`modernc.org/sqlite`, no CGO) | Self-contained in a single static binary. No DB process, so the footprint is minimal. Performance measured as sufficient (see "Data Store Verification") |
+| Data store | SQLite (`modernc.org/sqlite`, no CGO) | Self-contained in a single static binary. No DB process, so the footprint is minimal. Chosen after benchmarking (commit 59d0e04) |
 | Store abstraction | Repository layer behind an interface | Leaves room to add a PostgreSQL implementation later |
-| Indexes | A single `points(user_id, timestamp)` | App queries always narrow by user and time range first. No lat/lon index for now, since no in-scope endpoint takes a bounding box (same section) |
-| Distance | Haversine in SQL for aggregation, `internal/geo` (Go) for one-off calculations | Pulling a whole-history aggregation into Go spends all its time transferring rows. SQL math functions confirmed available by measurement. **Since the formula then exists twice, share the Earth-radius constant and pin agreement between the two with a test** |
-| Statistics | `daily_stats` precomputed table, updated during ingest | On-demand computation is not viable (same section) |
+| Indexes | A single `points(user_id, timestamp)` | App queries always narrow by user and time range first. See "Data Model" |
+| Distance | Haversine in SQL for aggregation, `internal/geo` (Go) for one-off calculations | Pulling a whole-history aggregation into Go spends all its time transferring rows. See "Data Model" |
+| Statistics | `daily_stats` precomputed table, updated during ingest | Aggregating `points` on demand is too slow to serve a request. See "Data Model" |
 | HTTP | `net/http` + `github.com/go-chi/chi/v5` | Chosen with the future web UI in mind (see "Library Choices for the Web UI") |
 | Compatibility scope | Mobile-app subset | Everything except the non-goals above |
 | User management | Issued via CLI. `auth/login` implemented, `auth/register` optional behind an env var, no 2FA | Self-hosted assumption |
@@ -55,131 +55,102 @@ re-fetched. A running Dawarich instance also serves the same document at `/api-d
 These are the defaults as of planning. If any turns out to be wrong during implementation,
 change it — after updating this file.
 
-## Data Store Verification (Is SQLite Enough?)
+## Data Model
 
-Measured (2026-08-17) to answer whether SQLite can carry location data or whether PostGIS is
-required. Environment: `modernc.org/sqlite` v1.56.0 / SQLite 3.53.3, **2,000,000 points**
-(one user, roughly five years), WAL.
+### `points`
 
-These numbers are a snapshot taken at planning time; no reproduction script was kept
-(if a major driver or Go update makes it worth revisiting the decision, re-measure under the
-conditions described in this section).
+Cover every field of the upstream point object. One index: `(user_id, timestamp)`.
+Without it the `GET /points` time filter degrades to a full scan.
 
-### Available features
+No latitude/longitude index and no R\*Tree: no in-scope endpoint takes a bounding box
+(`GET /points` accepts only `start_at` / `end_at` / `page` / `per_page` / `order`), and an index
+with no query to serve costs insert time and storage for nothing. Decide which to add if and
+when rectangular search is actually needed.
 
-| Feature | Available | Notes |
+### `daily_stats`
+
+A precomputed per-day aggregate. `/stats` and `/points/tracked_months` read only from here and
+must never aggregate `points` directly.
+
+Columns: `user_id`, `day`, `points`, `reverse_geocoded_points`, `km`, `countries`, `cities`.
+Primary key: the composite `(user_id, day)`.
+`countries` / `cities` are JSON arrays of the country and city names visited that day; take the
+union when aggregating over a longer range. All five `/stats` totals (`totalDistanceKm`,
+`totalPointsTracked`, `totalReverseGeocodedPoints`, `totalCountriesVisited`,
+`totalCitiesVisited`) must be derivable from this table alone.
+
+Reverse geocoding is off by default, so until it is enabled `countries` / `cities` stay empty
+and `reverse_geocoded_points` stays 0; `/stats` reports 0 for the corresponding totals. Matching
+upstream requires the user to configure a reverse geocoder.
+
+**Delete the row entirely once a day has zero points.** Leaving it at zero would make
+`tracked_months` keep returning months with no points, and would no longer match a rebuild.
+
+#### Segment attribution
+
+The distance between two consecutive points is **attributed to the day of the later point**.
+
+Segments whose time gap exceeds `TRAVELMAP_TRACK_BREAK_MINUTES` are **not counted at all**,
+so `km` means "distance travelled within tracks". Without this, the straight-line distance
+across a tracking gap or a flight lands in the total. Stage 4 track splitting uses the same
+value.
+
+#### Which days to update
+
+Inserting, updating, or deleting a point changes `km` for **that point's day and the day of the
+next point in time order**. The previous point's day does not change, because the `prev → P`
+distance is already counted on P's day.
+
+The next point can be days away if tracking was stopped, so never hardcode "the following day".
+If an update moves a point to a different day, take those same two days for both the before and
+after states. Out-of-order and late-arriving batches are handled the same way.
+
+#### How to update
+
+**Rebuild the affected day's row from scratch. Never adjust values arithmetically.**
+`countries` / `cities` are sets: when one point is deleted there is no way to tell whether that
+country or city still applies to another point that day without scanning the day, so an
+arithmetic approach would never shrink them and `/stats` would keep reporting inflated values.
+
+**The rebuild input is that day's points plus the immediately preceding point**, which may be
+from an earlier day. The first point of a day measures its segment against the last point of a
+previous day, so it cannot be computed from that day's points alone. Missing this drops every
+cross-midnight movement from `km`.
+
+The update runs in the same transaction as the mutation that triggered it.
+
+### Configuration affecting stored aggregates
+
+Both are **server-side** settings. Changing either invalidates every existing `daily_stats` row
+and requires `travelmap recalculate`.
+
+| Variable | Default | Effect |
 | --- | --- | --- |
-| R\*Tree | Yes | Virtual table for 2D bbox search |
-| geopoly | Yes | Polygon containment; usable for country attribution from border data |
-| `sin` / `cos` / `asin` / `radians` / `pow` | Yes | **Haversine can be written in SQL** (verified: Tokyo–Osaka = 402.8 km) |
-| Window function `lag()` | Yes | Required for distance between consecutive points |
-| WAL / `busy_timeout` | Yes | Read concurrency |
+| `TRAVELMAP_TIMEZONE` | `UTC` | The timezone used to cut `day`. Part of the primary key, so a change means rebuilding for every user. Running in Japan without `Asia/Tokyo` attributes movement between 00:00 and 09:00 to the previous day, making `/stats` and `tracked_months` disagree with the app |
+| `TRAVELMAP_TRACK_BREAK_MINUTES` | `30` | The gap above which a segment is excluded from `km` |
 
-R\*Tree and geopoly ship with the pure-Go driver, so neither CGO nor SpatiaLite is needed.
+`TRAVELMAP_TRACK_BREAK_MINUTES` is **distinct from `track_break` in `settings/mobile`**, which
+is the app's own setting for how the device splits tracks. Using the app setting for aggregation
+would change the meaning of past aggregates whenever the user changes it in the app.
 
-### Measurements (2M points / 209 MB DB = 104 bytes per point)
+The spec does not say how upstream computes distance, so compare against the app's display in
+Stage 3 and revisit if the numbers diverge.
 
-All measured with both `(user_id, timestamp)` and `(user_id, latitude, longitude)` present
-(the latter is not created in production — see conclusion 3).
+### Distance calculation
 
-| Query | Naive | After |
-| --- | --- | --- |
-| `GET /points`, first page of one day (`per_page=100`) | **0.3 ms** | — |
-| `GET /points`, one month (32,401 rows) | **3.6 ms** | — |
-| bbox search (186,272 rows matched) | **173 ms** | 51 ms with R\*Tree (not created in production, per conclusion 3) |
-| `GET /points/tracked_months` | 1,448 ms | **0.64 ms** |
-| `GET /stats`, whole-history distance | 11,183 ms | **2.29 ms** |
-| `GET /stats`, per-year aggregation | 2,745 ms | **2.29 ms** (included above) |
-| 100-point batch insert + stats update | — | **5.74 ms** |
-| Full `daily_stats` rebuild (`recalculate`) | — | **15.6 s** |
+Haversine in SQL for aggregation, `internal/geo` (Go) for one-off calculations. The formula
+therefore exists twice: share the Earth-radius constant and pin agreement with a test.
 
-### Conclusions
+### Switching to PostgreSQL / PostGIS
 
-1. **The queries the app issues most (points over a time range) run in 0.3–4 ms; SQLite is
-   entirely fine.** Location history is fundamentally a *time-series* workload: it narrows by
-   `user_id` and time range first. What remains after that is about 1,100 rows for a day and
-   about 30,000 even for a month, so a spatial index has nothing to contribute anyway.
-
-2. **What was slow was not the spatial queries but the whole-history aggregation.** That is a
-   design problem, not a database-engine problem, and it would be just as slow on PostgreSQL.
-   This is presumably why upstream Dawarich keeps a `stats` table and exposes
-   `POST /api/v1/recalculations`.
-
-   → **Keep a `daily_stats` table and update the affected days in the same transaction as
-   ingest.** This brings `/stats` to 2.3 ms, and insert plus stats update together stay under
-   6 ms per 100-point batch.
-
-   **Update method: rebuild the affected day's row from scratch.** Do not adjust values
-   arithmetically. `countries` / `cities` are sets, so when a single point is deleted there is
-   no way to tell whether that country or city still applies to another point that day without
-   scanning the day; an arithmetic approach would never shrink them and `/stats` would keep
-   reporting inflated values. A day holds about 1,100 points, so even a full rebuild stays
-   under 6 ms per batch.
-
-   **The rebuild input is "that day's points plus the immediately preceding point"** (which may
-   be from an earlier day). The first point of a day measures its segment against the last
-   point of a previous day, so it cannot be computed from that day's points alone. Missing this
-   drops every cross-midnight movement from `km`.
-
-   The set of affected days is not just "today". A segment between two consecutive points is
-   **attributed to the day of the later point**, so inserting, updating, or deleting a point
-   changes `km` both for that point's day and for **the day of the next point in time order**.
-   Implement it as "the day of the target point, and the day of the next point in time order"
-   (the previous point's day does not change, because the `prev → P` distance is already
-   counted on P's day). If an update moves a point to a different day, take those same two days
-   for both the before and after states. The next point can be days away if tracking was
-   stopped, so never hardcode "the following day". Out-of-order and late-arriving batches are
-   handled the same way.
-
-   **Segments whose time gap exceeds `TRAVELMAP_TRACK_BREAK_MINUTES` (default 30) are not
-   counted.** Adding the straight-line distance between two points that span a tracking gap or
-   a flight would make the `/stats` total wildly unrealistic. Stage 4 track splitting uses the
-   same value, giving a consistent meaning: "the sum of distance travelled within tracks".
-
-   This is a **server-side setting**, distinct from `track_break` in `settings/mobile` (the app
-   setting for how the device splits tracks). Using the latter for aggregation would change the
-   meaning of past aggregates every time the user changes a setting in the app. As with
-   `TRAVELMAP_TIMEZONE`, changing it requires `travelmap recalculate`. The spec does not say how
-   upstream computes this, so compare against the app's display in Stage 3 and revisit if the
-   numbers diverge.
-
-   Columns: `user_id`, `day`, `points`, `reverse_geocoded_points`, `km`, `countries`, `cities`.
-   The primary key is the composite `(user_id, day)`.
-   **Delete the row entirely once a day has zero points** (leaving it at zero would make
-   `tracked_months` keep returning months with no points, and would no longer match a
-   `recalculate` rebuild).
-
-   **The timezone used to cut `day` is set by `TRAVELMAP_TIMEZONE` (default `UTC`).**
-   `day` is part of the primary key, so changing it later requires rebuilding `daily_stats` for
-   every user (about 16 seconds for 2M points, per the table above). Using this in Japan without
-   setting `Asia/Tokyo` would attribute movement between 00:00 and 09:00 to the previous day,
-   making the monthly and yearly figures in `/stats` and `tracked_months` disagree with the app.
-
-   All five `/stats` totals (`totalDistanceKm`, `totalPointsTracked`,
-   `totalReverseGeocodedPoints`, `totalCountriesVisited`, `totalCitiesVisited`) must be
-   derivable from this table alone (`countries` / `cities` are JSON arrays of the country and
-   city names visited that day; take the union when aggregating over the whole history).
-   Reverse geocoding is off by default, so until it is enabled both stay empty arrays and
-   `/stats` returns 0 for them. Matching upstream requires the user to configure a reverse
-   geocoder.
-
-3. **Do not add a bbox index for now — neither R\*Tree nor a lat/lon composite index.**
-   R\*Tree takes bbox search from 173 ms to 51 ms, but it costs 58 seconds to build and adds
-   storage. More to the point, **no in-scope endpoint takes a bounding box** (`GET /points`
-   accepts only `start_at` / `end_at` / `page` / `per_page` / `order`). An index with no query
-   to serve costs insert time and storage for nothing. Decide which one to add if and when
-   rectangular search is actually needed.
-
-### When to Switch to PostgreSQL / PostGIS
-
-None of these apply today. If any becomes real, add a PostgreSQL implementation behind the
-`internal/store` interface and switch (which is why the store is abstracted).
+SQLite was chosen after benchmarking; see commit 59d0e04 for the measurements. None of the
+following apply today, but if one becomes real, add a PostgreSQL implementation behind the
+`internal/store` interface — which is why the store is abstracted.
 
 - Multiple users writing concurrently and continuously (SQLite always has a single writer)
-- Doing kNN or complex spatial joins against our own boundary data instead of an external
-  reverse geocoder
-- Implementing H3 hex aggregation / fog of war (both non-goals)
-- The database reaching tens of GB (from the measurements above, even 10M points is about 1 GB)
+- kNN or complex spatial joins against our own boundary data rather than an external geocoder
+- H3 hex aggregation / fog of war (both non-goals)
+- The database reaching tens of GB (roughly 100 bytes per point, so 10M points is about 1 GB)
 
 ## Dawarich API Compatibility Notes
 
@@ -469,24 +440,18 @@ connection.
 
 ### Stage 2: Recording — locations get stored
 
-- [ ] Finalise the `points` schema (covering every upstream point field). One index,
-      `(user_id, timestamp)` (**without it the `GET /points` time filter becomes a full scan**;
-      no lat/lon index, per "Data Store Verification")
+- [ ] `points` schema and its `(user_id, timestamp)` index, per "Data Model"
 - [ ] GeoJSON Feature parser (`internal/httpapi/dto`)
 - [ ] `POST /api/v1/points`
 - [ ] `POST /api/v1/overland/batches`
 - [ ] Deduplication (same user × timestamp)
 - [ ] Batch inserts wrapped in a transaction
-- [ ] `daily_stats` table, updated in the same transaction as ingest (**only** the affected
-      days, rebuilding each day's row from points rather than adjusting values arithmetically).
-      **This has to be built on the write side so that Stage 3's `/stats` is fast enough**
-      (column definitions, which days are affected, and segment attribution are in
-      "Data Store Verification")
-- [ ] Cut `day` by `TRAVELMAP_TIMEZONE` and decide which segments count towards distance by
-      `TRAVELMAP_TRACK_BREAK_MINUTES` (defaults and consequences in "Data Store Verification").
+- [ ] `daily_stats` table and its update path, per "Data Model".
+      **It has to be built on the write side so that Stage 3's `/stats` is fast enough**
+- [ ] `TRAVELMAP_TIMEZONE` and `TRAVELMAP_TRACK_BREAK_MINUTES` in `internal/config`.
       Document in the README that **changing either requires `travelmap recalculate`**
 - [ ] `travelmap recalculate` subcommand (rebuilds `daily_stats` from points; for recovery after
-      imports or inconsistency)
+      imports or inconsistency, and after either variable above changes)
 - [ ] **Route every path that changes points through a single ingest/mutation layer.**
       Scattered `daily_stats` updates are guaranteed to miss cases (Stage 3 updates and deletes,
       and Stage 6 imports, owntracks/traccar, and the reverse-geocoding worker all go through
@@ -530,8 +495,7 @@ agree).
       the old distance
 - [ ] `GET /api/v1/points/tracked_months` (read from `daily_stats`)
 - [ ] `GET /api/v1/stats` (aggregate `daily_stats`; keep camelCase exactly).
-      **Do not aggregate points directly** (rationale and measurements in
-      "Data Store Verification")
+      **Do not aggregate points directly** (see "Data Model")
 
 **Done when**: past points appear on the app's map and the stats screen shows distance and point
 counts.
@@ -543,7 +507,7 @@ counts.
 
 - [ ] Track-splitting logic (split on `TRAVELMAP_TRACK_BREAK_MINUTES` of inactivity) as a
       background job. **Not `track_break` from `settings/mobile`** (see
-      "Data Store Verification")
+      "Data Model")
 - [ ] `GET /api/v1/tracks` (GeoJSON FeatureCollection)
 - [ ] `GET /api/v1/tracks/{id}`, `GET /api/v1/tracks/{track_id}/points`
 - [ ] Stay detection → `visits` table
@@ -573,7 +537,7 @@ reinstalling the app.
 - [ ] Reverse geocoding (Nominatim / Photon, rate-limited worker). It runs asynchronously after
       points are inserted, so **on completion update `countries` / `cities` /
       `reverse_geocoded_points` in `daily_stats` for the affected days** (without this the
-      corresponding `/stats` values stay 0 — see "Data Store Verification")
+      corresponding `/stats` values stay 0 — see "Data Model")
 - [ ] `POST /api/v1/auth/register` (enabled by an env var)
 - [ ] `POST /api/v1/owntracks/points`, `POST /api/v1/traccar/points`
 - [ ] `GET /api/v1/countries/visited_cities`
