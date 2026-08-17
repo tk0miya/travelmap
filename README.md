@@ -16,6 +16,7 @@ GPS 軌跡・チェックイン・写真・歩数などの個人データを自�
 | [docs/data-model.md](docs/data-model.md) | Observation / Segment / Trip / Correction / Asset / Place の定義 |
 | [docs/photos.md](docs/photos.md) | 写真データの扱い（3層分離、取り込み経路、EXIF の落とし穴） |
 | [docs/features.md](docs/features.md) | 機能一覧（MVP / 第2段階 / 第3段階）と受け入れ条件 |
+| [docs/tech-stack.md](docs/tech-stack.md) | リソース予算、言語比較、言語非依存で決まっている構成 |
 | [docs/decisions.md](docs/decisions.md) | 設計判断とその理由 |
 
 ## 想定するデータソース
