@@ -352,7 +352,8 @@ session cookie on the `/*` side. To be decided when Stage 7 starts. The current 
 
 ### Makefile
 
-Provide `build` / `test` / `lint` / `fmt` / `run` / `migrate` / `docker` targets.
+Provide `build` / `test` / `lint` / `fmt` / `run` / `migrate` targets.
+A `docker` target comes with the packaging work in Stage 6.
 
 ### CI
 
@@ -368,11 +369,23 @@ Add `.github/workflows/go.yml` with `build` / `test` (`-race`) / `lint` / `govul
 Also add the `gomod` ecosystem to `.github/dependabot.yml` (weekly / `Asia/Tokyo` /
 7-day cooldown).
 
-### Containers
+### Distribution
+
+A `CGO_ENABLED=0` binary has no runtime dependencies, so there is nothing for a container to
+isolate — a `distroless/static` image is the binary plus a CA bundle. The reason to ship one is
+the audience, not the technology: upstream Dawarich is distributed as docker-compose, the server
+has to run continuously somewhere (NAS, VPS, home server), and NAS platforms such as Synology,
+unRAID and TrueNAS are container-first. A systemd unit serves the same purpose on a plain host,
+so document both and treat neither as the foundation.
+
+This is packaging, not infrastructure. It belongs in Stage 6, not Stage 0.
 
 - Multi-stage `Dockerfile`: build with `CGO_ENABLED=0 go build -ldflags="-s -w"` and place the
   binary on `gcr.io/distroless/static`
-- `docker-compose.yml` with just the server container and a volume for SQLite
+- `docker-compose.yml` with just the server container and a volume for SQLite. Note the SQLite
+  file's ownership: the container runs as a non-root user, so a bind-mounted directory has to be
+  writable by that UID
+- An example systemd unit for hosts not running containers
 
 ### Directory layout
 
@@ -420,9 +433,8 @@ No application functionality yet.
       and run it)
 - [ ] `.github/workflows/go.yml` (build / test / lint / govulncheck)
 - [ ] Add `gomod` to `.github/dependabot.yml`
-- [ ] `Dockerfile`, `docker-compose.yml`
 
-**Done when**: CI is green, `docker build` succeeds, and the image is 30 MB or smaller.
+**Done when**: CI is green and `make build` produces a runnable binary.
 
 ### Stage 1: Connectivity — the app recognises the server
 
@@ -541,6 +553,7 @@ reinstalling the app.
 - [ ] `POST /api/v1/auth/register` (enabled by an env var)
 - [ ] `POST /api/v1/owntracks/points`, `POST /api/v1/traccar/points`
 - [ ] `GET /api/v1/countries/visited_cities`
+- [ ] `Dockerfile`, `docker-compose.yml`, and an example systemd unit (see "Distribution")
 - [ ] Backups (`VACUUM INTO`)
 - [ ] `GET /metrics`, structured access logs
 
