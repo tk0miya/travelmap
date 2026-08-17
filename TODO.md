@@ -161,7 +161,9 @@ Upstream quirks that must be checked before implementing.
 - Either an `api_key` query parameter **or** an `Authorization: Bearer {api_key}` header.
 - The spec lists only one of the two per endpoint (query for points / stats / tracks /
   settings; header for users/me and visits), but **the implementation should accept both on
-  every endpoint**. Which one the app uses is unknown.
+  every endpoint**. The community Android client sends `Authorization: Bearer` on everything
+  including `/api/v1/points`, which the spec documents as query-only — so the spec's per-endpoint
+  split does not reflect what clients actually do.
 
 ### Per-endpoint
 
@@ -203,12 +205,51 @@ Upstream quirks that must be checked before implementing.
   `DELETE /api/v1/points/bulk_destroy` takes `{"point_ids": [...]}` at the top level. Check the
   spec per endpoint.
 
+### Unimplemented endpoints must return 404
+
+**Never return an empty array or empty object with 200 for an endpoint we do not implement.**
+
+Dawarich has no version negotiation. Feature detection is done by calling the endpoint and
+treating **404 as "this server does not support the feature", at which point the client hides it
+entirely** (upstream PR #3067 introduces `/api/v1/demo_data` on exactly this basis). A 200 with
+an empty body therefore tells the app the feature *exists*, and it will surface UI that then
+misbehaves.
+
+This makes the exclusions in "Endpoints Deliberately Excluded" safe by construction: not
+implementing them is the supported way to say we do not have them.
+
+### `GET /api/v1/points` must answer HTTP HEAD
+
+Clients issue a `HEAD /api/v1/points` with the same query parameters first, read
+`X-Total-Pages` from the response, and only then fetch the pages. **If `X-Total-Pages` is absent
+or 0 the client concludes there is nothing to fetch and stops** — the map silently shows no
+points.
+
+chi registers methods explicitly, so a route declared with `r.Get` returns 405 to a HEAD
+request. Register HEAD alongside GET and make sure the pagination headers are computed for it.
+
+Verified in the community Android client
+(`lib/core/network/repositories/api_point_repository.dart`).
+
 ### About the iOS app
 
 `dawarich-app/dawarich-ios` is an **empty repository**; the app is closed source. The endpoints
 it actually calls, the required fields, and the call order therefore cannot be determined from
-the spec. The approach is to add request-logging middleware in Step 6 and fill in the gaps by
-observing traffic from a real device.
+the spec.
+
+Two sources close the gap, in this order:
+
+1. **`sunstep/dawarich-community`** — a community-built Flutter/Dart **Android** client, open
+   source. Reading its HTTP layer (`lib/core/network/`) shows which endpoints are called in what
+   order and which response fields are actually consumed. Cheaper and more precise than
+   observing traffic. Caveats: it is a different client from the official iOS app, and its
+   maintainer states updates have stalled and recommends the official app — so treat it as
+   evidence about *a* client, not *the* one. The HEAD requirement and the Bearer-everywhere
+   behaviour above both came from it.
+   Endpoints it uses: `/api/v1/health`, `/api/v1/users/me`, `/api/v1/points`,
+   `/api/v1/points/{id}`, `/api/v1/stats`, `/api/v1/countries/visited_cities`.
+2. **Request logging against a real device** (Step 6), for anything the above does not settle —
+   in particular whatever the official app does that this client does not.
 
 ## Endpoints Deliberately Excluded
 
@@ -520,10 +561,13 @@ Small, but its output is a planning input for everything after: the iOS app is c
 so this is how the remaining endpoint list gets confirmed.
 
 - [ ] Request-logging middleware behind `TRAVELMAP_DEBUG_LOG_REQUESTS=1`, logging unmatched
-      routes too
+      routes too. Everything not yet implemented keeps returning 404, which is both the correct
+      answer (see "Unimplemented endpoints must return 404") and what makes the log a complete
+      list of what the app wants
 - [ ] **Redact `api_key` and `Authorization` before logging.** The whole point is to capture
       real device traffic, which carries live credentials
-- [ ] Record the endpoints a real device actually hits in this file
+- [ ] Record the endpoints a real device actually hits in this file, and diff them against the
+      list the community Android client uses (see "About the iOS app")
 
 **Settles**: what may and may not appear in logs.
 
@@ -613,6 +657,9 @@ Steps 10 and 11 are independent of each other and can run in parallel. Step 12 n
 ### Step 10: `GET /api/v1/points`
 
 - [ ] Time filter, pagination, `X-Current-Page` / `X-Total-Pages` headers
+- [ ] **Answer `HEAD` on the same route with the same headers.** Clients probe with HEAD to get
+      the page count before fetching, and treat a missing or zero `X-Total-Pages` as "no data"
+      (see "`GET /api/v1/points` must answer HTTP HEAD")
 
 **Done when**: past points appear on the app's map.
 
@@ -731,7 +778,7 @@ still one binary plus one SQLite file.
   required, add verification of `id_token` against Apple's public keys and association with an
   existing user to Step 5 (whether to auto-create users on a self-hosted instance is a separate
   decision).
-- The app may check a minimum server version. Return a plausible recent version string in
-  `X-Dawarich-Version` (e.g. `1.10.0`). Needs confirmation against a real device.
-- For unimplemented endpoints, returning **an empty array / empty object with 200** may be less
-  likely to crash the app than a 404. Decide based on observed behaviour on a real device.
+- The app checks a minimum server version. Return a plausible recent version string in
+  `X-Dawarich-Version`. The community Android client reads `x-dawarich-version` and refuses to
+  run against a server below its floor; the official app is assumed to do something similar, so
+  confirm the accepted value against a real device.
