@@ -10,11 +10,15 @@
 
 **最終ゴール**: Dawarich iPhone アプリの接続先として本サーバを指定し、位置情報の記録と閲覧ができること。
 
+その後、**独自の Web UI を構築する予定**（Stage 7）。本家のブラウザ画面の移植ではなく、
+本サーバの API の上に自前で作る。API を先に固め、
+**UI 専用のデータ取得 API は増やさず既存の `/api/v1` を再利用する**方針とする
+（ログインやセッションなどブラウザ固有の経路は Stage 7 で追加する）。
+
 ### 非目標
 
 以下は本プロジェクトの対象外とする。
 
-- Web UI（本家のブラウザ向け画面）
 - Immich / Photoprism 連携、写真関連 API
 - 課金・サブスクリプション関連 API
 - 家族共有（Families）
@@ -36,16 +40,128 @@ Dawarich の OpenAPI 仕様を唯一の互換性の根拠とする。
 
 | 項目 | 決定 | 理由 |
 | --- | --- | --- |
-| データストア | SQLite（`modernc.org/sqlite`、CGO 不要） | 静的バイナリ 1 個で完結。DB プロセス不要でフットプリント最小 |
+| データストア | SQLite（`modernc.org/sqlite`、CGO 不要） | 静的バイナリ 1 個で完結。DB プロセス不要でフットプリント最小。実測で十分な性能（「データストアの検証」節） |
 | ストア抽象化 | リポジトリ層を interface で分離 | 将来 PostgreSQL 実装を追加できる余地を残す |
-| 空間検索 | 緯度経度の B-Tree インデックス + Haversine を Go 側で計算 | PostGIS 不要。個人利用（数百万点規模）なら十分 |
-| HTTP | `net/http` + `github.com/go-chi/chi/v5` | 依存がほぼゼロで標準 `http.Handler` 互換 |
+| インデックス | `points(user_id, timestamp)` の 1 本 | アプリのクエリはまず user と期間で絞る。緯度経度インデックスは実装対象に矩形範囲検索が無いため当面張らない（同節） |
+| 距離計算 | 集計は SQL 内の Haversine、単発の計算は `internal/geo`（Go） | 全期間の集計を Go 側に持ち出すと行の転送だけで時間を使う。SQL の数学関数が使えることは実測で確認済み。**式が 2 実装になるため、地球半径の定数を共有し、両者が一致することをテストで担保する** |
+| 統計 | `daily_stats` 事前集計テーブル + 取り込み時の差分更新 | オンデマンド計算では実用にならない（同節） |
+| HTTP | `net/http` + `github.com/go-chi/chi/v5` | Web UI 追加後を見据えた選定（「Web UI を見据えた選定理由」節） |
 | 互換範囲 | モバイルアプリ用サブセット | 上記「非目標」を除いた範囲 |
 | ユーザー管理 | CLI で発行。`auth/login` は実装、`auth/register` は環境変数で任意有効化、2FA 非対応 | 自己ホスト前提 |
 | 非同期処理 | goroutine + SQLite のジョブテーブル | Sidekiq/Redis 相当を持たずプロセス 1 個を維持 |
 | 逆ジオコーディング | 既定 OFF。任意で Nominatim/Photon の URL を設定 | 外部サービスへの依存を必須にしない |
 
 これらは着手時点の既定であり、実装中に妥当でないと判明した場合は本ファイルを更新した上で変更してよい。
+
+## データストアの検証（SQLite で足りるか）
+
+「位置情報を扱うのに SQLite で足りるか、PostGIS が要るか」を実測で確認した（2026-08-17）。
+環境: `modernc.org/sqlite` v1.56.0 / SQLite 3.53.3、**200 万点**（1 ユーザー・5 年分相当）、WAL。
+数値は着手時点のスナップショットであり、再現用スクリプトは残していない
+（ドライバや Go を大きく更新して判断を見直したくなったら、この節の条件で測り直す）。
+
+### 使える機能
+
+| 機能 | 可否 | 備考 |
+| --- | --- | --- |
+| R\*Tree | 使える | 2 次元 bbox 検索用の仮想テーブル |
+| geopoly | 使える | ポリゴン内外判定。国境データによる国名付与に使える |
+| `sin` / `cos` / `asin` / `radians` / `pow` | 使える | **SQL 内で Haversine を書ける**（東京〜大阪 402.8 km を検算） |
+| ウィンドウ関数 `lag()` | 使える | 連続する点の距離差分に必須 |
+| WAL / `busy_timeout` | 使える | 読み込み並行性 |
+
+pure Go ドライバでも R\*Tree と geopoly が同梱されており、CGO や SpatiaLite は不要。
+
+### 実測値（200 万点 / DB 209 MB = 104 バイト/点）
+
+いずれも `(user_id, timestamp)` と `(user_id, latitude, longitude)` の
+2 インデックスを張った状態での計測（後者は結論 3 のとおり本番では張らない）。
+
+| クエリ | 素朴な実装 | 対策後 |
+| --- | --- | --- |
+| `GET /points` 1 日分の 1 ページ目（`per_page=100`） | **0.3 ms** | — |
+| `GET /points` 1 ヶ月分（32,401 件） | **3.6 ms** | — |
+| bbox 検索（186,272 件ヒット） | **173 ms** | R\*Tree で 51 ms（下記 3 のとおり本番では張らない） |
+| `GET /points/tracked_months` | 1,448 ms | **0.64 ms** |
+| `GET /stats` 全期間の走行距離 | 11,183 ms | **2.29 ms** |
+| `GET /stats` 年別集計 | 2,745 ms | **2.29 ms**（同上に含む） |
+| 100 点バッチ挿入 + 統計更新 | — | **5.74 ms** |
+| `daily_stats` の全再構築（`recalculate`） | — | **15.6 s** |
+
+### ここから導かれる結論
+
+1. **アプリが最も多く叩くクエリ（期間指定の点取得）は 0.3〜4 ms で、SQLite で全く問題ない。**
+   位置情報の履歴は本質的に「時系列」ワークロードであり、まず `user_id` と期間で絞る。
+   絞った後は 1 日分なら約 1,100 件、1 ヶ月分でも約 3 万件しか残らないので、
+   幾何計算はどのみちインデックスの出番がない。
+2. **遅かったのは空間クエリではなく全期間の集計だった。** これは DB エンジンの問題ではなく設計の問題で、
+   PostgreSQL に替えても同じように遅い。本家 Dawarich が `stats` テーブルと
+   `POST /api/v1/recalculations` を持っているのは、まさにこの理由と考えられる。
+   → **`daily_stats` を持ち、取り込みと同じトランザクションで影響を受けた日を差分更新する。**
+   これで `/stats` は 2.3 ms になる。挿入と統計更新を合わせても 1 バッチ（100 点）6 ms 未満。
+
+   **更新方式は「影響を受けた日の行を丸ごと作り直す」**。値の加減算にはしないこと。
+   `countries` / `cities` は集合なので、点を 1 つ消したときにその国・都市が他の点にも
+   残っているかはその日を走査しないと判定できず、加減算方式では要素が減らずに
+   `/stats` が過大な値を返し続ける。
+   1 日分の点は約 1,100 件なので、作り直しでも 1 バッチ 6 ms 未満に収まっている。
+
+   **作り直しの入力は「その日の点 + 直前の点（前日以前でもよい）」**。
+   その日の先頭点の区間距離は前日以前の最終点との距離なので、
+   その日の点だけでは計算できない。ここを落とすと日をまたぐ移動が全て `km` から消える。
+
+   更新対象は「当日」だけでは閉じない。連続する 2 点の区間距離は
+   **後ろの点が属する日に計上する**と決めるため、ある点を挿入・更新・削除すると
+   その点の日に加えて、**時系列で次に来る点が属する日**の `km` も変わる。
+   実装は「**対象の点が属する日と、時系列で次に来る点が属する日**」を更新すること
+   （前の点の日は変わらない。`prev → P` の距離は P の日に計上されているため）。
+   点の座標や時刻を更新して所属日が変わる場合は、変更前後それぞれについて同じ 2 日を取る。
+   端末を止めていた期間があると次の点は数日先になりうるので「翌日」で固定してはいけない。
+   遅延到着・順不同のバッチも同様に扱う。
+
+   **時間差が `TRAVELMAP_TRACK_BREAK_MINUTES`（既定 30）を超える区間は距離に計上しない。**
+   端末を止めていた期間や飛行機移動の 2 点間直線距離をそのまま足すと、
+   `/stats` の総距離が実態とかけ離れる。Stage 4 のトラック分割にも同じ値を使い、
+   「トラック内の移動距離の合計」という一貫した意味にする。
+
+   これは**サーバ側の設定**であり、`settings/mobile` の `track_break`（端末がトラックを
+   切る間隔のアプリ設定）とは別物。混同して後者を集計に使うと、ユーザーがアプリで
+   設定を変えるたびに過去の集計値の意味が変わってしまう。
+   `TRAVELMAP_TIMEZONE` と同じく、変更したら `travelmap recalculate` が必要。
+   本家がどう計算しているかは仕様書に書かれていないため、
+   Stage 3 で実機の表示と突き合わせて、ずれるようなら見直す。
+
+   カラムは `user_id`, `day`, `points`, `reverse_geocoded_points`, `km`, `countries`, `cities`。
+   主キーは `(user_id, day)` の複合。
+   **その日の点が 0 件になったら行ごと削除する**（0 のまま残すと `tracked_months` が
+   点の無い月を返し続け、`recalculate` による再構築結果とも一致しなくなる）。
+
+   **`day` を切るタイムゾーンは `TRAVELMAP_TIMEZONE`（既定 `UTC`）で決める。**
+   `day` は主キーの構成要素なので、後から変えると全ユーザーの `daily_stats` 再構築
+   （上表のとおり 200 万点で約 16 秒）が必要になる。日本で使うなら `Asia/Tokyo` を設定しないと、
+   0〜9 時の移動が前日に計上され `/stats` の月次・年次と `tracked_months` がアプリの表示とずれる。
+
+   `/stats` の 5 つの合計値（`totalDistanceKm`, `totalPointsTracked`, `totalReverseGeocodedPoints`,
+   `totalCountriesVisited`, `totalCitiesVisited`）はすべてこの表だけで出せるようにする
+   （`countries` / `cities` はその日に訪れた国・都市名の JSON 配列。全期間の集計時に和集合を取る）。
+   逆ジオコーディングは既定 OFF なので、有効化するまで両方とも空配列となり、
+   `/stats` はこれらを 0 で返す。本家に合わせるにはユーザーが逆ジオコーダを設定する必要がある。
+3. **bbox 検索用のインデックスは当面入れない（R\*Tree も緯度経度の複合インデックスも）。**
+   R\*Tree は 173 ms → 51 ms になるが構築に 58 秒かかりストレージも増える。
+   そもそも**実装対象のエンドポイントに矩形範囲を取るものが無い**
+   （`GET /points` のパラメータは `start_at` / `end_at` / `page` / `per_page` / `order` のみ）。
+   使うクエリが無いインデックスは挿入コストとストレージだけを払うことになる。
+   矩形範囲検索が必要になったら、その時点でどちらを張るか決める。
+
+### PostgreSQL / PostGIS に乗り換えるべき条件
+
+現時点では該当しない。以下のいずれかが現実になったら、`internal/store` の interface に
+PostgreSQL 実装を足して切り替える（そのためにストアを抽象化しておく）。
+
+- 複数ユーザーが常時同時に書き込む（SQLite の書き込みは常に単一）
+- 外部の逆ジオコーダに頼らず、自前の境界データで kNN や複雑な空間結合を行う
+- H3 ヘックス集計 / fog of war を実装する（いずれも非目標）
+- DB が数十 GB 規模になる（上記実測から、1,000 万点でも約 1 GB）
 
 ## Dawarich API 互換性メモ
 
@@ -92,12 +208,18 @@ Digests, Insights, Families, Immich, Photos, Maps/hexagons など）を除き、
 - `GET /api/v1/plan`, `POST /api/v1/subscriptions/callback` — 課金・サブスク関連（非目標）。
 - `POST /api/v1/users/exist` — 本家 Cloud の Subscription Manager 用内部エンドポイント（非目標）。
 - `GET /api/v1/demo_data`, `POST /api/v1/demo_data`, `DELETE /api/v1/demo_data` — 本家 Cloud のデモ用（非目標）。
-- `POST /api/v1/points/reapply_anomaly_filter`, `POST /api/v1/recalculations`,
-  `GET /api/v1/settings/transportation_recalculation_status` — 再計算のトリガと進捗確認。
-  本プロジェクトは統計・トラックをオンデマンド計算するため不要（Stage 4 でバックグラウンドジョブを
-  入れた結果、進捗表示が必要になったら再検討する）。
-- `GET /api/v1/countries/borders` — 国境の GeoJSON（数 MB の静的データ配信）。地図描画はアプリ側の
-  責務と見なし対象外。`countries/visited_cities` のみ Stage 6 で扱う。
+- `POST /api/v1/points/reapply_anomaly_filter` と
+  `GET /api/v1/settings/transportation_recalculation_status` — 異常値フィルタと移動手段推定。
+  **どちらの機能自体も実装しない**ため、再計算のトリガと進捗確認も不要
+  （トラックの `dominant_mode` は `null` を返す）。
+- `POST /api/v1/recalculations` — `daily_stats` の再構築は必要だが、
+  **CLI（`travelmap recalculate`）で行い API としては公開しない**。
+  自己ホストで再構築を要するのはインポート後・不整合時・`TRAVELMAP_TIMEZONE` や
+  `TRAVELMAP_TRACK_BREAK_MINUTES` の変更時に限られ、いずれも運用者が手元で叩ける。
+  アプリから促す必要が実際に出てきたら再検討する。
+- `GET /api/v1/countries/borders` — 国境ポリゴンの GeoJSON（数 MB の静的データ配信）。
+  国境の描画は地図タイル側に任せる想定のため、Stage 7 の Web UI でも配信しない。
+  Web UI の描画方針が固まった時点で再検討する。`countries/visited_cities` のみ Stage 6 で扱う。
 - `GET /api/v1/locations`, `GET /api/v1/locations/suggestions`, `GET /api/v1/residency` — 場所検索・
   滞在分析。Places 系（非目標）に連なる機能のため対象外。
 - `POST /api/v1/auth/otp_challenge`, `GET/POST/DELETE /api/v1/users/me/two_factor`,
@@ -111,27 +233,85 @@ Digests, Insights, Families, Immich, Photos, Maps/hexagons など）を除き、
 
 ### 言語・ツールチェイン
 
-**Stage 0 の着手時に、サポート対象の最新安定版を確認してから決めること。**
-Go は最新 2 リリースのみをサポートするため、CI に入れる `govulncheck` が
-サポート外系列の toolchain 脆弱性を拾った場合、バージョンを上げる以外の対処が無くなる。
+**下限は Go 1.25**（`modernc.org/sqlite` v1.56.0 の `go.mod` が `go 1.25.0` を要求する）。
+ただし**実際に使うのは着手時点の最新安定版**とする。2026-08-17 現在は **go1.26.6**
+（1.27 は rc3）で、Go はサポートが最新 2 リリースのみのため、1.27 が GA になった時点で
+1.25 はサポート外に落ちる。下限をそのまま入れると、CI の `govulncheck` が toolchain の
+脆弱性を報告した時にバージョンを上げる以外の手が無くなる。
 
-この環境にインストールされているのは Go 1.24.7 だが、2026-08 時点では 1.24 系はすでに
-サポート範囲を外れている可能性が高い。`go version` と <https://go.dev/dl/> を確認し、
-`go.mod` の `go` ディレクティブと CI の `actions/setup-go` を最新安定版に揃える。
+着手時に <https://go.dev/dl/> で最新安定版を確認し、`go.mod` の `go` ディレクティブと
+CI の `actions/setup-go` をそれに揃える。
 
 ### ライブラリ
 
 依存は最小限に抑える。
 
-| 用途 | パッケージ |
-| --- | --- |
-| ルーティング | `github.com/go-chi/chi/v5` |
-| SQLite ドライバ | `modernc.org/sqlite`（pure Go） |
-| パスワードハッシュ | `golang.org/x/crypto/bcrypt` |
-| マイグレーション | `github.com/pressly/goose/v3`（または `embed` + 自前 migrator） |
-| テストの差分表示 | `github.com/google/go-cmp` |
-| 設定 | 追加依存なし（環境変数を読む薄い loader を自前実装） |
-| ロギング | 標準 `log/slog` |
+| 用途 | パッケージ | 備考 |
+| --- | --- | --- |
+| ルーティング | `github.com/go-chi/chi/v5` | 選定理由は「Web UI を見据えた選定理由」節 |
+| SQLite ドライバ | `modernc.org/sqlite` | pure Go。CGO 不要。Go 1.25 以上を要求 |
+| パスワードハッシュ | `golang.org/x/crypto/bcrypt` | |
+| マイグレーション | `github.com/pressly/goose/v3`（または `embed` + 自前 migrator） | |
+| テストの差分表示 | `github.com/google/go-cmp` | |
+| 設定 | 追加依存なし（環境変数を読む薄い loader を自前実装） | |
+| ロギング | 標準 `log/slog` | |
+
+### Web UI を見据えた選定理由
+
+Web UI を後から追加する予定があるため、その時点で作り直しにならない選択をしておく。
+**いま決める必要があるのは router だけ**で、UI 用のライブラリは Stage 7 まで入れない。
+
+**なぜ chi か（標準 `net/http.ServeMux` ではなく）**
+
+Go 1.22 以降の `ServeMux` はメソッドとワイルドカードを書けるので、API サーバ単体なら標準で足りる。
+ただし Web UI が加わると **認証方式が 2 系統になる**。
+
+- `/api/v1/*` — `api_key` クエリ / Bearer トークン（モバイルアプリ）
+- `/*` — Cookie セッション + CSRF（ブラウザ）
+
+`ServeMux` には**プレフィックス単位で別のミドルウェアチェーンを掛ける仕組みが無い**ため、
+これを自前で書くことになる。chi の `Route` / `Group` はまさにこの用途で、
+しかも全体が `http.Handler` 準拠なので後から何を足しても壊れない。
+chi v5.3.1 の `go.mod` には `require` が 1 つも無く、**依存は増えない**（確認済み）。
+
+```go
+r := chi.NewRouter()
+r.Route("/api/v1", func(r chi.Router) {
+    r.Use(auth.APIKey)      // Bearer / api_key
+    ...
+})
+r.Group(func(r chi.Router) {
+    r.Use(session.Load, csrf.Protect)  // ブラウザ
+    r.Handle("/*", webui.Handler())
+})
+```
+
+**Stage 7 で追加を検討するもの（いまは入れない）**
+
+| 用途 | 候補 | 補足 |
+| --- | --- | --- |
+| セッション | `github.com/alexedwards/scs/v2` | SQLite ストアあり。`gorilla/sessions` より保守が活発 |
+| CSRF | 標準 `net/http.CrossOriginProtection` | **Go 1.25 で標準ライブラリに入った**（`Sec-Fetch-Site` ベース）。外部依存が要らないか着手時に確認する |
+| テンプレート | `github.com/a-h/templ` または標準 `html/template` | templ は型安全だがコード生成ステップが増える |
+| 画面更新 | htmx | Node のビルドチェーンを持ち込まずに済む |
+| 地図描画 | MapLibre GL JS または Leaflet | ここだけは JS が避けられない。CDN ではなく vendor して `embed.FS` に入れ、単一バイナリを保つ |
+
+SPA（React 等）にする場合も、ビルド成果物を `embed.FS` に入れれば単一バイナリは維持できる。
+その場合は Node のビルドチェーンが必要になる点だけがトレードオフで、
+**router の選択はどちらでも変わらない**。
+
+**未決: ブラウザから `/api/v1` を叩くときの認証**
+
+「UI 専用のデータ取得 API は増やさない」と決めた以上、ブラウザも `/api/v1/points` 等を叩くが、
+上の構成では `/api/v1` は Bearer / `api_key` のみでセッション Cookie は `/*` 側にある。
+Stage 7 着手時に決める。現時点の第一候補は **(a)**。
+
+- **(a) `/api/v1` のミドルウェアがセッション Cookie も受理する** — UI から素直に fetch できる。
+  Cookie を受ける以上 `/api/v1` にも CSRF 対策が要るが、Go 1.25 の `CrossOriginProtection` は
+  サーバ全体に一括で掛けられるので追加コストは小さい。
+- (b) UI 側はサーバ内でハンドラ / ストアを直接呼ぶ — 認証の分離は保てるが、
+  「API を再利用する」の意味が HTTP API の再利用から実装の再利用に変わる。
+- (c) ログイン時に api_key を UI に渡して Bearer で叩く — XSS 時に API キーが漏れるため推奨しない。
 
 ### 開発ツール
 
@@ -164,15 +344,16 @@ Go は最新 2 リリースのみをサポートするため、CI に入れる `
 ### ディレクトリ構成
 
 ```
-cmd/travelmap/            エントリポイント (serve / user create / migrate サブコマンド)
+cmd/travelmap/            エントリポイント (serve / user create / migrate / recalculate)
 internal/config/          環境変数ローダ
 internal/httpapi/         ルーティング・ミドルウェア・ハンドラ
 internal/httpapi/dto/     Dawarich 互換の JSON 構造体（互換性をここに集約する）
 internal/auth/            API キー発行・検証、bcrypt
+internal/ingest/          点の投入・更新・削除と daily_stats 差分更新（全経路がここを通る）
 internal/store/           リポジトリ interface
 internal/store/sqlite/    SQLite 実装 + マイグレーション (embed)
 internal/model/           ドメインモデル (User, Point, Track, Visit, Stat)
-internal/geo/             Haversine、トラック分割、統計集計
+internal/geo/             Haversine（単発計算）、トラック分割の判定ロジック
 api/openapi.yaml          実装範囲だけを抜き出した OpenAPI（参照用）
 testdata/golden/          本家レスポンス形状の golden JSON
 ```
@@ -191,6 +372,9 @@ testdata/golden/          本家レスポンス形状の golden JSON
 
 アプリケーション機能はまだ持たせない。
 
+- [ ] （前提作業・差分には現れない）開発環境の Go を最新安定版にする。
+      この環境は 1.24.7 で下限の 1.25 にも届かない。`GOTOOLCHAIN=auto` なら自動取得されるが
+      明示的に上げておく（「言語・ツールチェイン」節）
 - [ ] `go.mod` 作成、ディレクトリ雛形を用意
 - [ ] `cmd/travelmap` で `--version` が動く
 - [ ] `Makefile`, `.gitignore`（Go 用 + `*.db`, `bin/`）, `.golangci.yml`
@@ -216,22 +400,61 @@ testdata/golden/          本家レスポンス形状の golden JSON
 
 ### Stage 2: 記録 — 位置情報が保存される
 
-- [ ] `points` スキーマを確定（本家 point の全フィールドを網羅）
+- [ ] `points` スキーマを確定（本家 point の全フィールドを網羅）。
+      インデックスは `(user_id, timestamp)` の 1 本
+      （**無いと `GET /points` の期間フィルタが全件走査になる**。
+      緯度経度側は「データストアの検証」節のとおり張らない）
 - [ ] GeoJSON Feature パーサ（`internal/httpapi/dto`）
 - [ ] `POST /api/v1/points`
 - [ ] `POST /api/v1/overland/batches`
 - [ ] 重複排除（同一 user × timestamp）
 - [ ] バッチ挿入をトランザクション化
+- [ ] `daily_stats` テーブルと、取り込みと同じトランザクション内での更新
+      （影響を受けた日**だけ**を対象に、その日の行を points から作り直す。値の加減算にはしない）。
+      **Stage 3 の `/stats` を実用速度にするために、記録側で作っておく必要がある**
+      （カラム定義・更新対象の日・区間距離の帰属は「データストアの検証」節）
+- [ ] `TRAVELMAP_TIMEZONE` で `day` を切り、`TRAVELMAP_TRACK_BREAK_MINUTES` で
+      距離に計上する区間を決める（既定値と影響は「データストアの検証」節）。
+      **どちらも変更したら `travelmap recalculate` が必要**な旨を README に書く
+- [ ] `travelmap recalculate` サブコマンド（`daily_stats` を points から再構築する。
+      インポートや不整合時の復旧用）
+- [ ] **点を変更する経路をすべて 1 つの ingest / mutation 層に通す。**
+      `daily_stats` の更新箇所が散らばると必ず取りこぼす（Stage 3 の更新・削除、
+      Stage 6 のインポート・owntracks/traccar・逆ジオコーディングワーカーも同じ層を通す）
+- [ ] `internal/geo` の Haversine と SQL 内の Haversine が同一入力で一致することを検証するテスト
+      （地球半径の定数は Go 側から SQL に渡し、2 箇所に literal を置かない）
+- [ ] **`TRAVELMAP_TIMEZONE=Asia/Tokyo` のテスト。** 列挙した他のケースは既定の `UTC` でも通るため、
+      TZ 変換を忘れても検出できない。UTC 基準では前日に落ちる時刻（例 00:30 JST）の点が
+      当日の行に計上されることを確かめる
+- [ ] `TRAVELMAP_TRACK_BREAK_MINUTES` の境界テスト。ちょうど 30 分の区間は**計上する**側
+      （`>` と `>=` の取り違えを拾う）
+- [ ] **日をまたぐ区間距離の期待値を直接固定するテスト。**
+      一致比較だけでは不十分で、差分更新と `recalculate` の両方が同じ取りこぼしをすると
+      両者は一致したまま通ってしまう（前日最終点と当日先頭点の距離が `km` に入ることを
+      期待値で確かめる）
+- [ ] 上記に加えて、差分更新と `recalculate` の一致を検証するテスト。同じ points 集合に対して
+      「取り込みごとの更新を積み重ねた `daily_stats`」と「`recalculate` で全再構築した
+      `daily_stats`」が一致すること。
+      日付境界（前日最終点と当日先頭点の距離）、順不同・遅延到着のバッチ、
+      **前後の点が数日空いているケース**（端末を止めていた期間の前後。
+      `TRAVELMAP_TRACK_BREAK_MINUTES` 超の区間が距離に計上されないことも確認する）、
+      **その日の点が全部消えて行が削除されるケース**、
+      **その日の一部の点だけを削除・更新して `countries` / `cities` が減るケース**を含めること
 
 **完了条件**: アプリでトラッキングを開始すると実機の位置が DB に入り、点の件数が増えていく。
+あわせて、点を投入すると `daily_stats` の該当日が更新され、
+その後 `travelmap recalculate` を実行しても同じ値になること（差分更新と再構築の一致）。
 
 ### Stage 3: 閲覧 — アプリで自分の軌跡が見える
 
 - [ ] `GET /api/v1/points`（期間フィルタ・ページング・`X-Current-Page` / `X-Total-Pages`）
 - [ ] `PATCH /api/v1/points/{id}`（body は `{"point": {...}}` ラップ）, `DELETE /api/v1/points/{id}`
 - [ ] `DELETE /api/v1/points/bulk_destroy`（body は `{"point_ids": [...]}`）
-- [ ] `GET /api/v1/points/tracked_months`
-- [ ] `GET /api/v1/stats`（Haversine で距離集計、camelCase を厳守）
+- [ ] 上記の更新・削除で、**影響を受けた日の `daily_stats` を同一トランザクションで再計算する**。
+      点を消したのに `/stats` が古い距離を返し続ける状態を作らないこと
+- [ ] `GET /api/v1/points/tracked_months`（`daily_stats` から引く）
+- [ ] `GET /api/v1/stats`（`daily_stats` を集計。camelCase を厳守）
+      **points を直接集計しないこと**（理由と実測値は「データストアの検証」節）
 
 **完了条件**: アプリの地図に過去の点が表示され、統計画面に距離と点数が出る。
 
@@ -240,7 +463,8 @@ testdata/golden/          本家レスポンス形状の golden JSON
 
 ### Stage 4: トラック / 訪問 / タイムライン
 
-- [ ] 点列をトラックに分割するロジック（`track_break` 分の無活動で分割）をバックグラウンドジョブ化
+- [ ] 点列をトラックに分割するロジック（`TRAVELMAP_TRACK_BREAK_MINUTES` 分の無活動で分割）を
+      バックグラウンドジョブ化。**`settings/mobile` の `track_break` ではない**（「データストアの検証」節）
 - [ ] `GET /api/v1/tracks`（GeoJSON FeatureCollection）
 - [ ] `GET /api/v1/tracks/{id}`, `GET /api/v1/tracks/{track_id}/points`
 - [ ] 滞在検出 → `visits` テーブル
@@ -263,12 +487,32 @@ testdata/golden/          本家レスポンス形状の golden JSON
 
 - [ ] `POST /api/v1/imports`, `GET /api/v1/imports`, `GET /api/v1/imports/{id}`
       （GPX / GeoJSON / Google Takeout / 本家 Dawarich エクスポート）
-- [ ] 逆ジオコーディング（Nominatim / Photon、レート制限付きワーカー）
+      **取り込みは Stage 2 と同じ ingest 層を通し、`daily_stats` を更新すること**
+- [ ] 逆ジオコーディング（Nominatim / Photon、レート制限付きワーカー）。
+      点の投入後に非同期で走るため、**完了時に対象日の `daily_stats` の
+      `countries` / `cities` / `reverse_geocoded_points` を更新する**
+      （更新しないと `/stats` の該当する値が 0 のまま。「データストアの検証」節）
 - [ ] `POST /api/v1/auth/register`（環境変数で有効化）
 - [ ] `POST /api/v1/owntracks/points`, `POST /api/v1/traccar/points`
 - [ ] `GET /api/v1/countries/visited_cities`
 - [ ] バックアップ（`VACUUM INTO`）
 - [ ] `GET /metrics`、構造化アクセスログ
+
+### Stage 7: Web UI
+
+API が固まってから着手する。ライブラリ候補と選定理由は「Web UI を見据えた選定理由」節を参照。
+
+- [ ] Cookie セッション + CSRF。`/api/v1` をブラウザからどう認証するかは
+      「未決: ブラウザから `/api/v1` を叩くときの認証」の結論に従う（第一候補は (a)）
+- [ ] `travelmap user create` 済みのアカウントでログインできるログイン画面
+- [ ] 地図画面（期間指定で points / tracks を描画）。既存の `GET /api/v1/points`・`/tracks` を再利用し、
+      UI 専用の API は増やさない
+- [ ] 統計画面（`daily_stats` を利用）
+- [ ] 設定画面。インポート画面は Stage 6 の `/api/v1/imports` を実施した場合のみ
+- [ ] 静的アセットを `embed.FS` に入れ、単一バイナリを維持する
+
+**完了条件**: ブラウザからログインして地図上に自分の軌跡が表示され、
+バイナリ 1 個 + SQLite ファイル 1 個のままデプロイできる。
 
 ## リスク・未確定事項
 
