@@ -21,7 +21,8 @@ GPS 軌跡・チェックイン・写真・歩数などの個人データを自�
 
 ## 想定するデータソース
 
-**MVP** — GPS（dawarich 形式 push）、Swarm チェックイン、写真（JPG/HEIC の EXIF）、KML、歩数（Health Connect）
+**MVP** — GPS（**dawarich 互換の受信エンドポイントを自前実装**。Dawarich サーバは起動しない）、
+Swarm チェックイン（webhook）、写真（ローカル / NAS のディレクトリをスキャン）、KML、歩数（Health Connect）
 
 **以降** — 予約メール、逆ジオコーディング、過去天気、交通系IC 履歴、フライト情報、支出データ
 
