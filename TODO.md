@@ -11,10 +11,10 @@ compatible server that runs as **a single statically linked binary plus one SQLi
 **Final goal**: point the Dawarich iPhone app at this server and be able to record and
 browse location history.
 
-After that, we plan to **build our own web UI** (Stage 7). It will not be a port of the
+After that, we plan to **build our own web UI** (Milestone H). It will not be a port of the
 upstream browser screens; it will be built on top of this server's API. The API comes first,
 and the policy is to **reuse the existing `/api/v1` rather than adding UI-only data
-endpoints** (browser-specific routes such as login and sessions are added in Stage 7).
+endpoints** (browser-specific routes such as login and sessions are added in Milestone H).
 
 ### Non-goals
 
@@ -92,7 +92,7 @@ The distance between two consecutive points is **attributed to the day of the la
 
 Segments whose time gap exceeds `TRAVELMAP_TRACK_BREAK_MINUTES` are **not counted at all**,
 so `km` means "distance travelled within tracks". Without this, the straight-line distance
-across a tracking gap or a flight lands in the total. Stage 4 track splitting uses the same
+across a tracking gap or a flight lands in the total. Track splitting (Step 13) uses the same
 value.
 
 #### Which days to update
@@ -134,7 +134,7 @@ is the app's own setting for how the device splits tracks. Using the app setting
 would change the meaning of past aggregates whenever the user changes it in the app.
 
 The spec does not say how upstream computes distance, so compare against the app's display in
-Stage 3 and revisit if the numbers diverge.
+Step 11 and revisit if the numbers diverge.
 
 ### Distance calculation
 
@@ -207,7 +207,7 @@ Upstream quirks that must be checked before implementing.
 
 `dawarich-app/dawarich-ios` is an **empty repository**; the app is closed source. The endpoints
 it actually calls, the required fields, and the call order therefore cannot be determined from
-the spec. The approach is to add request-logging middleware in Stage 1 and fill in the gaps by
+the spec. The approach is to add request-logging middleware in Step 6 and fill in the gaps by
 observing traffic from a real device.
 
 ## Endpoints Deliberately Excluded
@@ -242,8 +242,8 @@ is not listed below should appear in the development steps.
   if triggering it from the app turns out to be necessary.
 - `GET /api/v1/countries/borders` — GeoJSON country border polygons (serving several MB of
   static data). Border rendering is expected to be handled by the map tiles, so it will not be
-  served even by the Stage 7 web UI. Revisit once the web UI's rendering approach is settled.
-  Only `countries/visited_cities` is covered, in Stage 6.
+  served even by the Milestone H web UI. Revisit once the web UI's rendering approach is settled.
+  Only `countries/visited_cities` is covered, in Milestone G.
 - `GET /api/v1/locations`, `GET /api/v1/locations/suggestions`, `GET /api/v1/residency` — Place
   search and stay analysis. Out of scope as part of the Places family (non-goal).
 - `POST /api/v1/auth/otp_challenge`, `GET/POST/DELETE /api/v1/users/me/two_factor`,
@@ -252,7 +252,7 @@ is not listed below should appear in the development steps.
   assumption (`POST /api/v1/auth/login` never returns 202; it always returns 200 with an
   `api_key`).
 - `POST /api/v1/auth/apple`, `POST /api/v1/auth/google` — Social login. **A risk that could
-  block Stage 1 from completing**; see "Risks and Open Questions".
+  block Milestone B from completing**; see "Risks and Open Questions".
 
 ## Development Environment
 
@@ -286,7 +286,7 @@ Keep dependencies minimal.
 
 Since a web UI is planned, make choices now that will not need to be redone then.
 **The only thing that must be decided now is the router**; UI libraries are not added until
-Stage 7.
+Milestone H.
 
 **Why chi rather than the standard `net/http.ServeMux`**
 
@@ -313,7 +313,7 @@ r.Group(func(r chi.Router) {
 })
 ```
 
-**Candidates for Stage 7 (not added now)**
+**Candidates for Milestone H (not added now)**
 
 | Purpose | Candidate | Notes |
 | --- | --- | --- |
@@ -331,7 +331,7 @@ the same either way**.
 
 Having decided not to add UI-only data endpoints, the browser will also call `/api/v1/points`
 and friends — but in the layout above `/api/v1` accepts only Bearer / `api_key`, with the
-session cookie on the `/*` side. To be decided when Stage 7 starts. The current front-runner is
+session cookie on the `/*` side. To be decided when Milestone H starts. The current front-runner is
 **(a)**.
 
 - **(a) The `/api/v1` middleware also accepts the session cookie** — lets the UI simply fetch.
@@ -353,7 +353,7 @@ session cookie on the `/*` side. To be decided when Stage 7 starts. The current 
 ### Makefile
 
 Provide `build` / `test` / `lint` / `fmt` / `run` / `migrate` targets.
-A `docker` target comes with the packaging work in Stage 6.
+A `docker` target comes with the packaging work in Milestone G.
 
 ### CI
 
@@ -378,7 +378,7 @@ has to run continuously somewhere (NAS, VPS, home server), and NAS platforms suc
 unRAID and TrueNAS are container-first. A systemd unit serves the same purpose on a plain host,
 so document both and treat neither as the foundation.
 
-This is packaging, not infrastructure. It belongs in Stage 6, not Stage 0.
+This is packaging, not infrastructure. It belongs in Milestone G, not the foundation.
 
 - Multi-stage `Dockerfile`: build with `CGO_ENABLED=0 go build -ldflags="-s -w"` and place the
   binary on `gcr.io/distroless/static`
@@ -413,122 +413,260 @@ testdata/golden/          golden JSON for upstream response shapes
 
 ## Development Steps
 
-One stage is intended to be one PR. Each stage has a completion condition that can be
-verified by running something.
+**One step = one PR.** Steps are deliberately uneven in size.
 
-### Stage 0: Project foundation
+Early steps are small because each one settles a convention that everything after it inherits:
+the first handler fixes the error response shape, the first store fixes how migrations and
+transactions work. Bundling those means arguing five conventions in one diff, and the review
+stops being about the code. So the early steps carry little code and are listed with **what
+they settle** alongside what they build — that is the part worth the reviewer's attention.
 
-No application functionality yet.
+Later steps are mostly applying patterns that already exist, so they get bigger, and several
+can run in parallel. Parallelism is noted where it applies.
 
-- [ ] (Prerequisite; will not appear in the diff) Update the development environment's Go to
-      the latest stable release. This environment has 1.24.7, below even the 1.25 floor.
-      `GOTOOLCHAIN=auto` would fetch it automatically, but upgrade explicitly
-      (see "Language and toolchain")
-- [ ] Create `go.mod` and the directory skeleton
-- [ ] `cmd/travelmap` responds to `--version`
+Milestones group the steps and state a user-visible outcome. Individual steps have a completion
+condition that can be verified by running something.
+
+---
+
+## Milestone A — Foundation
+
+No application behaviour yet. Three small PRs, each settling conventions.
+
+### Step 1: Toolchain and CI
+
+Prerequisite, not part of the diff: update the development environment's Go to the latest
+stable release. This environment has 1.24.7, below even the 1.25 floor (see
+"Language and toolchain").
+
+- [ ] `go.mod` and the directory skeleton from "Directory layout" (empty packages with a
+      doc comment each)
 - [ ] `Makefile`, `.gitignore` (Go plus `*.db`, `bin/`), `.golangci.yml`
-- [ ] `CLAUDE.md` (project conventions: **English as the project language**, layering, testing
-      approach, where documents live)
-- [ ] Expand `README.md` (currently one line; describe the project's purpose and how to build
-      and run it)
 - [ ] `.github/workflows/go.yml` (build / test / lint / govulncheck)
 - [ ] Add `gomod` to `.github/dependabot.yml`
 
-**Done when**: CI is green and `make build` produces a runnable binary.
+**Settles**: directory layout, the enabled linter set, CI conventions.
 
-### Stage 1: Connectivity — the app recognises the server
+**Done when**: CI is green.
 
-- [ ] SQLite store and migration foundation (`users`, `points` tables)
-- [ ] `travelmap user create --email --password` issues a user and an API key
-- [ ] Authentication middleware (accepting both the `api_key` query parameter and Bearer)
-- [ ] `GET /api/v1/health` (including the `X-Dawarich-Response` / `X-Dawarich-Version` headers)
+### Step 2: Project conventions
+
+No code. Separated so that the convention discussion does not ride along with a code diff.
+
+- [ ] `CLAUDE.md`: **English as the project language**, layering rules (what may import what),
+      testing approach, where documents live, commit conventions
+- [ ] Expand `README.md` (currently one line): what the project is, how to build and run it
+
+**Settles**: everything a reviewer would otherwise re-litigate in each later PR.
+
+**Done when**: `CLAUDE.md` answers "which package does this code belong in?" for every directory
+in the layout.
+
+### Step 3: Server skeleton and `GET /api/v1/health`
+
+The smallest possible full-stack slice: no database, no authentication. Chosen first precisely
+because it carries almost no logic, so the review is entirely about the shapes that every later
+handler will copy.
+
+- [ ] `internal/config` env-var loader, `log/slog` setup, chi router, graceful shutdown
+- [ ] `cmd/travelmap serve` and `--version`
+- [ ] JSON response and error helpers
+- [ ] `GET /api/v1/health` with the `X-Dawarich-Response` and `X-Dawarich-Version` headers
+      (the authenticated variant of the header comes in Step 5)
+- [ ] `httptest` + golden-file test helper
+
+**Settles**: handler signature, JSON and error response shape, config loading, the
+golden-file testing pattern.
+
+**Done when**: `curl` returns both headers and `{"status":"ok"}`, pinned by a golden test.
+
+---
+
+## Milestone B — The app connects
+
+### Step 4: Store foundation and users
+
+No HTTP. Splitting the store from the handlers that use it keeps the migration and repository
+discussion separate from the API discussion.
+
+- [ ] SQLite open with WAL and pragmas, embedded migrations
+- [ ] `users` table, repository interface and its SQLite implementation
+- [ ] API key generation and bcrypt password hashing (`internal/auth`)
+- [ ] `travelmap user create --email --password`
+- [ ] `travelmap migrate`
+- [ ] Temp-database test helper
+
+**Settles**: migration mechanism, repository interface style, hand-written SQL versus generated,
+transaction handling, how store tests get a database.
+
+**Done when**: `travelmap user create` issues a user and an API key, and running migrations
+twice is a no-op.
+
+### Step 5: Authentication
+
+- [ ] Auth middleware accepting both the `api_key` query parameter and `Authorization: Bearer`
 - [ ] `POST /api/v1/auth/login`
 - [ ] `GET /api/v1/users/me`
-- [ ] Request-logging middleware (enabled by `TRAVELMAP_DEBUG_LOG_REQUESTS=1`).
-      **Identify the unimplemented endpoints hit by a real device and record them in this file**
+- [ ] `GET /api/v1/health` becomes auth-aware (`Hey, I'm alive and authenticated!`)
 
-**Done when**: entering the server URL and API key in the iPhone app reports a successful
-connection.
+**Settles**: how handlers reach the authenticated user, the 401 body shape.
 
-### Stage 2: Recording — locations get stored
+**Done when**: **the iPhone app reports a successful connection** after entering the server URL
+and API key.
+
+### Step 6: Request logging for endpoint discovery
+
+Small, but its output is a planning input for everything after: the iOS app is closed source,
+so this is how the remaining endpoint list gets confirmed.
+
+- [ ] Request-logging middleware behind `TRAVELMAP_DEBUG_LOG_REQUESTS=1`, logging unmatched
+      routes too
+- [ ] **Redact `api_key` and `Authorization` before logging.** The whole point is to capture
+      real device traffic, which carries live credentials
+- [ ] Record the endpoints a real device actually hits in this file
+
+**Settles**: what may and may not appear in logs.
+
+**Done when**: connecting the app produces a log of every route it calls, with no credentials in
+it.
+
+---
+
+## Milestone C — Locations are recorded
+
+### Step 7: Points ingest
+
+Deliberately excludes `daily_stats`: `/stats` is not needed until Milestone E, and mixing
+aggregation into this PR is what made the original plan's second stage unreviewable.
 
 - [ ] `points` schema and its `(user_id, timestamp)` index, per "Data Model"
 - [ ] GeoJSON Feature parser (`internal/httpapi/dto`)
 - [ ] `POST /api/v1/points`
-- [ ] `POST /api/v1/overland/batches`
+- [ ] `POST /api/v1/overland/batches` (note the different success status code)
 - [ ] Deduplication (same user × timestamp)
 - [ ] Batch inserts wrapped in a transaction
-- [ ] `daily_stats` table and its update path, per "Data Model".
-      **It has to be built on the write side so that Stage 3's `/stats` is fast enough**
+
+**Settles**: how the wide Dawarich JSON shapes are modelled and pinned with golden files.
+
+**Done when**: starting tracking in the app puts real device locations into the database and the
+point count grows.
+
+---
+
+## Milestone D — Aggregation
+
+Two PRs. The dense-logic part of the project; splitting it is what makes the second PR's
+consistency test meaningful, because the first PR provides the reference implementation to
+compare against.
+
+### Step 8: `daily_stats` and full rebuild
+
+No HTTP. Write the *full* rebuild first, as the definition of correct.
+
+- [ ] `daily_stats` table, per "Data Model"
+- [ ] Rebuild-a-day function (that day's points plus the immediately preceding point)
 - [ ] `TRAVELMAP_TIMEZONE` and `TRAVELMAP_TRACK_BREAK_MINUTES` in `internal/config`.
       Document in the README that **changing either requires `travelmap recalculate`**
-- [ ] `travelmap recalculate` subcommand (rebuilds `daily_stats` from points; for recovery after
-      imports or inconsistency, and after either variable above changes)
-- [ ] **Route every path that changes points through a single ingest/mutation layer.**
-      Scattered `daily_stats` updates are guaranteed to miss cases (Stage 3 updates and deletes,
-      and Stage 6 imports, owntracks/traccar, and the reverse-geocoding worker all go through
-      the same layer)
+- [ ] `travelmap recalculate` (rebuilds `daily_stats` from points; for recovery after imports or
+      inconsistency, and after either variable above changes)
 - [ ] A test that the Haversine in `internal/geo` and the Haversine in SQL agree on the same
       input (pass the Earth-radius constant from Go into SQL; do not put the literal in two
       places)
-- [ ] **A test with `TRAVELMAP_TIMEZONE=Asia/Tokyo`.** All the other listed cases pass under the
-      default `UTC`, so forgetting the timezone conversion would go undetected. Verify that a
-      point at a time which falls on the previous day in UTC (e.g. 00:30 JST) is counted on the
-      current day's row
+- [ ] **A test with `TRAVELMAP_TIMEZONE=Asia/Tokyo`.** Every other case passes under the default
+      `UTC`, so forgetting the timezone conversion would go undetected. Verify that a point at a
+      time which falls on the previous day in UTC (e.g. 00:30 JST) is counted on the current
+      day's row
 - [ ] A boundary test for `TRAVELMAP_TRACK_BREAK_MINUTES`: a segment of exactly 30 minutes
       **is counted** (catches a `>` versus `>=` mix-up)
-- [ ] **A test pinning the expected value of a cross-midnight segment distance.** Comparing for
-      agreement is not enough: if the incremental update and `recalculate` both drop it, they
-      agree and the test passes anyway (verify that the distance between the previous day's last
-      point and the current day's first point appears in `km`)
-- [ ] In addition to the above, a test that the incremental update and `recalculate` agree. For
-      the same set of points, the `daily_stats` built up by per-ingest updates must equal the
-      one produced by a full `recalculate` rebuild. Cover: the day boundary (distance between
-      the previous day's last point and the current day's first point); out-of-order and
-      late-arriving batches; **points separated by several days** (either side of a period with
-      tracking stopped — also confirming that segments over
-      `TRAVELMAP_TRACK_BREAK_MINUTES` are not counted); **a day whose points are all deleted so
-      the row is removed**; and **deleting or updating only some of a day's points so that
+- [ ] **A test pinning the expected value of a cross-midnight segment distance.** Agreement
+      testing in Step 9 cannot catch this: if both paths drop the segment they still agree.
+      Verify that the distance between the previous day's last point and the current day's first
+      point appears in `km`
+
+**Done when**: `travelmap recalculate` produces correct `daily_stats` for a seeded database, with
+the above pinned by tests.
+
+### Step 9: Ingest layer and incremental update
+
+- [ ] **Route every path that changes points through a single `internal/ingest` layer**, and
+      move Step 7's handlers onto it. Scattered `daily_stats` updates are guaranteed to miss
+      cases — Milestone E's updates and deletes, and Milestone G's imports, owntracks/traccar
+      and reverse-geocoding worker all go through this layer
+- [ ] Update the affected days in the same transaction as the mutation, per "Data Model"
+- [ ] A test that the incremental update and `recalculate` agree. For the same set of points, the
+      `daily_stats` built up by per-ingest updates must equal the one produced by a full rebuild.
+      Cover: the day boundary; out-of-order and late-arriving batches; **points separated by
+      several days** (either side of a period with tracking stopped — also confirming segments
+      over `TRAVELMAP_TRACK_BREAK_MINUTES` are not counted); **a day whose points are all deleted
+      so the row is removed**; and **deleting or updating only some of a day's points so that
       `countries` / `cities` shrink**
 
-**Done when**: starting tracking in the app puts real device locations into the database and the
-point count grows. Also, inserting points updates the corresponding `daily_stats` day, and
-running `travelmap recalculate` afterwards produces the same values (incremental and rebuild
-agree).
+**Done when**: inserting points updates the corresponding `daily_stats` day, and running
+`travelmap recalculate` afterwards produces identical values.
 
-### Stage 3: Browsing — the user's history is visible in the app
+---
 
-- [ ] `GET /api/v1/points` (time filter, pagination, `X-Current-Page` / `X-Total-Pages`)
-- [ ] `PATCH /api/v1/points/{id}` (body wrapped as `{"point": {...}}`),
-      `DELETE /api/v1/points/{id}`
-- [ ] `DELETE /api/v1/points/bulk_destroy` (body `{"point_ids": [...]}`)
-- [ ] For those updates and deletes, **recalculate the affected days' `daily_stats` in the same
-      transaction**. Never leave a state where points were deleted but `/stats` keeps reporting
-      the old distance
+## Milestone E — Browsing
+
+Steps 10 and 11 are independent of each other and can run in parallel. Step 12 needs Step 9.
+
+### Step 10: `GET /api/v1/points`
+
+- [ ] Time filter, pagination, `X-Current-Page` / `X-Total-Pages` headers
+
+**Done when**: past points appear on the app's map.
+
+### Step 11: Statistics
+
 - [ ] `GET /api/v1/points/tracked_months` (read from `daily_stats`)
 - [ ] `GET /api/v1/stats` (aggregate `daily_stats`; keep camelCase exactly).
       **Do not aggregate points directly** (see "Data Model")
+- [ ] Compare the distance against the app's own display and revisit the
+      `TRAVELMAP_TRACK_BREAK_MINUTES` rule if they diverge (see "Data Model")
 
-**Done when**: past points appear on the app's map and the stats screen shows distance and point
-counts.
+**Done when**: the stats screen shows distance and point counts.
 
-> **Reaching Stage 3 satisfies the requirement of recording and browsing location history from
-> the iPhone app.** Stage 4 onwards is additional work to make the app's other screens function.
+### Step 12: Point mutation endpoints
 
-### Stage 4: Tracks / visits / timeline
+- [ ] `PATCH /api/v1/points/{id}` (body wrapped as `{"point": {...}}`)
+- [ ] `DELETE /api/v1/points/{id}`
+- [ ] `DELETE /api/v1/points/bulk_destroy` (body `{"point_ids": [...]}`)
+- [ ] All three go through `internal/ingest`, so the affected days' `daily_stats` are
+      recalculated in the same transaction. Never leave a state where points were deleted but
+      `/stats` keeps reporting the old distance
+
+**Done when**: deleting a point is reflected in `/stats` immediately.
+
+> **Completing Milestone E satisfies the project's requirement: recording and browsing location
+> history from the iPhone app.** Everything after this makes the app's remaining screens work,
+> or is operational.
+
+---
+
+## Milestone F — The app's remaining screens
+
+Steps 13, 14 and 16 are independent and can run in parallel. Step 15 needs 13 and 14.
+
+Step 16 in fact only needs authentication (Step 5), so it can be pulled forward at any time —
+useful as filler work while Milestone D is under review.
+
+### Step 13: Tracks
 
 - [ ] Track-splitting logic (split on `TRAVELMAP_TRACK_BREAK_MINUTES` of inactivity) as a
-      background job. **Not `track_break` from `settings/mobile`** (see
-      "Data Model")
+      background job. **Not `track_break` from `settings/mobile`** (see "Data Model")
 - [ ] `GET /api/v1/tracks` (GeoJSON FeatureCollection)
 - [ ] `GET /api/v1/tracks/{id}`, `GET /api/v1/tracks/{track_id}/points`
+
+### Step 14: Visits
+
 - [ ] Stay detection → `visits` table
 - [ ] `GET /api/v1/visits`
+
+### Step 15: Timeline
+
 - [ ] `GET /api/v1/timeline` (including validation of the 31-day cap)
 
-**Done when**: the app's timeline and track screens render without breaking.
-
-### Stage 5: Settings sync
+### Step 16: Settings sync
 
 - [ ] `GET/PATCH /api/v1/settings/mobile` (12 fields with range validation; PATCH accepts both
       the top-level and `settings`-wrapped forms)
@@ -538,14 +676,18 @@ counts.
     `upload_automatically`, `upload_all_on_tracking_stop`, `batch_size` (1–1000)
 - [ ] `GET/PATCH /api/v1/settings`
 
-**Done when**: settings changed in the app are stored on the server and restored after
-reinstalling the app.
+**Milestone done when**: the app's timeline and track screens render without breaking, and
+settings changed in the app survive a reinstall.
 
-### Stage 6: Operations and extensions (optional)
+---
+
+## Milestone G — Operations and extensions (optional)
+
+All independent of each other; take them in whatever order the need arises.
 
 - [ ] `POST /api/v1/imports`, `GET /api/v1/imports`, `GET /api/v1/imports/{id}`
       (GPX / GeoJSON / Google Takeout / upstream Dawarich export).
-      **Imports go through the same ingest layer as Stage 2 and update `daily_stats`**
+      **Imports go through the `internal/ingest` layer from Step 9**
 - [ ] Reverse geocoding (Nominatim / Photon, rate-limited worker). It runs asynchronously after
       points are inserted, so **on completion update `countries` / `cities` /
       `reverse_geocoded_points` in `daily_stats` for the affected days** (without this the
@@ -557,7 +699,9 @@ reinstalling the app.
 - [ ] Backups (`VACUUM INTO`)
 - [ ] `GET /metrics`, structured access logs
 
-### Stage 7: Web UI
+---
+
+## Milestone H — Web UI
 
 Start once the API has settled. Library candidates and rationale are in
 "Library Choices for the Web UI".
@@ -569,7 +713,7 @@ Start once the API has settled. Library candidates and rationale are in
 - [ ] Map screen (render points / tracks for a selected time range), reusing the existing
       `GET /api/v1/points` and `/tracks` without adding UI-only APIs
 - [ ] Statistics screen (using `daily_stats`)
-- [ ] Settings screen. An import screen only if Stage 6's `/api/v1/imports` was implemented
+- [ ] Settings screen. An import screen only if Milestone G's `/api/v1/imports` was implemented
 - [ ] Embed static assets in `embed.FS` to preserve the single binary
 
 **Done when**: logging in from a browser shows the user's history on a map, and deployment is
@@ -578,14 +722,14 @@ still one binary plus one SQLite file.
 ## Risks and Open Questions
 
 - **Because the iOS app is closed source, the endpoints it actually calls and the required
-  fields are unknown.** Use the Stage 1 request-logging middleware to observe traffic from a
+  fields are unknown.** Use the Step 6 request-logging middleware to observe traffic from a
   real device and identify unimplemented endpoints.
-- **If social login is mandatory, Stage 1 may not be completable.** The spec has
+- **If social login is mandatory, Milestone B may not be completable.** The spec has
   `POST /api/v1/auth/apple` (body `{id_token, nonce}`) and `POST /api/v1/auth/google`. If the
   iOS app forces Sign in with Apple, `POST /api/v1/auth/login` alone will not get to a
-  successful connection. This is the first thing to check in Stage 1. If it turns out to be
+  successful connection. This is the first thing to check in Step 5. If it turns out to be
   required, add verification of `id_token` against Apple's public keys and association with an
-  existing user to Stage 1 (whether to auto-create users on a self-hosted instance is a separate
+  existing user to Step 5 (whether to auto-create users on a self-hosted instance is a separate
   decision).
 - The app may check a minimum server version. Return a plausible recent version string in
   `X-Dawarich-Version` (e.g. `1.10.0`). Needs confirmation against a real device.
