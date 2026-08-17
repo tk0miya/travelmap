@@ -34,6 +34,51 @@
 
 ---
 
+## Phase 0（Dawarich 互換層）との対応
+
+`TODO.md` の Phase 0 は Dawarich 互換のテーブル（`points` / `daily_stats` / `visits` / `tracks`）を
+持つ。この文書のモデルはその上に載る。**対応関係を取り違えると二重実装になる。**
+
+| Phase 0（`TODO.md`） | この文書 | 関係 |
+|---|---|---|
+| `points` | `Observation`（`source = gps_dawarich`） | **同じもの。** Phase 1 で他ソースの Observation が加わる |
+| `visits` | `Stay` | **ほぼ同じ。** 滞在検出のロジックを共有できる |
+| `tracks` | — | **`Move` ではない。** 下記参照 |
+| `daily_stats` | — | Dawarich 互換の日次集計。Trip の「N 日目」とは別物。下記参照 |
+| — | `Trip` / `Correction` / `Annotation` / `Asset` / `Place` | Phase 1 で追加 |
+
+### `tracks` は `Move` ではない
+
+| | 定義 | 含むもの |
+|---|---|---|
+| **Dawarich の `track`** | **記録が途切れていない区間**（一定時間以上の空白で分割） | 滞在も移動も**両方** |
+| **この文書の `Move`** | **滞在と滞在の間の移動** | 移動のみ |
+
+`track` は「記録セッション」、`Move` は「滞在間の移動」。**粒度も意味も違う。**
+Phase 0 で `tracks` を実装しても `Move` は別に導出する必要がある。
+
+### `daily_stats.day` と Trip の「N 日目」は別
+
+| | 切り方 | 変えられるか |
+|---|---|---|
+| **`daily_stats.day`** | サーバ設定の単一 TZ の **0:00** | **変えられない。** アプリの `/stats` 表示と一致させる必要がある |
+| **Trip の「N 日目」** | その時点の**現地時間の 04:00** | Phase 1 の裁量 |
+
+**見た目が重複しているので統一したくなるが、統一すると必ずどちらかが壊れる。**
+理由は `docs/roadmap.md` §3 ②。
+
+### `points` はソフトデリートにする
+
+Dawarich 互換には `PATCH /points/{id}` と `DELETE /points/{id}` が必要で、素朴に実装すると
+物理削除になる。しかし**アプリからの削除は意味的には「訂正」**であり、
+物理削除するとその事実が失われて Correction に接続できない。
+
+**`deleted_at` を持たせ、物理削除しない。** Dawarich API は `deleted_at IS NULL` で絞って返すので
+互換性に影響しない。**Phase 0 の時点で入れないと、それまでに消された点の情報は戻らない。**
+詳細は `docs/roadmap.md` §3 ③、D-16。
+
+---
+
 ## Observation（観測）
 
 すべての入力データの共通形式。**一度書いたら変更しない。追記のみ。**

@@ -9,8 +9,18 @@ GPS 軌跡・チェックイン・写真・歩数などの個人データを自�
 
 ## ドキュメント
 
+開発は2つの層に分かれている（D-14）。
+
+| | 範囲 | 文書 |
+|---|---|---|
+| **Phase 0** | Dawarich 互換 API サーバ。GPS の受信・保存・閲覧。iPhone アプリが繋がる | [TODO.md](TODO.md) |
+| **Phase 1 以降** | 旅行タイムライン層。写真・チェックイン・歩数の重ね合わせ、Trip 検出、訂正、旅行記の生成 | `docs/` |
+
+両者の接続点と食い違いの解決は [docs/roadmap.md](docs/roadmap.md) にある。
+
 | ファイル | 内容 |
 |---|---|
+| [docs/roadmap.md](docs/roadmap.md) | **Phase 0 と Phase 1 の関係、食い違いの解決** |
 | [docs/concept.md](docs/concept.md) | 解く課題、既存 OSS との差別化、設計の2本柱、非目標 |
 | [docs/research.md](docs/research.md) | 既存 OSS 調査、データソース候補と各々の制約 |
 | [docs/data-model.md](docs/data-model.md) | Observation / Segment / Trip / Correction / Asset / Place の定義 |
@@ -28,4 +38,7 @@ Swarm チェックイン（webhook）、写真（ローカル / NAS のディレ
 
 ## 次のステップ
 
-設計が固まり次第、技術スタック（言語・DB・地図ライブラリ）と実装計画を検討する。
+**Phase 0 の Milestone A（Step 1: ツールチェインと CI）から着手する。**
+詳細は [TODO.md](TODO.md)。
+
+Phase 1 に残る保留事項は [docs/decisions.md](docs/decisions.md) の「未決定」を参照。
