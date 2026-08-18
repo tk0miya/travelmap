@@ -452,11 +452,7 @@ A `docker` target comes with the packaging work in Milestone G.
 Add `.github/workflows/go.yml` with `build` / `test` / `lint` / `govulncheck` jobs.
 
 **Follow the conventions of the existing workflows** (see
-`.github/workflows/workflow-lint.yml`).
-
-- Every workflow has a `permissions:` block
-- Third-party actions are pinned to a full commit SHA with a `# vX.Y.Z` comment
-- `actions/checkout` is given `persist-credentials: false`
+`.github/workflows/workflow-lint.yml`); they are listed in [CLAUDE.md](CLAUDE.md).
 
 Also add the `gomod` ecosystem to `.github/dependabot.yml`, on the same weekly / `Asia/Tokyo` /
 7-day-cooldown schedule as the existing `github-actions` entry. Its `allow` and `groups` settings
@@ -480,29 +476,11 @@ This is packaging, not infrastructure. It belongs in Milestone G, not the founda
   writable by that UID
 - An example systemd unit for hosts not running containers
 
-### Directory layout
+### Layering and testing approach
 
-```
-cmd/travelmap/            entry point (serve / user create / migrate / recalculate)
-internal/config/          env-var loader
-internal/httpapi/         routing, middleware, handlers
-internal/httpapi/dto/     Dawarich-compatible JSON structs (compatibility lives here)
-internal/auth/            API key issuing/validation, bcrypt
-internal/ingest/          point insert/update/delete + daily_stats update (every path goes here)
-internal/store/           repository interfaces
-internal/store/sqlite/    SQLite implementation + migrations (embed)
-internal/model/           domain models (User, Point, Track, Visit, Stat)
-internal/geo/             Haversine (one-off), track-splitting decision logic
-api/openapi.yaml          OpenAPI covering only the implemented subset (for reference)
-testdata/golden/          golden JSON for upstream response shapes
-```
-
-### Testing approach
-
-- Table-driven tests for handlers using `net/http/httptest` and a temporary SQLite database
-- **Pin JSON key names, types, and naming convention (camelCase / snake_case) with golden
-  files.** This is where compatibility lives
-- Run the tests in CI, with the flags listed under "Development tools"
+Both are conventions rather than plan, so they live in [CLAUDE.md](CLAUDE.md): which package
+may import which, and the testing approach down to golden files being the compatibility
+contract. What belongs in a package is its own `doc.go`.
 
 ## Development Steps
 
@@ -529,8 +507,8 @@ No application behaviour yet. Three small PRs, each settling conventions.
 ### Step 1: Toolchain and CI
 
 - [x] `go.mod` with `go 1.26` and `tool` directives for golangci-lint, govulncheck and gofumpt
-      (see "Language and toolchain"), and the directory skeleton from "Directory layout"
-      (empty packages with a doc comment each)
+      (see "Language and toolchain"), and the package skeleton (empty packages with a doc
+      comment each)
 - [x] `Makefile` (targets invoke `go tool <name>`, so a checkout needs no tool installation),
       `.gitignore` (Go plus `*.db`, `bin/`), `.golangci.yml`
 - [x] `.github/workflows/go.yml` (build / test / lint / govulncheck, all via `go tool`).
@@ -546,14 +524,15 @@ No application behaviour yet. Three small PRs, each settling conventions.
 
 No code. Separated so that the convention discussion does not ride along with a code diff.
 
-- [ ] `CLAUDE.md`: **English as the project language**, layering rules (what may import what),
+- [x] `CLAUDE.md`: **English as the project language**, layering rules (what may import what),
       testing approach, where documents live, commit conventions
-- [ ] Expand `README.md` (currently one line): what the project is, how to build and run it
+- [x] Expand `README.md` (currently one line): what the project is, how to build and run it
 
 **Settles**: everything a reviewer would otherwise re-litigate in each later PR.
 
-**Done when**: `CLAUDE.md` answers "which package does this code belong in?" for every directory
-in the layout.
+**Done when**: `CLAUDE.md` states the layering rules and the conventions a later pull request
+would otherwise re-argue, without restating what each package's `doc.go` already says — adding
+a package must not mean editing `CLAUDE.md` too.
 
 ### Step 3: Server skeleton and `GET /api/v1/health`
 
@@ -662,7 +641,8 @@ No HTTP. Write the *full* rebuild first, as the definition of correct.
 - [ ] `daily_stats` table, per "Data Model"
 - [ ] Rebuild-a-day function (that day's points plus the immediately preceding point)
 - [ ] `TRAVELMAP_TIMEZONE` and `TRAVELMAP_TRACK_BREAK_MINUTES` in `internal/config`.
-      Document in the README that **changing either requires `travelmap recalculate`**
+      The README already documents both and says that **changing either requires
+      `travelmap recalculate`**; check that what it says still matches what was built
 - [ ] `travelmap recalculate` (rebuilds `daily_stats` from points; for recovery after imports or
       inconsistency, and after either variable above changes)
 - [ ] A test that the Haversine in `internal/geo` and the Haversine in SQL agree on the same
