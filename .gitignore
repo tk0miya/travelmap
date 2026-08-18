@@ -1,0 +1,11 @@
+# Build output
+/bin/
+
+# Test binaries and coverage profiles
+*.test
+*.out
+
+# SQLite databases (including the WAL sidecar files)
+*.db
+*.db-shm
+*.db-wal
