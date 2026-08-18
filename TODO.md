@@ -170,9 +170,13 @@ Upstream quirks that must be checked before implementing.
 - **`GET /api/v1/health`** — No authentication. The response headers `X-Dawarich-Response`
   (`Hey, I'm alive!` when unauthenticated, `Hey, I'm alive and authenticated!` when
   authenticated) and `X-Dawarich-Version` are **required**. Body is `{"status":"ok"}`.
-  Implement first, on the **assumption** that the app's server-URL validation goes through here
-  (needs confirmation against a real device — but health is needed regardless, so being wrong
-  costs no rework).
+  Implemented in Step 3, on the **assumption** that the app's server-URL validation goes
+  through here (needs confirmation against a real device — but health is needed regardless, so
+  being wrong costs no rework).
+  **Both headers belong on every `/api/v1` response, not just this one**: upstream sets them in
+  a `before_action` on `ApiController`, so a client is free to read the version off any
+  response. They are therefore middleware on the whole `/api/v1` group here (Step 3), and Step
+  5 only has to make the `X-Dawarich-Response` value authentication-aware.
 - **`POST /api/v1/auth/login`** — Body `{email, password}` → 200 with
   `{user_id, email, api_key, status, plan, subscription_source, active_until}`. With 2FA
   enabled it returns 202 plus a `challenge_token` (this project always returns 200).
@@ -205,6 +209,24 @@ Upstream quirks that must be checked before implementing.
   `DELETE /api/v1/points/bulk_destroy` takes `{"point_ids": [...]}` at the top level. Check the
   spec per endpoint.
 
+### Responses carry `Content-Type: application/json; charset=utf-8`
+
+Upstream's `render json:` sends the charset, and it is worth copying rather than sending a bare
+`application/json`: Dart's `http` package — what the community Android client is built on —
+decodes a body whose `Content-Type` names no charset as latin1, so every non-ASCII city or
+country name would arrive as mojibake. Fixed in Step 3 for every response, error ones included.
+
+### Error responses are a bare `{"error": "..."}`
+
+Upstream renders `{"error": "<message>"}` and nothing else — no code, no details, no field a
+client could match on other than the message. Step 3 fixes that as the error body of every
+failing request, `internal/httpapi/dto.Error`.
+
+One exception is already visible in upstream's `ApiController`: a request that fails
+authentication is answered with `head :unauthorized`, so a **401 has an empty body**. Step 5
+has to reproduce that rather than sending the error body, since a client parsing the body of a
+401 is parsing nothing.
+
 ### Unimplemented endpoints must return 404
 
 **Never return an empty array or empty object with 200 for an endpoint we do not implement.**
@@ -227,6 +249,10 @@ points.
 
 chi registers methods explicitly, so a route declared with `r.Get` returns 405 to a HEAD
 request. Register HEAD alongside GET and make sure the pagination headers are computed for it.
+
+**This is not specific to `/points`.** Rails answers HEAD on every route it routes GET to, so
+every upstream GET endpoint does. Step 3 therefore registers both methods for every GET route
+through one helper, and a later handler gets the behaviour without having to remember it.
 
 Verified in the community Android client
 (`lib/core/network/repositories/api_point_repository.dart`).
@@ -470,7 +496,9 @@ so document both and treat neither as the foundation.
 This is packaging, not infrastructure. It belongs in Milestone G, not the foundation.
 
 - Multi-stage `Dockerfile`: build with `CGO_ENABLED=0 go build -ldflags="-s -w"` and place the
-  binary on `gcr.io/distroless/static`
+  binary on `gcr.io/distroless/static`. **Add `-X main.version=<release>` to those ldflags**:
+  the build stage copies sources without `.git`, so Go stamps no VCS information and
+  `travelmap --version` would report `unknown` on exactly the builds people run
 - `docker-compose.yml` with just the server container and a volume for SQLite. Note the SQLite
   file's ownership: the container runs as a non-root user, so a bind-mounted directory has to be
   writable by that UID
@@ -540,12 +568,14 @@ The smallest possible full-stack slice: no database, no authentication. Chosen f
 because it carries almost no logic, so the review is entirely about the shapes that every later
 handler will copy.
 
-- [ ] `internal/config` env-var loader, `log/slog` setup, chi router, graceful shutdown
-- [ ] `cmd/travelmap serve` and `--version`
-- [ ] JSON response and error helpers
-- [ ] `GET /api/v1/health` with the `X-Dawarich-Response` and `X-Dawarich-Version` headers
+- [x] `internal/config` env-var loader (`TRAVELMAP_ADDR`, `TRAVELMAP_LOG_LEVEL`; read through
+      an injected `getenv` so tests never touch the process environment), `log/slog` setup,
+      chi router, graceful shutdown on SIGINT/SIGTERM
+- [x] `cmd/travelmap serve` and `--version`
+- [x] JSON response and error helpers
+- [x] `GET /api/v1/health` with the `X-Dawarich-Response` and `X-Dawarich-Version` headers
       (the authenticated variant of the header comes in Step 5)
-- [ ] `httptest` + golden-file test helper
+- [x] `httptest` + golden-file test helper
 
 **Settles**: handler signature, JSON and error response shape, config loading, the
 golden-file testing pattern.
@@ -810,7 +840,10 @@ still one binary plus one SQLite file.
   required, add verification of `id_token` against Apple's public keys and association with an
   existing user to Step 5 (whether to auto-create users on a self-hosted instance is a separate
   decision).
-- The app checks a minimum server version. Return a plausible recent version string in
-  `X-Dawarich-Version`. The community Android client reads `x-dawarich-version` and refuses to
-  run against a server below its floor; the official app is assumed to do something similar, so
-  confirm the accepted value against a real device.
+- The app checks a minimum server version. The community Android client reads
+  `x-dawarich-version` and refuses to run against a server below its floor; the official app is
+  assumed to do something similar, so confirm the accepted value against a real device.
+  Step 3 reports **`1.12.2`**, upstream's `.app_version` on `master` as of 2026-08-18. It is a
+  compatibility claim, not this server's own version — `travelmap --version` reports the build
+  — so it is raised when this server is verified against a newer upstream, not on every
+  release of ours.
