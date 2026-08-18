@@ -24,8 +24,33 @@ git clone https://github.com/tk0miya/travelmap
 cd travelmap
 make build              # builds bin/travelmap
 
+./bin/travelmap migrate                                          # creates travelmap.db
+./bin/travelmap user create --email you@example.com --password '<password>'
 ./bin/travelmap serve
 ```
+
+`migrate` creates the SQLite file and brings its schema up to date. It is a separate command
+rather than something the server does on the way up, because opening a SQLite database creates
+whatever file it is pointed at: migrating implicitly would turn a mistyped `TRAVELMAP_DATABASE`
+into a server that comes up happily with none of your history in it. Running it again when there
+is nothing to do is a no-op, so it is safe from an upgrade script.
+
+`user create` issues an account and prints its API key, which is what a client authenticates
+with. Neither way of giving it the password is a good one yet, so pick by which exposure you
+mind less:
+
+- `--password` puts it in `ps` output, where every user on the host can read it while the
+  command runs, and in the shell history file.
+- Leaving `--password` out reads the first line of standard input, with no prompt — so at a
+  terminal the command simply waits in silence. It is there for a setup script or a systemd
+  unit, which should redirect a file rather than pipe from `printf` or `echo`:
+
+  ```sh
+  ./bin/travelmap user create --email you@example.com < /run/secrets/travelmap-password
+  ```
+
+An echo-off prompt is the fix for both, and it is planned rather than done — see "Milestone G"
+in [TODO.md](TODO.md).
 
 The server listens on port 3000 by default, the port upstream Dawarich uses. Ask it for its
 health to see that it came up:
@@ -49,6 +74,7 @@ default, so it runs with an empty environment.
 | Variable | Default | Effect |
 | --- | --- | --- |
 | `TRAVELMAP_ADDR` | `:3000` | The address to listen on, as `host:port` |
+| `TRAVELMAP_DATABASE` | `travelmap.db` | The SQLite file holding everything the server stores |
 | `TRAVELMAP_LOG_LEVEL` | `info` | The lowest level that is logged: `debug`, `info`, `warn` or `error` |
 | `TRAVELMAP_TIMEZONE` | `UTC` | The timezone the day boundary is cut on |
 | `TRAVELMAP_TRACK_BREAK_MINUTES` | `30` | Gaps longer than this are not counted as travelled distance |
@@ -67,6 +93,7 @@ make lint               # golangci-lint, gofumpt, and a tidiness check on go.mod
 make fmt                # gofumpt -w .
 make vulncheck          # govulncheck over the dependencies
 make run                # go run ./cmd/travelmap serve
+make migrate            # go run ./cmd/travelmap migrate
 ```
 
 CI runs `build`, `test`, `lint` and `vulncheck` on every pull request and on pushes to `main`.

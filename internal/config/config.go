@@ -13,8 +13,9 @@ const prefix = "TRAVELMAP_"
 // Defaults for the settings below. Port 3000 matches the port upstream
 // Dawarich listens on, so an existing client configuration keeps working.
 const (
-	defaultAddr     = ":3000"
-	defaultLogLevel = slog.LevelInfo
+	defaultAddr         = ":3000"
+	defaultLogLevel     = slog.LevelInfo
+	defaultDatabasePath = "travelmap.db"
 )
 
 // Config is the server configuration.
@@ -25,6 +26,15 @@ type Config struct {
 
 	// LogLevel is the lowest level the logger emits.
 	LogLevel slog.Level
+
+	// DatabasePath is the SQLite file holding everything this server stores.
+	//
+	// It defaults to a file in the working directory, which is what makes
+	// `travelmap serve` in a checkout work with nothing configured. A service
+	// running from a unit file wants an absolute path under a directory it
+	// owns: SQLite creates the file but not the directories above it, and a
+	// relative path would follow the process's working directory.
+	DatabasePath string
 }
 
 // Load reads the configuration from the TRAVELMAP_* environment variables,
@@ -35,8 +45,9 @@ type Config struct {
 // them from running in parallel. Callers outside tests pass [os.Getenv].
 func Load(getenv func(string) string) (Config, error) {
 	cfg := Config{
-		Addr:     lookup(getenv, "ADDR", defaultAddr),
-		LogLevel: defaultLogLevel,
+		Addr:         lookup(getenv, "ADDR", defaultAddr),
+		LogLevel:     defaultLogLevel,
+		DatabasePath: lookup(getenv, "DATABASE", defaultDatabasePath),
 	}
 
 	if raw := lookup(getenv, "LOG_LEVEL", ""); raw != "" {

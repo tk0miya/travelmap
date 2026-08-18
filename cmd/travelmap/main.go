@@ -5,27 +5,23 @@
 package main
 
 import (
-	"context"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"os"
-	"os/signal"
-	"syscall"
-
-	"github.com/tk0miya/travelmap/internal/config"
-	"github.com/tk0miya/travelmap/internal/httpapi"
 )
 
 const usage = `travelmap is a Dawarich-compatible location-history API server.
 
 Usage:
-  travelmap <command>
+  travelmap <command> [flags]
   travelmap --version
 
 Commands:
-  serve   Run the HTTP server
+  serve         Run the HTTP server
+  migrate       Bring the database schema up to date
+  user create   Issue a user and its API key
 `
 
 // errUsage asks main for the exit status a misuse gets, which is not the same
@@ -33,7 +29,7 @@ Commands:
 var errUsage = errors.New("usage")
 
 func main() {
-	err := run(os.Args[1:], os.Getenv, os.Stdout, os.Stderr)
+	err := run(os.Args[1:], os.Getenv, os.Stdin, os.Stdout, os.Stderr)
 
 	switch {
 	case err == nil:
@@ -53,7 +49,7 @@ func main() {
 
 // run is main with the process taken out of it, so that the argument handling
 // can be tested without spawning a binary.
-func run(args []string, getenv func(string) string, stdout, stderr io.Writer) error {
+func run(args []string, getenv func(string) string, stdin io.Reader, stdout, stderr io.Writer) error {
 	fs := flag.NewFlagSet("travelmap", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	fs.Usage = func() { fmt.Fprint(stderr, usage) }
@@ -76,18 +72,29 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) er
 		return nil
 	}
 
-	// flag stops parsing at the first non-flag argument, so anything after the
-	// command would otherwise be dropped in silence — `travelmap serve --help`
-	// would start the server rather than explain itself.
-	if fs.NArg() > 1 {
-		fs.Usage()
-
-		return fmt.Errorf("%w: unexpected argument %q", errUsage, fs.Arg(1))
+	// flag stops parsing at the first non-flag argument, so everything from the
+	// command onwards is the command's own to parse — including its flags,
+	// which the global flag set has never seen.
+	cmd, cmdArgs := "", []string(nil)
+	if fs.NArg() > 0 {
+		cmd, cmdArgs = fs.Arg(0), fs.Args()[1:]
 	}
 
-	switch cmd := fs.Arg(0); cmd {
+	switch cmd {
 	case "serve":
+		if err := noArguments(fs, "serve", cmdArgs); err != nil {
+			return err
+		}
+
 		return serve(getenv, stderr)
+	case "migrate":
+		if err := noArguments(fs, "migrate", cmdArgs); err != nil {
+			return err
+		}
+
+		return migrate(getenv, stdout)
+	case "user":
+		return user(cmdArgs, getenv, stdin, stdout, stderr)
 	case "":
 		fs.Usage()
 
@@ -99,21 +106,16 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) er
 	}
 }
 
-// serve runs the HTTP server until the process is asked to stop.
-func serve(getenv func(string) string, stderr io.Writer) error {
-	cfg, err := config.Load(getenv)
-	if err != nil {
-		return err
+// noArguments rejects anything following a command that takes none, so that
+// `travelmap serve --help` explains itself rather than starting a server and
+// `travelmap migrate somewhere.db` says that the path comes from the
+// environment instead of migrating the configured database.
+func noArguments(fs *flag.FlagSet, cmd string, args []string) error {
+	if len(args) == 0 {
+		return nil
 	}
 
-	logger := cfg.NewLogger(stderr)
+	fs.Usage()
 
-	// SIGINT and SIGTERM are what a terminal and an init system send; both mean
-	// "stop", so both start the graceful shutdown rather than killing requests.
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-
-	logger.Info("starting travelmap", "version", buildVersion())
-
-	return httpapi.Serve(ctx, cfg.Addr, httpapi.New(httpapi.Options{Logger: logger}), logger)
+	return fmt.Errorf("%w: %s takes no arguments, got %q", errUsage, cmd, args[0])
 }
