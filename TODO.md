@@ -325,8 +325,16 @@ is not listed below should appear in the development steps.
 
 ### Language and toolchain
 
-**Use `go 1.26` in `go.mod`** (the current stable release; the floor is 1.25, required by
+**Use `go 1.26.6` in `go.mod`** (the current stable release; the floor is 1.25, required by
 `modernc.org/sqlite` v1.56.0).
+
+**The directive names a patch version, not just `1.26`.** `actions/setup-go` takes the version
+from `go-version-file: go.mod` and runs with `GOTOOLCHAIN=local`, so this line alone decides
+which toolchain CI builds with, and `GOTOOLCHAIN=auto` fetches the same one locally. Since
+`govulncheck` reports a standard-library advisory against the toolchain the code would be built
+with, a stdlib advisory is fixed by **raising this line** — and nothing does it automatically,
+because Dependabot's `gomod` ecosystem updates requirements and not the `go` directive. The
+`vulncheck` job going red with `Standard library` in the output is that signal.
 
 **Declare the development tools with `tool` directives in `go.mod`**, not as separately
 installed binaries:
@@ -534,7 +542,7 @@ No application behaviour yet. Three small PRs, each settling conventions.
 
 ### Step 1: Toolchain and CI
 
-- [x] `go.mod` with `go 1.26` and `tool` directives for golangci-lint, govulncheck and gofumpt
+- [x] `go.mod` with `go 1.26.6` and `tool` directives for golangci-lint, govulncheck and gofumpt
       (see "Language and toolchain"), and the package skeleton (empty packages with a doc
       comment each)
 - [x] `Makefile` (targets invoke `go tool <name>`, so a checkout needs no tool installation),
