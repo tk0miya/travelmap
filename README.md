@@ -69,7 +69,8 @@ make vulncheck          # govulncheck over the dependencies
 make run                # go run ./cmd/travelmap serve
 ```
 
-CI runs `build`, `test`, `lint` and `vulncheck` on every pull request and on pushes to `main`.
+CI runs `build`, `test`, `lint` and `vulncheck` on every pull request and on pushes to `main`, and
+raises the development tools in a pull request of its own once a week.
 Unformatted code fails `lint` rather than a target of its own, so `make fmt` before pushing.
 
 [CLAUDE.md](CLAUDE.md) holds the project conventions: English as the project language, the
