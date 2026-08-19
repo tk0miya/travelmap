@@ -42,7 +42,11 @@ re-fetched. A running Dawarich instance also serves the same document at `/api-d
 | Item | Decision | Rationale |
 | --- | --- | --- |
 | Data store | SQLite (`modernc.org/sqlite`, no CGO) | Self-contained in a single static binary. No DB process, so the footprint is minimal. Chosen after benchmarking (commit 59d0e04) |
-| Store abstraction | Repository layer behind an interface | Leaves room to add a PostgreSQL implementation later |
+| Store abstraction | Repository layer behind an interface, reached through a `store.Store` that also runs transactions | Leaves room to add a PostgreSQL implementation later. Handing repositories out through one object is what lets a point insert and its `daily_stats` rebuild share a transaction (Step 4) |
+| Migrations | `github.com/pressly/goose/v3` as a library, over numbered `.sql` files in an `embed.FS` | Measured in Step 4 by writing both against the same API: 86 lines of migrator and 107 of test with goose, against 213 and 137 hand-rolled, for one direct dependency and four indirect ones. Down migrations, Go-code migrations and an applied-at history come with it. The cost is having to read goose's bookkeeping rather than own it: **it creates and commits its version table, with a row for version 0, before the first migration runs**, so "the version table exists" is not "the schema exists" — a hand-rolled migrator bumping `user_version` inside the DDL's own transaction had no such state |
+| Connections | One connection (`SetMaxOpenConns(1)`), WAL, `synchronous=NORMAL`, `BEGIN IMMEDIATE`, `busy_timeout=5s` | SQLite has a single writer, so a larger pool converts concurrent writes into `SQLITE_BUSY` for every caller to retry; with one they queue in `database/sql`. The timeout is for the second process — a CLI command run while the server is serving (Step 4). Two races are left unhandled deliberately, both needing something the workflow does not do: several processes opening a **brand-new** database at the same moment, where converting the file to WAL answers `SQLITE_BUSY` and no timeout can wait it out; and two `travelmap migrate` processes at once, where goose has no lock for SQLite and the loser fails on the DDL instead of reporting nothing to do. The first run is one `travelmap migrate`, and retry logic for a race nobody reaches would cost more than it returns |
+| SQL | Hand-written in `internal/store/sqlite`, no generator | The queries are few and shaped by the API's own filters, and a generator would add a code-generation step to a checkout that today needs nothing installed but Go (Step 4) |
+| Schema | `STRICT` tables, times as integer Unix seconds | Without `STRICT`, type affinity stores a string in an `INTEGER` column and the mistake surfaces as a query that quietly stops matching. Times are integers because `points.timestamp` arrives as a Unix timestamp and is range-compared on every request (Step 4) |
 | Indexes | A single `points(user_id, timestamp)` | App queries always narrow by user and time range first. See "Data Model" |
 | Distance | Haversine in SQL for aggregation, `internal/geo` (Go) for one-off calculations | Pulling a whole-history aggregation into Go spends all its time transferring rows. See "Data Model" |
 | Statistics | `daily_stats` precomputed table, updated during ingest | Aggregating `points` on demand is too slow to serve a request. See "Data Model" |
@@ -56,6 +60,19 @@ These are the defaults as of planning. If any turns out to be wrong during imple
 change it — after updating this file.
 
 ## Data Model
+
+### `users`
+
+Columns: `id`, `email`, `password_hash`, `api_key`, `created_at`, `updated_at`. Unique indexes on
+`email` and on `api_key`; `email` is declared `COLLATE NOCASE`, so an address is one identity
+however it was typed and the index refuses a second account differing only in case.
+
+`api_key` is stored **as issued, not hashed**: `POST /api/v1/auth/login` has to hand the key
+itself back to the client, and a digest could not be turned back into one.
+
+The login response's `status`, `plan`, `subscription_source` and `active_until` get **no columns**
+— they are upstream Cloud's billing fields, billing is a non-goal, and Step 5 answers them with
+constants.
 
 ### `points`
 
@@ -398,7 +415,7 @@ Keep dependencies minimal.
 | Routing | `github.com/go-chi/chi/v5` | Rationale in "Library Choices for the Web UI" |
 | SQLite driver | `modernc.org/sqlite` | Pure Go. No CGO. Requires Go 1.25+ |
 | Password hashing | `golang.org/x/crypto/bcrypt` | |
-| Migrations | `github.com/pressly/goose/v3` (or `embed` + a hand-rolled migrator) | |
+| Migrations | `github.com/pressly/goose/v3` | Used as a library, not a CLI: the provider API takes the `embed.FS` and the `*sql.DB` this server already has, so the migrations stay inside the binary. Chosen in Step 4 after writing both — see the Migrations row under "Technical Decisions" for the measurement. `.sql` files carry goose's `-- +goose Up` annotation, and **a comment inside one cannot name an annotation**, because goose reads any comment that does as the annotation itself |
 | Test diffs | `github.com/google/go-cmp` | |
 | Configuration | No extra dependency (a thin hand-written env-var loader) | |
 | Logging | Standard `log/slog` | |
@@ -599,12 +616,28 @@ golden-file testing pattern.
 No HTTP. Splitting the store from the handlers that use it keeps the migration and repository
 discussion separate from the API discussion.
 
-- [ ] SQLite open with WAL and pragmas, embedded migrations
-- [ ] `users` table, repository interface and its SQLite implementation
-- [ ] API key generation and bcrypt password hashing (`internal/auth`)
-- [ ] `travelmap user create --email --password`
-- [ ] `travelmap migrate`
-- [ ] Temp-database test helper
+- [x] SQLite open with WAL and pragmas, embedded migrations run through goose. The file comes
+      from `TRAVELMAP_DATABASE` (default `travelmap.db`), added to `internal/config` here
+- [x] The store exposes no schema version. `Migrate` reports whether it applied anything and
+      `Migrated` whether the schema is there at all — the version number had no caller but the
+      CLI's own output, and what `travelmap migrate` owes the operator is whether the database is
+      at the current schema, not which files went by
+- [x] `users` table, repository interface and its SQLite implementation
+- [x] API key generation and bcrypt password hashing (`internal/auth`)
+- [x] `travelmap user create --email --password`. `--password` may be left out, in which case the
+      first line of standard input is read instead, for a script or a systemd unit that redirects
+      a file. Neither is good: `argv` is readable by every user on the host through `ps`, and a
+      bare standard-input read has no prompt, so at a terminal the command waits in silence. The
+      documented procedure therefore uses `--password` for now, and the echo-off prompt that
+      replaces both is its own step in Milestone G
+- [x] `travelmap migrate`. Neither `serve` nor `user create` migrates implicitly: opening a
+      SQLite database creates the file, so migrating on the way up would turn a typo in
+      `TRAVELMAP_DATABASE` into a working server holding none of the user's history. `user create`
+      reports an unmigrated database and names the command to run
+- [x] Temp-database test helper (`newTestDB`, package-internal to `internal/store/sqlite`; promote
+      it if another package ever needs a real database rather than a substituted store)
+- [x] One file per command under `cmd/travelmap` (`serve.go`, `migrate.go`, `user.go`), leaving
+      `main.go` with the argument handling and the dispatch alone
 
 **Settles**: migration mechanism, repository interface style, hand-written SQL versus generated,
 transaction handling, how store tests get a database.
@@ -815,6 +848,16 @@ All independent of each other; take them in whatever order the need arises.
 - [ ] `Dockerfile`, `docker-compose.yml`, and an example systemd unit (see "Distribution")
 - [ ] Backups (`VACUUM INTO`)
 - [ ] `GET /metrics`, structured access logs
+- [ ] **An echo-off password prompt for `travelmap user create`** (`golang.org/x/term`, whose only
+      requirement `golang.org/x/sys` is already an indirect dependency — so it brings no dependency
+      fan-out, adding its own two lines to `go.sum` and a `require` line and nothing else;
+      measured). Ask twice, since nothing verifies the password afterwards: the API key the command
+      prints works whatever the password is, so a typo surfaces later as a login that fails for an
+      account that has to be created again. Prompts go to stderr, leaving stdout to the API key a
+      setup script reads; standard input keeps its current meaning when there is no terminal.
+      **Rewrite `user create`'s own `--help` text with it**, which recommends standard input today.
+      This is what lets the README stop documenting `--password`, which puts the password in `ps`
+      output
 
 ---
 

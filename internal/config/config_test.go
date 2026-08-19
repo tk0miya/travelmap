@@ -26,24 +26,29 @@ func TestLoad(t *testing.T) {
 	}{
 		"defaults when nothing is set": {
 			vars: nil,
-			want: config.Config{Addr: ":3000", LogLevel: slog.LevelInfo},
+			want: config.Config{Addr: ":3000", LogLevel: slog.LevelInfo, DatabasePath: "travelmap.db"},
 		},
 		"every variable set": {
 			vars: map[string]string{
 				"TRAVELMAP_ADDR":      "127.0.0.1:8080",
 				"TRAVELMAP_LOG_LEVEL": "debug",
+				"TRAVELMAP_DATABASE":  "/var/lib/travelmap/travelmap.db",
 			},
-			want: config.Config{Addr: "127.0.0.1:8080", LogLevel: slog.LevelDebug},
+			want: config.Config{
+				Addr:         "127.0.0.1:8080",
+				LogLevel:     slog.LevelDebug,
+				DatabasePath: "/var/lib/travelmap/travelmap.db",
+			},
 		},
 		"the log level is case-insensitive": {
 			vars: map[string]string{"TRAVELMAP_LOG_LEVEL": "WARN"},
-			want: config.Config{Addr: ":3000", LogLevel: slog.LevelWarn},
+			want: config.Config{Addr: ":3000", LogLevel: slog.LevelWarn, DatabasePath: "travelmap.db"},
 		},
 		// A variable a wrapper script left blank is not a listen address; an
 		// unset one is covered by the first case, so this one is the trim.
 		"a blank value falls back to the default": {
 			vars: map[string]string{"TRAVELMAP_ADDR": "  "},
-			want: config.Config{Addr: ":3000", LogLevel: slog.LevelInfo},
+			want: config.Config{Addr: ":3000", LogLevel: slog.LevelInfo, DatabasePath: "travelmap.db"},
 		},
 	}
 
