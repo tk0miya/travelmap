@@ -4,7 +4,7 @@
 GO ?= go
 BIN := bin/travelmap
 
-.PHONY: build test lint fmt vulncheck run migrate clean
+.PHONY: build test lint fmt check vulncheck run migrate clean
 
 build:
 	$(GO) build -o $(BIN) ./cmd/travelmap
@@ -24,6 +24,10 @@ lint:
 
 fmt:
 	$(GO) tool gofumpt -w .
+
+# lint + test: what the pre-commit hook runs. Deliberately not the CI set, which
+# also runs `vulncheck`.
+check: lint test
 
 # CI only: the development container's egress proxy blocks vuln.go.dev.
 vulncheck:

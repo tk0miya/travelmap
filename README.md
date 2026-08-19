@@ -91,12 +91,14 @@ needs nothing installed either:
 make test               # go test ./... -race -cover -shuffle=on
 make lint               # golangci-lint, gofumpt, and a tidiness check on go.mod
 make fmt                # gofumpt -w .
+make check              # lint and test together, which is what a commit has to pass
 make vulncheck          # govulncheck over the dependencies
 make run                # go run ./cmd/travelmap serve
 make migrate            # go run ./cmd/travelmap migrate
 ```
 
-CI runs `build`, `test`, `lint` and `vulncheck` on every pull request and on pushes to `main`.
+CI runs `build`, `test`, `lint` and `vulncheck` on every pull request and on pushes to `main`, and
+raises the development tools in a pull request of its own once a week.
 Unformatted code fails `lint` rather than a target of its own, so `make fmt` before pushing.
 
 [CLAUDE.md](CLAUDE.md) holds the project conventions: English as the project language, the
