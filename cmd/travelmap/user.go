@@ -124,16 +124,8 @@ func userCreate(args []string, getenv func(string) string, stdin io.Reader, stdo
 
 	defer closeDatabase(db)
 
-	// Opening a database creates the file, so an unmigrated one is how a typo in
-	// TRAVELMAP_DATABASE shows up here. See migrate for why this command does
-	// not simply apply the schema itself.
-	migrated, err := db.Migrated(ctx)
-	if err != nil {
+	if err := requireMigrated(ctx, db, path); err != nil {
 		return err
-	}
-
-	if !migrated {
-		return fmt.Errorf("%s: no schema yet, run \"travelmap migrate\" first", path)
 	}
 
 	created, err := db.Users().Create(ctx, model.User{

@@ -9,6 +9,7 @@ import (
 
 	"github.com/tk0miya/travelmap/internal/config"
 	"github.com/tk0miya/travelmap/internal/httpapi"
+	"github.com/tk0miya/travelmap/internal/store/sqlite"
 )
 
 // serve runs the HTTP server until the process is asked to stop.
@@ -27,5 +28,21 @@ func serve(getenv func(string) string, stderr io.Writer) error {
 
 	logger.Info("starting travelmap", "version", buildVersion())
 
-	return httpapi.Serve(ctx, cfg.Addr, httpapi.New(httpapi.Options{Logger: logger}), logger)
+	db, err := sqlite.Open(ctx, cfg.DatabasePath)
+	if err != nil {
+		return err
+	}
+
+	defer closeDatabase(db)
+
+	// Before the listener opens, so that a server holding no history refuses
+	// to come up rather than answering every request with a missing table.
+	// See requireMigrated for why this is not simply migrated instead.
+	if err := requireMigrated(ctx, db, cfg.DatabasePath); err != nil {
+		return err
+	}
+
+	handler := httpapi.New(httpapi.Options{Logger: logger, Store: db})
+
+	return httpapi.Serve(ctx, cfg.Addr, handler, logger)
 }

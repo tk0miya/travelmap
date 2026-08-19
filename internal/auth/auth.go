@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"sync"
 
 	"golang.org/x/crypto/bcrypt"
 )
@@ -93,3 +94,47 @@ func validatePassword(password string) error {
 		return nil
 	}
 }
+
+// CheckAbsentPassword spends what [CheckPassword] would have spent on a user
+// that does not exist, and always reports [ErrPasswordMismatch].
+//
+// Without it, a login for an unknown address answers as fast as the database
+// lookup while a login for a known one waits for bcrypt: the difference is
+// tens of milliseconds over the network, and it tells anyone who measures it
+// which addresses have accounts here. The digest is made from randomness, so
+// no password matches it and nothing has to be kept in step with it.
+func CheckAbsentPassword(password string) error {
+	if err := CheckPassword(absentUserHash(), password); err != nil {
+		return err
+	}
+
+	// Only reachable by guessing the random password below, which is reported
+	// as the mismatch it has to be rather than as a successful login.
+	return ErrPasswordMismatch
+}
+
+// absentUserHash is the digest [CheckAbsentPassword] compares against.
+//
+// It is built on first use rather than in an init function: hashing costs the
+// same either way, and every command that is not `serve` would pay it for a
+// comparison it never makes.
+var absentUserHash = sync.OnceValue(func() string {
+	// An API key is 64 hex characters, which is within what HashPassword
+	// accepts and what bcrypt hashes whole.
+	//
+	// Both failures below are panics because neither leaves anything to fall
+	// back on: they mean the operating system has no randomness to give, so
+	// NewAPIKey cannot issue a key either and this server has nothing to
+	// authenticate with.
+	password, err := NewAPIKey()
+	if err != nil {
+		panic(fmt.Sprintf("auth: generating the absent-user password: %v", err))
+	}
+
+	digest, err := HashPassword(password)
+	if err != nil {
+		panic(fmt.Sprintf("auth: hashing the absent-user password: %v", err))
+	}
+
+	return digest
+})
