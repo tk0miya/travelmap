@@ -95,7 +95,8 @@ The rules that matter, stated directly:
 
 - **One step from TODO.md = one pull request.** Steps are sized so that each carries one
   decision worth reviewing; splitting or merging them defeats that sizing.
-- **`make lint && make test` before committing.** See the `Makefile` for what each target runs.
+- **`make check` before committing** (a pre-commit hook runs it too). See the `Makefile` for
+  what each target runs.
 - **Development tools go in `go.mod` as `tool` directives**, invoked via `go tool`. Do not add
   a step that requires installing a binary — a fresh checkout needs nothing but Go.
 - **Workflow conventions**, when touching `.github/workflows/`: a `permissions:` block on every

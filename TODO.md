@@ -477,7 +477,8 @@ session cookie on the `/*` side. To be decided when Milestone H starts. The curr
 
 ### Makefile
 
-Provide `build` / `test` / `lint` / `fmt` / `run` / `migrate` targets.
+Provide `build` / `test` / `lint` / `fmt` / `check` / `run` / `migrate` targets, where `check` is
+`lint` plus `test` — the set that can run locally, which the pre-commit hook runs.
 A `docker` target comes with the packaging work in Milestone G.
 
 ### CI

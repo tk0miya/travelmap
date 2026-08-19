@@ -65,6 +65,7 @@ needs nothing installed either:
 make test               # go test ./... -race -cover -shuffle=on
 make lint               # golangci-lint, gofumpt, and a tidiness check on go.mod
 make fmt                # gofumpt -w .
+make check              # lint and test together, which is what a commit has to pass
 make vulncheck          # govulncheck over the dependencies
 make run                # go run ./cmd/travelmap serve
 ```
