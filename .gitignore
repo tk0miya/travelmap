@@ -1,11 +1,10 @@
-# Build output
-/bin/
+# NOTE: Entries are sorted in ASCII order.
 
-# Test binaries and coverage profiles
-*.test
-*.out
-
-# SQLite databases (including the WAL sidecar files)
 *.db
 *.db-shm
 *.db-wal
+*.out
+*.test
+/.claude/settings.local.json
+/.claude/worktrees/
+/bin/
