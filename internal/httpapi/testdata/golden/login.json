@@ -1,0 +1,9 @@
+{
+  "user_id": 1,
+  "email": "alice@example.com",
+  "api_key": "0f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c4b5a69788796a5b4c3d2e1f0",
+  "status": "active",
+  "plan": "pro",
+  "subscription_source": "none",
+  "active_until": "9999-12-31T23:59:59Z"
+}

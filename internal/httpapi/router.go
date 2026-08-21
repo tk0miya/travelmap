@@ -6,14 +6,20 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
+
+	"github.com/tk0miya/travelmap/internal/store"
 )
 
 // Options carries what the HTTP surface needs from its caller. Later steps add
-// the store and the ingest layer here; cmd/travelmap is the only place that
-// fills it in.
+// the ingest layer here; cmd/travelmap is the only place that fills it in.
 type Options struct {
 	// Logger receives everything the HTTP layer logs. Required.
 	Logger *slog.Logger
+
+	// Store is where the handlers read and write. Required on every route,
+	// /api/v1/health included: authentication reaches it before the handler
+	// on any request that carries a key, whichever route that request is for.
+	Store store.Store
 }
 
 // api holds the dependencies shared by the handlers. Handlers are methods on
@@ -21,11 +27,12 @@ type Options struct {
 // instead of being threaded through every signature.
 type api struct {
 	logger *slog.Logger
+	store  store.Store
 }
 
 // New builds the server's HTTP handler.
 func New(opts Options) http.Handler {
-	a := &api{logger: opts.Logger}
+	a := &api{logger: opts.Logger, store: opts.Store}
 
 	r := chi.NewRouter()
 
@@ -38,9 +45,23 @@ func New(opts Options) http.Handler {
 	r.MethodNotAllowed(a.methodNotAllowed(r))
 
 	r.Route("/api/v1", func(r chi.Router) {
+		// authenticate first, for the reason on dawarichHeaders.
+		r.Use(a.authenticate)
 		r.Use(dawarichHeaders)
 
+		// The two routes reachable without credentials: health is what a
+		// client checks a server URL with, and login is where a client with
+		// only a password gets a key.
 		get(r, "/health", a.health)
+		r.Post("/auth/login", a.login)
+
+		// Everything else needs a user. A route registered outside this group
+		// is a route that serves one account's data to whoever asks.
+		r.Group(func(r chi.Router) {
+			r.Use(requireUser)
+
+			get(r, "/users/me", a.usersMe)
+		})
 	})
 
 	return r

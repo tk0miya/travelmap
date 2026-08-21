@@ -4,6 +4,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/tk0miya/travelmap/internal/auth"
 )
@@ -161,4 +162,56 @@ func TestHashPasswordEnforcesTheLengthBounds(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestCheckAbsentPassword pins the answer given for an address with no
+// account: the same mismatch a wrong password gets, so that the caller has one
+// failure path rather than two to keep in step.
+func TestCheckAbsentPassword(t *testing.T) {
+	t.Parallel()
+
+	if err := auth.CheckAbsentPassword(password); !errors.Is(err, auth.ErrPasswordMismatch) {
+		t.Errorf("CheckAbsentPassword returned %v, want ErrPasswordMismatch", err)
+	}
+
+	// The empty password is what a login with no password field at all
+	// arrives as, and it must not be the one thing that matches.
+	if err := auth.CheckAbsentPassword(""); !errors.Is(err, auth.ErrPasswordMismatch) {
+		t.Errorf("CheckAbsentPassword on an empty password returned %v, want ErrPasswordMismatch", err)
+	}
+}
+
+// TestCheckAbsentPasswordCostsWhatCheckPasswordCosts is what the function is
+// for: if it returned without hashing, how long a login takes to fail would
+// say whether the address has an account here.
+func TestCheckAbsentPasswordCostsWhatCheckPasswordCosts(t *testing.T) {
+	t.Parallel()
+
+	hash, err := auth.HashPassword(password)
+	if err != nil {
+		t.Fatalf("HashPassword returned %v", err)
+	}
+
+	// The first call also builds the digest it compares against, which is work
+	// a later call does not repeat; the measurement is of a warmed-up one.
+	_ = auth.CheckAbsentPassword(password)
+
+	absent := timeCall(func() { _ = auth.CheckAbsentPassword(password) })
+	present := timeCall(func() { _ = auth.CheckPassword(hash, password+"!") })
+
+	// A wide margin, because the two are the same bcrypt cost and the point is
+	// only that one is not returning immediately: a machine under load can
+	// make any two measurements differ by a factor of a few, but not by the
+	// factor a skipped hash would.
+	if absent*10 < present {
+		t.Errorf("CheckAbsentPassword took %v against CheckPassword's %v, want the same order", absent, present)
+	}
+}
+
+// timeCall reports how long f took.
+func timeCall(f func()) time.Duration {
+	start := time.Now()
+	f()
+
+	return time.Since(start)
 }

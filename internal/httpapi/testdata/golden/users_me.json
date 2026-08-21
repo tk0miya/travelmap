@@ -1,0 +1,30 @@
+{
+  "user": {
+    "email": "alice@example.com",
+    "theme": "dark",
+    "created_at": "2026-02-03T04:05:06.000Z",
+    "updated_at": "2026-03-04T05:06:07.000Z",
+    "settings": {
+      "timezone": "UTC",
+      "maps": {
+        "distance_unit": "km"
+      },
+      "fog_of_war_meters": 50,
+      "meters_between_routes": 500,
+      "preferred_map_layer": "OpenStreetMap",
+      "speed_colored_routes": false,
+      "points_rendering_mode": "raw",
+      "minutes_between_routes": 30,
+      "time_threshold_minutes": 30,
+      "merge_threshold_minutes": 15,
+      "live_map_enabled": true,
+      "route_opacity": 0.6,
+      "immich_url": null,
+      "photoprism_url": null,
+      "visits_suggestions_enabled": true,
+      "speed_color_scale": null,
+      "fog_of_war_threshold": 50,
+      "globe_projection": true
+    }
+  }
+}

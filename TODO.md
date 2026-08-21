@@ -72,7 +72,8 @@ itself back to the client, and a digest could not be turned back into one.
 
 The login response's `status`, `plan`, `subscription_source` and `active_until` get **no columns**
 — they are upstream Cloud's billing fields, billing is a non-goal, and Step 5 answers them with
-constants.
+the constants a self-hosted upstream instance reports; the values are on the `auth/login` bullet
+under "Per-endpoint".
 
 ### `points`
 
@@ -193,10 +194,48 @@ Upstream quirks that must be checked before implementing.
   **Both headers belong on every `/api/v1` response, not just this one**: upstream sets them in
   a `before_action` on `ApiController`, so a client is free to read the version off any
   response. They are therefore middleware on the whole `/api/v1` group here (Step 3), and Step
-  5 only has to make the `X-Dawarich-Response` value authentication-aware.
+  5 made the `X-Dawarich-Response` value authentication-aware. That middleware runs **inside**
+  the authentication one, because the header reports the outcome of the key lookup; the one
+  response it cannot reach — the 500 the authentication answers itself when the database is
+  unreadable — sets both headers directly.
+  Note what that means for health: a request **carrying a key** reaches the database, so it is
+  answered 500 when the database cannot be read. That is upstream's behaviour too — its
+  `set_version_header` resolves `current_api_user` before the controller runs — and it is the
+  honest answer, since a server that cannot read its database is not one a client should be
+  told is fine. One deliberate difference: a request carrying **no** key is not looked up at
+  all here, where upstream queries for a user whose `api_key` is NULL.
 - **`POST /api/v1/auth/login`** — Body `{email, password}` → 200 with
   `{user_id, email, api_key, status, plan, subscription_source, active_until}`. With 2FA
   enabled it returns 202 plus a `challenge_token` (this project always returns 200).
+  The last four are upstream Cloud's billing fields and get no columns here (see "`users`"
+  above). Step 5 answers them with what a **self-hosted upstream instance** ends up reporting,
+  so that a client gating a feature on them sees what it would see there: `status` `active`,
+  `plan` `pro`, `subscription_source` `none`, and an `active_until` far enough out never to
+  have passed — upstream activates a self-hosted user with `active_until: 1000.years.from_now`,
+  and this server sends the constant `9999-12-31T23:59:59Z` because it has no subscription to
+  expire. Note that it carries **no milliseconds**, unlike the timestamps of `users/me` below:
+  upstream renders this one with an explicit `active_until&.iso8601` rather than handing a time
+  to the JSON encoder, and the two really do differ.
+  **A refused login is the one 401 with a body**: upstream's auth controllers render
+  `{"error": "auth_failed", "message": "Invalid email or password"}`, which is also the 401
+  the spec documents for this endpoint. Every way of failing gets that same answer — wrong
+  password, unknown address, an address that is not one, no password field at all — and an
+  unknown address is answered only after a bcrypt comparison against a throwaway digest
+  (`auth.CheckAbsentPassword`), so that how long the refusal takes does not say which addresses
+  have accounts.
+- **`GET /api/v1/users/me`** — **The spec documents no response body for it** ("user found",
+  no schema), so the shape was read off upstream's `Api::UserSerializer` instead:
+  `{"user": {email, theme, created_at, updated_at, settings: {...}}}`. Three things follow.
+  The user object **carries no id** — a client that needs one has the `user_id` of
+  `auth/login`. The `subscription` key beside `user` is Cloud-only (`unless self_hosted?`), so
+  it is not sent. And `settings` is a **smaller set than `GET /api/v1/settings` answers with**:
+  the 18 keys the serializer picks (`maps` among them), in its order. Nothing stores them yet,
+  so Step 5 answers upstream's own defaults (`Users::SafeSettings::DEFAULT_VALUES`); `immich_url`,
+  `photoprism_url` and `speed_color_scale` are `null`, and the first two stay that way, being a
+  non-goal.
+  Timestamps are written **RFC 3339 with milliseconds** (`2026-02-03T04:05:06.000Z`), which is
+  what upstream's JSON encoder produces (`ActiveSupport::JSON::Encoding.time_precision = 3`) —
+  a client parsing with a fixed format string would fail on a value without them.
 - **`POST /api/v1/points`** / **`POST /api/v1/overland/batches`** — Both take
   `{"locations": [GeoJSON Feature, ...]}`. Feature `properties` include `timestamp` (ISO 8601),
   `horizontal_accuracy`, `vertical_accuracy`, `altitude`, `speed`, `speed_accuracy`, `course`,
@@ -241,8 +280,12 @@ failing request, `internal/httpapi/dto.Error`.
 
 One exception is already visible in upstream's `ApiController`: a request that fails
 authentication is answered with `head :unauthorized`, so a **401 has an empty body**. Step 5
-has to reproduce that rather than sending the error body, since a client parsing the body of a
-401 is parsing nothing.
+reproduces that rather than sending the error body, since a client parsing the body of a 401 is
+parsing nothing.
+
+The other exception is `POST /api/v1/auth/login`, which renders `error` **and** `message`; it
+is on that endpoint's bullet above. So a 401 has an empty body everywhere except the one
+endpoint whose whole purpose is to tell a client whether its credentials work.
 
 ### Unimplemented endpoints must return 404
 
@@ -649,15 +692,30 @@ twice is a no-op.
 
 ### Step 5: Authentication
 
-- [ ] Auth middleware accepting both the `api_key` query parameter and `Authorization: Bearer`
-- [ ] `POST /api/v1/auth/login`
-- [ ] `GET /api/v1/users/me`
-- [ ] `GET /api/v1/health` becomes auth-aware (`Hey, I'm alive and authenticated!`)
+- [x] Auth middleware accepting both the `api_key` query parameter and `Authorization: Bearer`
+- [x] `POST /api/v1/auth/login`
+- [x] `GET /api/v1/users/me`
+- [x] `GET /api/v1/health` becomes auth-aware (`Hey, I'm alive and authenticated!`)
 
 **Settles**: how handlers reach the authenticated user, the 401 body shape.
 
+The middleware resolves the credentials a request carries and **refuses nothing**: the user
+goes on the request context, and a second middleware on the authenticated routes turns "no
+user" into the empty-bodied 401. That split is what lets `/health` answer 200 either way and
+report which it was, and what keeps a key that names no user from being a server error. A
+route registered outside that group serves one account's data to whoever asks, so the group —
+not the handler — is where a new endpoint is added.
+
+`serve` now opens the database, and refuses to start against an unmigrated one with the same
+message `user create` gives. Opening a SQLite file creates it, so without the check a typo in
+`TRAVELMAP_DATABASE` would come up as a healthy server answering every request with an error
+about a missing table.
+
 **Done when**: **the iPhone app reports a successful connection** after entering the server URL
-and API key.
+and API key. **Not yet confirmed**: no device has been pointed at this server. The endpoints
+are covered by tests against the router, and Step 6's request log is how the remaining half of
+this condition gets checked — including whether the app insists on `auth/apple` (see "Risks and
+Open Questions").
 
 ### Step 6: Request logging for endpoint discovery
 
@@ -693,6 +751,10 @@ aggregation into this PR is what made the original plan's second stage unreviewa
 - [ ] `POST /api/v1/overland/batches` (note the different success status code)
 - [ ] Deduplication (same user × timestamp)
 - [ ] Batch inserts wrapped in a transaction
+- [ ] Check `maxRequestBody` in `internal/httpapi` (1 MiB as of Step 5) against a full batch —
+      the mobile settings allow a `batch_size` of up to 1000 points, and a body over the limit
+      is answered `400 invalid request body`, which reads like malformed JSON rather than like
+      a body that was too large
 
 **Settles**: how the wide Dawarich JSON shapes are modelled and pinned with golden files.
 
@@ -713,6 +775,8 @@ No HTTP. Write the *full* rebuild first, as the definition of correct.
 
 - [ ] `daily_stats` table, per "Data Model"
 - [ ] Rebuild-a-day function (that day's points plus the immediately preceding point)
+- [ ] `GET /api/v1/users/me` reports the configured zone in `settings.timezone`, which Step 5
+      answers with the constant `UTC`
 - [ ] `TRAVELMAP_TIMEZONE` and `TRAVELMAP_TRACK_BREAK_MINUTES` in `internal/config`.
       The README already documents both and says that **changing either requires
       `travelmap recalculate`**; check that what it says still matches what was built
@@ -826,7 +890,10 @@ useful as filler work while Milestone D is under review.
     `auto_start`, `distance_filter` (1–10000 m), `time_filter` (1–3600 s),
     `track_break` (1–1440 min), `accuracy` (1–6), `show_background_location_indicator`,
     `upload_automatically`, `upload_all_on_tracking_stop`, `batch_size` (1–1000)
-- [ ] `GET/PATCH /api/v1/settings`
+- [ ] `GET/PATCH /api/v1/settings`. Note that the settings block inside
+      `GET /api/v1/users/me` is a **different, smaller set** than this endpoint answers with
+      (see its bullet under "Per-endpoint"); both are fed from whatever this step stores, and
+      the Step 5 constants in `internal/httpapi` go away with it
 
 **Milestone done when**: the app's timeline and track screens render without breaking, and
 settings changed in the app survive a reinstall.
@@ -889,10 +956,11 @@ still one binary plus one SQLite file.
 - **If social login is mandatory, Milestone B may not be completable.** The spec has
   `POST /api/v1/auth/apple` (body `{id_token, nonce}`) and `POST /api/v1/auth/google`. If the
   iOS app forces Sign in with Apple, `POST /api/v1/auth/login` alone will not get to a
-  successful connection. This is the first thing to check in Step 5. If it turns out to be
-  required, add verification of `id_token` against Apple's public keys and association with an
-  existing user to Step 5 (whether to auto-create users on a self-hosted instance is a separate
-  decision).
+  successful connection. **Still open after Step 5**: that step built email-and-password login
+  and the API-key middleware, but answering this needs a real device, so it is the first thing
+  to read out of Step 6's request log. If it turns out to be required, add verification of
+  `id_token` against Apple's public keys and association with an existing user (whether to
+  auto-create users on a self-hosted instance is a separate decision).
 - The app checks a minimum server version. The community Android client reads
   `x-dawarich-version` and refuses to run against a server below its floor; the official app is
   assumed to do something similar, so confirm the accepted value against a real device.

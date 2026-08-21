@@ -58,6 +58,26 @@ func openDatabase(ctx context.Context, getenv func(string) string) (*sqlite.DB, 
 	return db, cfg.DatabasePath, nil
 }
 
+// requireMigrated reports an unmigrated database as the error that names the
+// command to fix it.
+//
+// Opening a SQLite database creates the file, so every command that opens one
+// can find itself pointed at an empty file it made itself. Migrating implicitly
+// would turn that into a working server holding none of the operator's history,
+// which is why it is refused here instead. See migrate for the whole argument.
+func requireMigrated(ctx context.Context, db *sqlite.DB, path string) error {
+	migrated, err := db.Migrated(ctx)
+	if err != nil {
+		return err
+	}
+
+	if !migrated {
+		return fmt.Errorf("%s: no schema yet, run \"travelmap migrate\" first", path)
+	}
+
+	return nil
+}
+
 // closeDatabase releases the database at the end of a command.
 //
 // The error is dropped deliberately: by the time a command returns, everything

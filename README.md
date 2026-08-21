@@ -33,7 +33,8 @@ make build              # builds bin/travelmap
 rather than something the server does on the way up, because opening a SQLite database creates
 whatever file it is pointed at: migrating implicitly would turn a mistyped `TRAVELMAP_DATABASE`
 into a server that comes up happily with none of your history in it. Running it again when there
-is nothing to do is a no-op, so it is safe from an upgrade script.
+is nothing to do is a no-op, so it is safe from an upgrade script. `serve` refuses to start
+against a database that has not been migrated, and names this command when it does.
 
 `user create` issues an account and prints its API key, which is what a client authenticates
 with. Neither way of giving it the password is a good one yet, so pick by which exposure you

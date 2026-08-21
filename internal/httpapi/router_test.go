@@ -5,25 +5,41 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 
 	"github.com/tk0miya/travelmap/internal/httpapi"
+	"github.com/tk0miya/travelmap/internal/store"
 )
 
-// dawarichVersion is repeated here rather than exported from the package
-// under test: the header value is a promise made to clients, so a change to it
-// should fail a test instead of being carried along by both sides.
-const dawarichVersion = "1.12.2"
+// The header values are repeated here rather than exported from the package
+// under test: they are promises made to clients, so a change to one should
+// fail a test instead of being carried along by both sides.
+const (
+	dawarichVersion       = "1.12.2"
+	aliveResponse         = "Hey, I'm alive!"
+	authenticatedResponse = "Hey, I'm alive and authenticated!"
+)
 
-// newTestServer starts the real router on a test server, so that the route
-// registration and the middleware chain are part of what each test exercises.
+// newTestServer starts the real router over a store holding [testUser], which
+// is what all but the failure paths need.
 func newTestServer(t *testing.T) *httptest.Server {
+	t.Helper()
+
+	return newTestServerWith(t, newFakeStore(t))
+}
+
+// newTestServerWith starts the real router over st on a test server, so that
+// the route registration and the middleware chain are part of what each test
+// exercises.
+func newTestServerWith(t *testing.T, st store.Store) *httptest.Server {
 	t.Helper()
 
 	handler := httpapi.New(httpapi.Options{
 		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Store:  st,
 	})
 
 	srv := httptest.NewServer(handler)
@@ -41,13 +57,37 @@ type response struct {
 	body   []byte
 }
 
+// requestOption is a part of a request that most tests do not set: a body, or
+// a header. They are options so that the many calls needing neither stay one
+// line long.
+type requestOption func(*http.Request)
+
+// withHeader sets a request header, which is how a test sends credentials the
+// way a client that does not use the query parameter does.
+func withHeader(name, value string) requestOption {
+	return func(r *http.Request) { r.Header.Set(name, value) }
+}
+
+// withBody sends body as a JSON request body.
+func withBody(body string) requestOption {
+	return func(r *http.Request) {
+		r.Body = io.NopCloser(strings.NewReader(body))
+		r.ContentLength = int64(len(body))
+		r.Header.Set("Content-Type", "application/json")
+	}
+}
+
 // do issues a request against the test server and reads the whole response.
-func do(t *testing.T, srv *httptest.Server, method, path string) response {
+func do(t *testing.T, srv *httptest.Server, method, path string, opts ...requestOption) response {
 	t.Helper()
 
 	req, err := http.NewRequestWithContext(t.Context(), method, srv.URL+path, nil)
 	if err != nil {
 		t.Fatalf("building the request: %v", err)
+	}
+
+	for _, opt := range opts {
+		opt(req)
 	}
 
 	resp, err := srv.Client().Do(req)
@@ -81,8 +121,8 @@ func TestHealth(t *testing.T) {
 
 	// Both headers are required of a Dawarich server, and a client that does
 	// not find them treats the server as unusable.
-	if got, want := resp.header.Get("X-Dawarich-Response"), "Hey, I'm alive!"; got != want {
-		t.Errorf("X-Dawarich-Response = %q, want %q", got, want)
+	if got := resp.header.Get("X-Dawarich-Response"); got != aliveResponse {
+		t.Errorf("X-Dawarich-Response = %q, want %q", got, aliveResponse)
 	}
 
 	if got := resp.header.Get("X-Dawarich-Version"); got != dawarichVersion {
@@ -182,7 +222,7 @@ func TestDawarichHeadersOnEveryAPIResponse(t *testing.T) {
 	resp := do(t, srv, http.MethodGet, "/api/v1/points")
 
 	want := map[string]string{
-		"X-Dawarich-Response": "Hey, I'm alive!",
+		"X-Dawarich-Response": aliveResponse,
 		"X-Dawarich-Version":  dawarichVersion,
 	}
 
