@@ -16,6 +16,18 @@ upstream browser screens; it will be built on top of this server's API. The API 
 and the policy is to **reuse the existing `/api/v1` rather than adding UI-only data
 endpoints** (browser-specific routes such as login and sessions are added in Milestone H).
 
+### travelmap's own extensions
+
+Not everything this server stores has to come from upstream. Swarm (Foursquare) check-in
+collection is the first feature that is travelmap's own (Milestone I): explicitly recorded
+landmark data, collected to enrich the automatically recorded GPS trace.
+
+Such a feature gets **its own tables and its own routes at the top level, never a path under
+`/api/v1`**. Dawarich has no version negotiation, so clients read a 404 under `/api/v1` as
+"feature unsupported" (see "Unimplemented endpoints must return 404"); inventing paths in that
+namespace would make that signal meaningless. Keeping the compatibility surface exactly
+upstream's is what keeps the 404 rule true.
+
 ### Non-goals
 
 The following are out of scope for this project.
@@ -24,7 +36,8 @@ The following are out of scope for this project.
 - Billing and subscription APIs
 - Family sharing (Families)
 - H3 hex maps / fog of war
-- Areas, Places, Notes, Tags, Digests, Insights
+- Areas, Places, Notes, Tags, Digests, Insights — upstream's own concepts. travelmap's
+  `checkins` (Milestone I) is not one of them; see "travelmap's own extensions"
 
 ## Reference Specification
 
@@ -55,6 +68,11 @@ re-fetched. A running Dawarich instance also serves the same document at `/api-d
 | User management | Issued via CLI. `auth/login` implemented, `auth/register` optional behind an env var, no 2FA | Self-hosted assumption |
 | Background work | Goroutines + a job table in SQLite | Keeps a single process, with no Sidekiq/Redis equivalent |
 | Reverse geocoding | Off by default; optionally point at a Nominatim/Photon URL | Does not make an external service mandatory |
+| Swarm check-ins | Collected by webhook push, with a periodic API fetch as the backstop | Push is immediate but never fires for a check-in added after the fact, which is the case Swarm's own "forgot to check in" flow produces; fetching alone would lag every check-in by up to a poll interval. Neither path is redundant (Milestone I) |
+| Check-in storage | Its own `checkins` table, not upstream's `visits` / `places` | Upstream's `visits` are detected from GPS dwell and then confirmed by the user (`status` is `suggested`/`confirmed`/`declined`, and its detector regenerates the suggested ones wholesale), and `places.source` is only `manual` or `photon`. A Swarm check-in is neither: putting it there would need a third `source` and would break what `status` means. See "Data Model" |
+| Third-party credentials | A `foursquare_accounts` row per user; the access token stored as issued | Same premise as `users.api_key`: the database file is already the one place secrets live, and an encryption key would have to sit next to it. A row rather than an env var because the webhook has to map a Foursquare user id to a travelmap user, which an env var cannot do |
+| Foursquare API version | v2 (`/v2/users/self/checkins`), with `v=` pinned as a constant and `m=swarm` | v2 is what returns Swarm check-ins. `v=` is a date Foursquare uses to freeze response shape, so it is a constant raised deliberately after checking behaviour, never "today" |
+| Scheduling | A ticker goroutine plus a fixed lookback window, and **no job table** | The periodic fetch is one cron-like task with no queue of items, so the job table in the "Background work" row above would be scaffolding with nothing in it. Step 13's track splitting is the first genuine per-item consumer; the decision stands, its first use just is not here |
 
 These are the defaults as of planning. If any turns out to be wrong during implementation,
 change it — after updating this file.
@@ -136,6 +154,74 @@ previous day, so it cannot be computed from that day's points alone. Missing thi
 cross-midnight movement from `km`.
 
 The update runs in the same transaction as the mutation that triggered it.
+
+### `checkins`
+
+Swarm check-ins, collected by the two paths in Milestone I. Not a Dawarich concept — see
+"travelmap's own extensions".
+
+Columns: `user_id`, `foursquare_checkin_id`, `checked_in_at`, `timezone_offset`, `venue_id`,
+`venue_name`, `latitude`, `longitude`, `country_code`, `city`, `state`, `country`,
+`category_id`, `category_name`, `shout`, `source`, `raw`, `created_at`, `updated_at`.
+A unique index on `foursquare_checkin_id`, and one index on `(user_id, checked_in_at)`.
+
+`source` is `push` or `sync`, naming the path that first observed the check-in. **A repeat write
+keeps `source` and `created_at` and refreshes everything else**, `raw` and the derived columns
+included: when the row appeared and which path brought it are facts about history that a later
+write does not change, while every other column is only the newest rendering of the same
+check-in. The prose here calls that second path the periodic fetch while the identifiers say
+`sync` (`TRAVELMAP_FOURSQUARE_SYNC_INTERVAL`, `synced_through`, `travelmap foursquare sync`);
+that split is deliberate, "fetch" being the clearer word for what it does and `sync` the shorter
+one to type.
+
+The check-in's own time is `checked_in_at`, **not `created_at`**, which stays the row's own
+bookkeeping as in every other table. The payload calls both of them `createdAt` — the check-in
+has one and so does the venue inside it — so reusing the name here would make the interesting
+one unfindable.
+
+**The unique index on `foursquare_checkin_id` is where idempotency lives.** Push and the
+periodic fetch will both carry the same check-in, by design, so every write is an upsert against
+that index rather than a look-before-you-write in the caller.
+
+`country_code` (the payload's `cc`) is kept separately from `country` because **the payload is
+localised to the app's locale**. In an observed push, `cc` was `JP` while `country` and the
+category name came back as Japanese display text. Only `cc` is stable, so `country` and
+`category_name` are for display and nothing keys off them.
+
+`raw` holds the check-in JSON as received. The payload carries much more than these columns
+(`visibility`, `canonicalUrl`, `editableUntil`, `labeledLatLngs`, `formattedAddress`, the
+category icon set), and the v2 API it comes from is legacy — so when a later step wants one of
+those fields, deriving it from stored JSON beats re-fetching from an API that may be gone.
+
+`venue_id` and `venue_name` are nullable, for a check-in made without one. **The venueless shape
+has not been observed** — the captured push had a venue — so confirm where its coordinates sit
+before relying on it; Step 18's fixture covers only the shape actually seen. Venue data is
+denormalised onto the check-in rather than given its own table; split it out if and when
+something needs a list of distinct venues, which nothing does yet.
+
+**`checkins` does not touch `daily_stats`.** A check-in is neither a point nor a segment, so it
+contributes to no `/stats` total, and `internal/ingest`'s invariant is untouched by this
+milestone.
+
+### `foursquare_accounts`
+
+One row per user, linking a travelmap account to a Swarm account.
+
+Columns: `user_id` (primary key, referencing `users`), `foursquare_user_id`, `access_token`,
+`synced_through`, `created_at`, `updated_at`. Unique index on `foursquare_user_id`.
+
+`foursquare_user_id` is **TEXT**: the payload sends it quoted (`"1709193"`). Its unique index is
+what makes an incoming push resolve to exactly one travelmap user — the webhook has no other way
+to know whose check-in it is.
+
+`access_token` is stored as issued, for the reason in the "Third-party credentials" row under
+"Technical Decisions".
+
+`synced_through` records the end of the last successful fetch window. **It is never the lower
+bound of a normal run** — that is always the lookback window, for the reason under "The periodic
+fetch takes a window, not a cursor". Its two uses are reporting how current an account is, and
+recognising that an account has been offline longer than the window so a wider one-off fetch is
+needed to close the gap.
 
 ### Configuration affecting stored aggregates
 
@@ -380,6 +466,108 @@ is not listed below should appear in the development steps.
   `api_key`).
 - `POST /api/v1/auth/apple`, `POST /api/v1/auth/google` — Social login. **A risk that could
   block Milestone B from completing**; see "Risks and Open Questions".
+
+## Foursquare / Swarm Integration Notes
+
+External behaviour that must be known before implementing Milestone I, in the same spirit as
+"Dawarich API Compatibility Notes". Everything under "The push payload" was read off a real
+push captured with a webhook recorder, not from documentation.
+
+### The push payload
+
+```
+POST <the configured push URL>
+Content-Type: application/x-www-form-urlencoded
+User-Agent: FoursquarePush/1.0
+
+checkin=<JSON>&user=<JSON>&secret=<the application's push secret>
+```
+
+Three form parameters, each a JSON string except `secret`. So this route parses a form; the
+`decodeJSON` helper and its `maxRequestBody` do not apply to it.
+
+- `checkin`: `id` (24 hex characters), `createdAt` (Unix seconds), `type`, `visibility`,
+  `timeZoneOffset` (minutes), `canonicalUrl`, `editableUntil` (**milliseconds**), `user`, `venue`
+- `checkin.venue`: `id`, `name`, `location` (`address`, `lat`, `lng`, `labeledLatLngs`,
+  `postalCode`, `cc`, `city`, `state`, `country`, `formattedAddress`), `categories` (`id`,
+  `name`, `pluralName`, `shortName`, `icon`, `categoryCode`, `mapIcon`, `primary`), `timeZone`
+- `shout` was **absent as a key** in the observed push, which carried no comment — so treat it
+  as optional rather than as an empty string
+- `checkin.user.id` is a quoted string, and is the join key onto `foursquare_accounts`. The
+  separate `user` parameter repeats it with extra profile fields; **read the key off
+  `checkin.user.id`**, which keeps the identity inside the object being stored
+- The payload is **localised to the app's locale** — see the `checkins` note in "Data Model"
+- `editableUntil` says a check-in stays editable long after it is made, which is why the write
+  path is an upsert and not an insert-if-absent
+
+The observed request came from an AWS us-east-1 address. One observation is no basis for an
+allowlist, and no published stable range for it is known here, so **there is no IP allowlist**:
+comparing `secret` is the whole of the authentication.
+
+### The push body carries a credential and personal data
+
+Besides the push secret, the body holds the checked-in user's `email`, `birthday` and `gender`.
+Two consequences, both recorded where they apply: Step 6's request logger never logs a request
+body, which already covers this one, and a payload committed as a test fixture has its secret and
+email redacted.
+
+### Webhook responses
+
+| Situation | Response | Why |
+| --- | --- | --- |
+| `secret` missing or not matching | 401, empty body | Matches how `requireUser` answers elsewhere |
+| The form does not parse | 400 | |
+| `foursquare_user_id` is not registered here | **200** | A push application can be authorised by users this server has never heard of. A 4xx makes Foursquare retry and can get the push URL disabled, so the check-in is logged and dropped instead |
+| The store fails | 500 | The one case where a retry is wanted |
+
+`secret` is compared in constant time (`crypto/subtle`), in `internal/auth` — it sits above
+`store` and below `httpapi`, and `CheckAbsentPassword` is already the precedent for treating
+timing as part of a credential check.
+
+`http.Request.ParseForm` reads up to 10 MiB of form body by default. The observed payload was
+3554 bytes, so the handler wraps the body in an explicit `http.MaxBytesReader` rather than
+inheriting that.
+
+### Fetching check-ins
+
+**Unlike "The push payload", none of this was observed.** Foursquare's documentation was
+unreachable from the development environment, so what follows is prior knowledge to be confirmed
+against the live API while implementing Step 19 — treat every parameter, limit and field name
+below as a thing to check, and correct this section from what the API actually answers.
+
+```
+GET https://api.foursquare.com/v2/users/self/checkins
+    ?oauth_token=<token>&v=<pinned date>&m=swarm
+    &limit=<up to 250>&offset=<n>&sort=newestfirst&afterTimestamp=&beforeTimestamp=
+```
+
+The response is `{"meta": {"code": ...}, "response": {"checkins": {"count": N, "items": [...]}}}`.
+
+**Check `meta.code`, not just the HTTP status.** v2 is understood to report some failures with a
+200 status and an error code in `meta`, which would let a client that trusts the status alone
+record a successful sync that fetched nothing. Cheap to do either way, so do it — and confirm
+the behaviour in Step 19.
+
+### The periodic fetch takes a window, not a cursor
+
+The reason the fetch path exists at all is the check-in added after the fact, and a
+high-water-mark cursor is precisely what cannot see one. If a check-in created today is dated to
+the visit it records, its `createdAt` sorts *before* the stored cursor, so the sync skips it —
+and keeps skipping it forever. That is the one case this path was added to cover.
+
+So **re-fetch a fixed window on every run** and let the unique index on
+`foursquare_checkin_id` absorb the overlap. The same property is what picks up an edit to a
+check-in already stored.
+
+- The window is `TRAVELMAP_FOURSQUARE_SYNC_LOOKBACK_DAYS` (default 14) back from now
+- `foursquare_accounts.synced_through` advances on success; what it is and is not used for is
+  under `foursquare_accounts` in "Data Model"
+- Which columns a repeat write keeps and which it refreshes is under `checkins` there too
+
+**Open**: whether a retroactive check-in's `createdAt` is the visit time or the time it was
+created. The window design above is correct either way, so it blocks nothing, but it decides
+what `checked_in_at` means. Settle it by observing one retroactive check-in and record the
+answer here.
 
 ## Development Environment
 
@@ -730,8 +918,13 @@ so this is how the remaining endpoint list gets confirmed.
       real device traffic, which carries live credentials
 - [ ] Record the endpoints a real device actually hits in this file, and diff them against the
       list the community Android client uses (see "About the iOS app")
+- [ ] **Never log a request body.** `POST /api/v1/auth/login` already carries a password in its
+      own body, so this is not a hypothetical: a logger written as "log the body unless told
+      otherwise" leaks one on the first login it sees. Later routes then inherit the default
+      instead of each having to remember — Step 18 adds one whose body carries a shared secret
 
-**Settles**: what may and may not appear in logs.
+**Settles**: what may and may not appear in logs — bodies as well as the credentials that arrive
+in a header or the query string.
 
 **Done when**: connecting the app produces a log of every route it calls, with no credentials in
 it.
@@ -948,6 +1141,203 @@ Start once the API has settled. Library candidates and rationale are in
 **Done when**: logging in from a browser shows the user's history on a map, and deployment is
 still one binary plus one SQLite file.
 
+---
+
+## Milestone I — Swarm check-in collection
+
+Collect Swarm (Foursquare) check-ins, so that the explicitly recorded landmark sits alongside
+the automatically recorded GPS trace. The first feature that is travelmap's own rather than
+upstream's — read "travelmap's own extensions" before adding a route here.
+
+Independent of Milestones C through H: it touches neither `points` nor `daily_stats`. What it
+does need is the store foundation (Step 4) and the authenticated router (Steps 3 and 5) — Step
+18 hangs a route off the same router, Step 20 reuses the `api_key` credential, and Step 17
+extends the same test store. So it can be taken at any time after Milestone B, like Step 16.
+
+External behaviour these steps rely on is in "Foursquare / Swarm Integration Notes"; the two
+tables are in "Data Model".
+
+There are seven `TRAVELMAP_FOURSQUARE_*` settings, and no step adds all of them: the push secret
+belongs to Step 18, the lookback and the API URL to Step 19, the three OAuth settings to Step 20,
+the interval to Step 21. Steps 18 and 19 run in parallel, so neither can wait on the other for a
+variable. An eighth setting joins whichever step needs it.
+
+**Each step documents its own settings in the README, in the same pull request.** The README is
+for someone about to run this server, so a knob that is listed there and does nothing yet is the
+one kind of drift its reader cannot detect — and this milestone's settings come with procedures
+(an OAuth URL, a CLI invocation) that would invite a reader to try something not built. The
+settings and their defaults are recorded here in the meantime, which is what `TODO.md` is for.
+
+Whichever of Steps 18 and 19 lands first opens a check-in section under the README's
+"Configuration" — either one collects check-ins on its own, so neither can claim to be the step
+that starts the feature, and the later one adds to what the earlier one wrote. That section
+carries the one fact no single setting does: **nothing is collected until an account is linked**,
+which until Step 20 exists means `travelmap foursquare connect` from Step 17. Without it a reader
+can set every variable, run `foursquare sync`, and be told nothing about why the result is empty.
+Step 20 adds its browser flow to the same sentence when it lands, which is its own README item.
+
+Step 17 comes first, and everything else hangs off it. Steps 18 and 19 are then parallel; Step 21
+follows Step 19, and Step 20 needs nothing but Step 17, so it can be taken at any point or left
+until last. Step 17's CLI command exists precisely so that the collecting steps can be finished
+and run for real before the OAuth flow is written. Until it is, the access token comes out of the
+Foursquare application's own console, which issues one for the account that owns the application;
+that is the whole of what Step 20 later automates.
+
+### Step 17: Check-in storage and the Foursquare account link
+
+No HTTP and no outbound calls. Separated so the schema and the single write path are reviewed
+without a webhook in the same diff.
+
+- [ ] Migration (the next free number) creating `checkins` and `foursquare_accounts` per
+      "Data Model"
+- [ ] `model.Checkin` and `model.FoursquareAccount`
+- [ ] `store.CheckinRepository` and `store.FoursquareAccountRepository`, handed out by
+      `store.Store` alongside `Users()`, with SQLite implementations following `users.go`
+      (shared column list, `scanX(row)`, `translate(err)`)
+- [ ] `internal/checkin`: **the single path through which check-ins are written**, upserting on
+      `foursquare_checkin_id`
+- [ ] `travelmap foursquare connect --email <email> --foursquare-user-id <id>`, reading the
+      token from standard input like `user create` does, so the token stays out of `ps` output
+- [ ] Extend `fakeStore` in `internal/httpapi/store_test.go` with the new repositories
+
+**Settles**: the `checkins` schema, that a third-party credential is a row rather than an env
+var, and that both collection paths converge on one writer.
+
+**Done when**: `travelmap foursquare connect` stores a row, and a store test writing the same
+check-in twice finds one row carrying the second write's values everywhere except `source` and
+`created_at`, which still name the first path and the first write.
+
+### Step 18: The push webhook
+
+- [ ] `POST /webhooks/foursquare`, registered **at the top level, outside
+      `r.Route("/api/v1", …)`** — no `authenticate`, no `dawarichHeaders`, no `requireUser`
+- [ ] `TRAVELMAP_FOURSQUARE_PUSH_SECRET` in `internal/config`, and the route registered **only
+      when it is set**, so an unconfigured server answers 404 like any route it does not
+      implement
+- [ ] Form parsing under an explicit `http.MaxBytesReader` in the handler, and a constant-time
+      secret comparison in `internal/auth`
+- [ ] The handler then hands the raw `checkin` value to `internal/checkin`, which parses it
+      through `internal/foursquare`, resolves `checkin.user.id` against `foursquare_accounts`
+      and writes. Keeping the parse behind that package is what lets Step 19 reach the store by
+      the same road
+- [ ] The response codes in "Webhook responses" — in particular **200 for a Foursquare user
+      this server does not know**
+- [ ] README: the push secret, and that the webhook needs a URL Foursquare can reach over HTTPS
+      — so it works behind a reverse proxy and not on a laptop
+- [ ] Pin the parse with a fixture: the recorded push body in `internal/foursquare/testdata/`
+      **with the secret and the email redacted**, and the wire struct it parses to compared by
+      go-cmp — the wire shape, not `model.Checkin`, since `internal/checkin` owns that
+      conversion (see CLAUDE.md's layering rules). This fixture is the compatibility contract
+      for this route, the role golden files play for responses
+- [ ] Confirm the request logger leaves this route's body alone — Step 6's "Never log a
+      request body" already decides it, and this is the route that would hurt most
+
+**Settles**: where a non-Dawarich route lives and how it authenticates, and that a body carrying
+a credential is never logged.
+
+**Done when**: replaying the recorded payload against a running server stores one check-in, and
+replaying it again still leaves one.
+
+### Step 19: The Foursquare API client
+
+One fetch, run by hand. The timer that repeats it is Step 21 — split that way because a client
+and a scheduler settle different conventions, and this half already reaches real check-ins on
+its own.
+
+- [ ] `internal/foursquare`: a client for `GET /v2/users/self/checkins` (`v=` pinned, `m=swarm`,
+      pagination through `limit`/`offset`) that **checks `meta.code`**
+- [ ] `internal/config`: `TRAVELMAP_FOURSQUARE_SYNC_LOOKBACK_DAYS` and
+      `TRAVELMAP_FOURSQUARE_API_URL` (default `https://api.foursquare.com`)
+- [ ] `internal/checkin`: one sync run — the lookback window from "The periodic fetch takes a
+      window, not a cursor", an upsert per check-in through the same writer the webhook uses,
+      and `synced_through` advanced on success
+- [ ] `travelmap foursquare sync`, for a one-shot run and for backfilling further back than the
+      window
+- [ ] README: the lookback and the API URL, and `travelmap foursquare sync` under "Build and
+      run"
+- [ ] Test the client against `httptest.NewServer` serving a recorded response;
+      `TRAVELMAP_FOURSQUARE_API_URL` exists so the test can point at it
+- [ ] A test that the same check-in arriving by push and then by fetch leaves one row, with
+      `source` still naming the first path
+- [ ] **A test that pins the window against a cursor**: a check-in dated before the last
+      successful run, added after it, is still collected by the next one. This step is where the
+      window and `synced_through` are written, so it is where the test belongs — and it is what
+      stops a later change from turning `synced_through` into the lower bound, which is the one
+      mistake that would silently defeat the whole fetch path
+
+**Settles**: the conventions for calling an external API from this server — timeouts, the
+`meta.code` check, closing bodies.
+
+**Done when**: `travelmap foursquare sync` fetches real check-ins, and a second run changes no
+row count.
+
+### Step 20: Server-side OAuth
+
+- [ ] `GET /foursquare/oauth/start` — **reuses `authenticate` and `requireUser` on its own
+      group, without `dawarichHeaders`**: those two run inside `r.Route("/api/v1", …)` today, so
+      a top-level route gets neither and `userFrom` would answer nothing. Attaching a different
+      chain per prefix is what chi was chosen for. It then mints a `state` bound to that user and
+      redirects to `https://foursquare.com/oauth2/authenticate`
+- [ ] Leaving `dawarichHeaders` off is not enough on its own: `authenticate` writes those headers
+      itself when the key lookup fails, because on that path the middleware it wraps never runs.
+      Reusing it outside `/api/v1` therefore leaks a compatibility header onto a route that is
+      not part of the compatibility surface, on exactly one response. Move that write out of
+      `authenticate` or make it conditional — either way, decide it here rather than at
+      implementation time
+- [ ] The **callback carries no credential** — the browser is coming back from Foursquare — so
+      it sits outside that group and `state` is the only thing naming the user. That is what
+      makes single use and a short expiry load-bearing rather than tidy
+- [ ] `GET /foursquare/oauth/callback` — verifies `state`, exchanges the code at
+      `https://foursquare.com/oauth2/access_token`, calls `/v2/users/self` for the Foursquare
+      user id, and writes the `foursquare_accounts` row. Both calls go in
+      `internal/foursquare` alongside Step 19's client, so every request to Foursquare is
+      configured in one place; this handler imports it directly, since it writes an account
+      rather than a check-in
+- [ ] `state` stored **in process**, with a short expiry and single use. One process serves
+      this, and a `state` that does not survive a restart only costs the user a retry — which is
+      why this step adds no migration
+- [ ] `TRAVELMAP_FOURSQUARE_CLIENT_ID`, `TRAVELMAP_FOURSQUARE_CLIENT_SECRET` and
+      `TRAVELMAP_FOURSQUARE_REDIRECT_URL` in `internal/config`
+- [ ] README: those three, and how to start the flow. Write the URL that actually works once the
+      middleware question above is settled, not the one planned here
+
+**Settles**: how a browser-facing route outside `/api/v1` identifies a travelmap user before
+Milestone H exists.
+
+**A limitation to accept knowingly**: there are no browser sessions until Milestone H, so the
+only way `start` can name a user is the `api_key` query parameter. That is consistent — every
+endpoint here accepts it — but **it puts the API key in browser history and in the `Referer` of
+the redirect**. Replace it with session authentication when Milestone H lands. If that is not
+acceptable, hold this step until Milestone H and keep using Step 17's `foursquare connect` in
+the meantime; the rest of the milestone does not depend on it.
+
+### Step 21: The periodic fetch worker
+
+Follows Step 19, whose sync run this repeats on a timer; nothing in Step 20 is in the way.
+
+- [ ] `internal/config`: `TRAVELMAP_FOURSQUARE_SYNC_INTERVAL` (default `1h`, `0` disabling the
+      fetch), which brings duration parsing into that package
+- [ ] `internal/checkin`: the worker — a ticker on that interval calling Step 19's sync run,
+      nothing more. Started from `cmd/travelmap/serve.go`, the only place
+      holding both the signal-cancelled context and the concrete store
+- [ ] Shut down with the server: the worker stops on the same cancelled context, and a run in
+      flight is not left to write into a closing database
+- [ ] README: the interval, including that `0` switches the fetch off and leaves only the
+      webhook
+- [ ] A test that a restart resumes: the ticker starts again, and the tick after it covers the
+      time the process was down. What makes that possible is Step 19's window, tested there;
+      what is tested here is that stopping and starting the worker loses no tick
+
+**Settles**: the lifecycle of a background worker in this server — **without introducing the job
+table**, per the "Scheduling" row under "Technical Decisions".
+
+**Done when**: with the server left running, a check-in added in Swarm after the fact turns up in
+`checkins` on the following tick.
+
+**Milestone done when**: a check-in made in Swarm appears in `checkins` within seconds, and one
+added after the fact appears after the next fetch (Step 21, or a hand-run `foursquare sync`
+before it).
+
 ## Risks and Open Questions
 
 - **Because the iOS app is closed source, the endpoints it actually calls and the required
@@ -968,3 +1358,19 @@ still one binary plus one SQLite file.
   compatibility claim, not this server's own version — `travelmap --version` reports the build
   — so it is raised when this server is verified against a newer upstream, not on every
   release of ours.
+- **Milestone I depends on a legacy API.** Swarm check-ins come from Foursquare v2, which is
+  legacy, and how long its check-in endpoints stay available has not been confirmed from
+  Foursquare's own announcements — they could not be reached from here. A withdrawal takes the
+  fetch path with it. Two things are the hedge, and both are already in the design: the push
+  path is a separate mechanism that would keep working, and `checkins.raw` means a later column
+  can be derived from stored payloads instead of re-fetching from an API that no longer answers.
+- **Whether a retroactive check-in's `createdAt` is the visit time or the creation time is
+  open.** It does not block Milestone I — the fetch window is correct either way — but it
+  decides what `checked_in_at` means. See "The periodic fetch takes a window, not a cursor".
+- **The push URL has to be reachable over HTTPS from the internet**, which a self-hosted
+  instance behind a reverse proxy can do but a laptop cannot. Until then the fetch path alone
+  collects check-ins, just with a delay. Step 18 says so in the README when it adds the route.
+- **The push secret belongs to the Foursquare application, not to a user.** Keep the split it
+  implies: the secret is server configuration, and identifying whose check-in arrived is
+  `foursquare_user_id`'s job. Deriving a user from the secret would break the moment a second
+  person connects.

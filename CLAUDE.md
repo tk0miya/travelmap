@@ -50,11 +50,11 @@ cmd/travelmap
     ↓
 httpapi  →  httpapi/dto
     ↓
-ingest      auth
+ingest   checkin   auth
     ↓
 store  ←  store/sqlite
     ↓
-model      geo      config
+model      geo      config      foursquare
 ```
 
 The rules that matter, stated directly:
@@ -66,13 +66,22 @@ The rules that matter, stated directly:
   outermost layer, reached only through the entry point.
 - **DTOs do not escape `internal/httpapi`.** `internal/ingest`, `internal/store` and
   `internal/model` never see a `dto` type; handlers convert at the boundary.
-- **`internal/model`, `internal/geo` and `internal/config` are leaves** and import nothing from
-  this module. A cycle back into them is a sign that logic was put in the wrong package.
+- **`internal/model`, `internal/geo`, `internal/config` and `internal/foursquare` are leaves**
+  and import nothing from this module. A cycle back into them is a sign that logic was put in
+  the wrong package.
 - **`internal/store` imports `internal/model` only.**
 - **Every mutation of a point goes through `internal/ingest`.** Nothing else calls the point
   repository's write methods — not a handler, not a CLI subcommand, not an importer. Scattered
   writes would each have to remember to rebuild `daily_stats`, and one that forgets leaves
   `/stats` reporting a distance that no longer matches the points.
+- **Every write of a check-in goes through `internal/checkin`.** Two collection paths — the push
+  webhook and the periodic fetch — have to agree on how a duplicate is recognised and on which
+  fields a repeat write overwrites. A second writer would settle that twice, and the two answers
+  would drift. `internal/checkin` reaches `internal/store` as `internal/ingest` does.
+- **`internal/foursquare` returns the shapes Foursquare sends**, and the package that owns the
+  record converts them into `internal/model` types — check-ins in `internal/checkin`, the account
+  row in the handler that writes it. Being a leaf it cannot name a `model` type itself, and the
+  boundary is there for the reason DTOs stop at `internal/httpapi`.
 
 ## Testing
 
