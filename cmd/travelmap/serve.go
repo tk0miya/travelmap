@@ -42,7 +42,11 @@ func serve(getenv func(string) string, stderr io.Writer) error {
 		return err
 	}
 
-	handler := httpapi.New(httpapi.Options{Logger: logger, Store: db})
+	handler := httpapi.New(httpapi.Options{
+		Logger:           logger,
+		Store:            db,
+		DebugLogRequests: cfg.DebugLogRequests,
+	})
 
 	return httpapi.Serve(ctx, cfg.Addr, handler, logger)
 }

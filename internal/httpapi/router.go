@@ -20,6 +20,11 @@ type Options struct {
 	// /api/v1/health included: authentication reaches it before the handler
 	// on any request that carries a key, whichever route that request is for.
 	Store store.Store
+
+	// DebugLogRequests turns on the request log described on [api.logRequests]:
+	// every request, unmatched routes included, with the credentials taken out.
+	// Off unless TRAVELMAP_DEBUG_LOG_REQUESTS says otherwise.
+	DebugLogRequests bool
 }
 
 // api holds the dependencies shared by the handlers. Handlers are methods on
@@ -35,6 +40,16 @@ func New(opts Options) http.Handler {
 	a := &api{logger: opts.Logger, store: opts.Store}
 
 	r := chi.NewRouter()
+
+	// First, so that the line records what the client was actually answered:
+	// the 500 the recovery below writes for a panic, and the 404 for a route
+	// nothing matched. See [api.logRequests] for why that matters.
+	if opts.DebugLogRequests {
+		a.logger.Warn("logging every request, credentials redacted; " +
+			"unset TRAVELMAP_DEBUG_LOG_REQUESTS when the capture is done")
+
+		r.Use(a.logRequests)
+	}
 
 	// The recovery covers the whole server, not just the API: it is about a
 	// bug not taking the process down. The Dawarich headers are compatibility,
