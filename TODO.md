@@ -722,19 +722,49 @@ Open Questions").
 Small, but its output is a planning input for everything after: the iOS app is closed source,
 so this is how the remaining endpoint list gets confirmed.
 
-- [ ] Request-logging middleware behind `TRAVELMAP_DEBUG_LOG_REQUESTS=1`, logging unmatched
+- [x] Request-logging middleware behind `TRAVELMAP_DEBUG_LOG_REQUESTS=1`, logging unmatched
       routes too. Everything not yet implemented keeps returning 404, which is both the correct
       answer (see "Unimplemented endpoints must return 404") and what makes the log a complete
       list of what the app wants
-- [ ] **Redact `api_key` and `Authorization` before logging.** The whole point is to capture
+- [x] **Redact `api_key` and `Authorization` before logging.** The whole point is to capture
       real device traffic, which carries live credentials
 - [ ] Record the endpoints a real device actually hits in this file, and diff them against the
       list the community Android client uses (see "About the iOS app")
 
 **Settles**: what may and may not appear in logs.
 
+The middleware is the router's first, and chi runs its middleware chain before it matches a
+route — which is what puts the requests that matched no route in the log, and what makes a line
+report the status the client was actually answered with: the 404 for an unknown route, the 500
+the recovery writes for a panic. It logs at Info rather than Debug, because
+`TRAVELMAP_DEBUG_LOG_REQUESTS` is meant to be the only switch — and for the same reason turning
+it on holds `TRAVELMAP_LOG_LEVEL` down to Info, so that a level set higher cannot swallow the
+capture without saying so.
+
+Redaction is by name, not by value, and errs towards redacting: a name containing any of the
+words in `sensitiveWords` in `internal/httpapi/requestlog.go` — which is where the list lives,
+so that adding one is a single-file change — plus `Cookie`, whose name says nothing about what
+it carries. Parameters and headers are judged by the same rule because the client is closed
+source: it may carry a credential under a name nobody here predicted, and a name that cannot be
+predicted cannot be enumerated. Only values are replaced — which parameters and headers the
+client sends is the finding, so the names stay. Every other header is logged in full, because
+a shortlist of the interesting ones could only be written by someone who already knew what the
+app does. **Request bodies are never logged at any level**:
+`POST /api/v1/auth/login` carries a password in its body, and a body cannot be redacted
+without parsing it as whatever the endpoint takes.
+
 **Done when**: connecting the app produces a log of every route it calls, with no credentials in
-it.
+it. **Not yet done**: the middleware and its redaction are implemented and tested, but no device
+has been pointed at this server, so the capture below is empty. The rest of the plan runs on the
+community Android client's endpoint list until it is filled in.
+
+#### Endpoints a real device hits
+
+Nothing recorded yet. Fill this in from one capture session — start the server with
+`TRAVELMAP_DEBUG_LOG_REQUESTS=1`, add it in the app, let it record and browse — and list the
+method, the path and the query parameters of every line, including the 404s. Diff that against
+the six endpoints under "About the iOS app": what is here and not there is what the official
+app needs and the community client does not, and it is the input to Milestone F's ordering.
 
 ---
 

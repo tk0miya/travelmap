@@ -30,14 +30,70 @@ func TestLoad(t *testing.T) {
 		},
 		"every variable set": {
 			vars: map[string]string{
-				"TRAVELMAP_ADDR":      "127.0.0.1:8080",
-				"TRAVELMAP_LOG_LEVEL": "debug",
-				"TRAVELMAP_DATABASE":  "/var/lib/travelmap/travelmap.db",
+				"TRAVELMAP_ADDR":               "127.0.0.1:8080",
+				"TRAVELMAP_LOG_LEVEL":          "debug",
+				"TRAVELMAP_DATABASE":           "/var/lib/travelmap/travelmap.db",
+				"TRAVELMAP_DEBUG_LOG_REQUESTS": "1",
 			},
 			want: config.Config{
-				Addr:         "127.0.0.1:8080",
-				LogLevel:     slog.LevelDebug,
-				DatabasePath: "/var/lib/travelmap/travelmap.db",
+				Addr:             "127.0.0.1:8080",
+				LogLevel:         slog.LevelDebug,
+				DatabasePath:     "/var/lib/travelmap/travelmap.db",
+				DebugLogRequests: true,
+			},
+		},
+		// Documented as =1, but a shell wrapper writes what it writes, and a
+		// server that ignored "true" would be capturing nothing while the
+		// operator watched the device.
+		"the request log accepts the other spellings of true": {
+			vars: map[string]string{"TRAVELMAP_DEBUG_LOG_REQUESTS": "true"},
+			want: config.Config{
+				Addr:             ":3000",
+				LogLevel:         slog.LevelInfo,
+				DatabasePath:     "travelmap.db",
+				DebugLogRequests: true,
+			},
+		},
+		// Info is where the request log writes, so a level above it would
+		// have answered the switch with an empty capture.
+		"the request log holds the log level down to info": {
+			vars: map[string]string{
+				"TRAVELMAP_LOG_LEVEL":          "error",
+				"TRAVELMAP_DEBUG_LOG_REQUESTS": "1",
+			},
+			want: config.Config{
+				Addr:             ":3000",
+				LogLevel:         slog.LevelInfo,
+				DatabasePath:     "travelmap.db",
+				DebugLogRequests: true,
+			},
+		},
+		// Down, not to: a level below Info is what an operator debugging
+		// something else asked for, and the request log comes through it.
+		"the request log leaves a lower level alone": {
+			vars: map[string]string{
+				"TRAVELMAP_LOG_LEVEL":          "debug",
+				"TRAVELMAP_DEBUG_LOG_REQUESTS": "1",
+			},
+			want: config.Config{
+				Addr:             ":3000",
+				LogLevel:         slog.LevelDebug,
+				DatabasePath:     "travelmap.db",
+				DebugLogRequests: true,
+			},
+		},
+		// The off switch is a setting an operator writes down, not just the
+		// absence of one: a unit file that turns the log off has to keep it
+		// off, and keep the level it asked for.
+		"the request log switched off explicitly": {
+			vars: map[string]string{
+				"TRAVELMAP_LOG_LEVEL":          "error",
+				"TRAVELMAP_DEBUG_LOG_REQUESTS": "0",
+			},
+			want: config.Config{
+				Addr:         ":3000",
+				LogLevel:     slog.LevelError,
+				DatabasePath: "travelmap.db",
 			},
 		},
 		"the log level is case-insensitive": {
@@ -80,6 +136,22 @@ func TestLoadRejectsAnInvalidLogLevel(t *testing.T) {
 	}
 
 	if got := err.Error(); !strings.Contains(got, "TRAVELMAP_LOG_LEVEL") {
+		t.Errorf("error = %q, want it to name the variable at fault", got)
+	}
+}
+
+// TestLoadRejectsAnInvalidDebugLogRequests pins that this one fails loudly
+// too: a capture session that quietly logged nothing is a session to run
+// again, with the device back in hand.
+func TestLoadRejectsAnInvalidDebugLogRequests(t *testing.T) {
+	t.Parallel()
+
+	_, err := config.Load(env(map[string]string{"TRAVELMAP_DEBUG_LOG_REQUESTS": "yes please"}))
+	if err == nil {
+		t.Fatal("Load returned nil for an invalid TRAVELMAP_DEBUG_LOG_REQUESTS")
+	}
+
+	if got := err.Error(); !strings.Contains(got, "TRAVELMAP_DEBUG_LOG_REQUESTS") {
 		t.Errorf("error = %q, want it to name the variable at fault", got)
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"strconv"
 	"strings"
 )
 
@@ -35,6 +36,17 @@ type Config struct {
 	// owns: SQLite creates the file but not the directories above it, and a
 	// relative path would follow the process's working directory.
 	DatabasePath string
+
+	// DebugLogRequests turns on the request log: one line per request,
+	// unmatched routes included, with the credentials taken out.
+	//
+	// It is off by default and belongs on a server being pointed at a client,
+	// not on one in service. Every request the client makes ends up in the log
+	// — which is the point, and also why it is not something to leave running.
+	//
+	// Turning it on holds [Config.LogLevel] down to Info, since that is the
+	// level those lines are written at.
+	DebugLogRequests bool
 }
 
 // Load reads the configuration from the TRAVELMAP_* environment variables,
@@ -54,6 +66,28 @@ func Load(getenv func(string) string) (Config, error) {
 		if err := cfg.LogLevel.UnmarshalText([]byte(raw)); err != nil {
 			return Config{}, fmt.Errorf("%sLOG_LEVEL: %w", prefix, err)
 		}
+	}
+
+	if raw := lookup(getenv, "DEBUG_LOG_REQUESTS", ""); raw != "" {
+		// A typo stops the server rather than leaving the setting off: this is
+		// switched on to capture traffic that has to be reproduced to be
+		// captured again, and finding out afterwards that the log was never on
+		// costs that whole session.
+		on, err := strconv.ParseBool(raw)
+		if err != nil {
+			return Config{}, fmt.Errorf("%sDEBUG_LOG_REQUESTS: %w", prefix, err)
+		}
+
+		cfg.DebugLogRequests = on
+	}
+
+	// The request log is written at Info, so a level above it would answer the
+	// switch with an empty capture — and two variables that have to agree is
+	// the second switch that switch was meant not to be. It comes down only:
+	// a level below Info was asked for by someone debugging something else,
+	// and these lines come through it either way.
+	if cfg.DebugLogRequests && cfg.LogLevel > slog.LevelInfo {
+		cfg.LogLevel = slog.LevelInfo
 	}
 
 	return cfg, nil

@@ -76,12 +76,35 @@ default, so it runs with an empty environment.
 | --- | --- | --- |
 | `TRAVELMAP_ADDR` | `:3000` | The address to listen on, as `host:port` |
 | `TRAVELMAP_DATABASE` | `travelmap.db` | The SQLite file holding everything the server stores |
+| `TRAVELMAP_DEBUG_LOG_REQUESTS` | off | Log one line per request, credentials redacted. See below |
 | `TRAVELMAP_LOG_LEVEL` | `info` | The lowest level that is logged: `debug`, `info`, `warn` or `error` |
 | `TRAVELMAP_TIMEZONE` | `UTC` | The timezone the day boundary is cut on |
 | `TRAVELMAP_TRACK_BREAK_MINUTES` | `30` | Gaps longer than this are not counted as travelled distance |
 
-The last two decide how stored statistics are computed, so changing either invalidates the ones
-already stored; `travelmap recalculate` rebuilds them.
+`TRAVELMAP_TIMEZONE` and `TRAVELMAP_TRACK_BREAK_MINUTES` decide how stored statistics are
+computed, so changing either invalidates the ones already stored; `travelmap recalculate`
+rebuilds them.
+
+### Logging the requests a client makes
+
+`TRAVELMAP_DEBUG_LOG_REQUESTS=1` logs every request the server receives — method, path, query,
+status, response size, duration and the request headers — including the ones that matched no
+route, which are answered `404` and are how you find out what a client wants that this server
+does not serve yet. It exists because the Dawarich apps are closed source: pointing one at a
+server running with this on is how the endpoint list gets confirmed.
+
+Credentials do not reach the log. Any query parameter or header whose name suggests one —
+`key`, `token`, `pass`, `pwd`, `secret`, `auth`, `credential`, `session`, `signature` or `jwt`
+anywhere in the name, so `api_key` and `Authorization` among them — is logged as `[REDACTED]`,
+and so is `Cookie`, whose name says nothing about what it carries. The name is kept, so you can
+still see what the client sent, without the value. Request bodies are never logged at all.
+
+The lines are written at `info`, and turning this on holds `TRAVELMAP_LOG_LEVEL` down to `info`
+if it was set higher — a capture that came out empty because the level swallowed it is one to
+run again with the device back in hand.
+
+Turn it off again when the capture is done: it prints the full headers of every request, which
+is a lot of log for a server in service.
 
 ## Contributing
 
