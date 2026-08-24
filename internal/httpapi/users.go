@@ -17,11 +17,11 @@ const timestampFormat = "2006-01-02T15:04:05.000Z07:00"
 //
 // Nothing here is stored yet: these are upstream's own defaults, from
 // Users::SafeSettings::DEFAULT_VALUES, so that a client reading one finds the
-// value it would find against a fresh upstream instance. The ones that will
-// become real are noted in the steps that make them so — Step 8 for the
-// timezone, Step 16 for the settings endpoints; the map and route-drawing ones
-// belong to the web UI, and the Immich and Photoprism URLs to a non-goal, so
-// they stay as they are.
+// value it would find against a fresh upstream instance. Step 16 gives the
+// settings endpoints their own storage; the map and route-drawing ones belong
+// to the web UI, and the Immich and Photoprism URLs to a non-goal, so they
+// stay as they are. Timezone is no longer among them: Step 8 made it real,
+// reported from [api.timezone] (TRAVELMAP_TIMEZONE) rather than a constant.
 const (
 	defaultTimezone                 = "UTC"
 	defaultDistanceUnit             = "km"
@@ -72,7 +72,7 @@ func (a *api) usersMe(w http.ResponseWriter, r *http.Request) {
 		CreatedAt: formatTimestamp(user.CreatedAt),
 		UpdatedAt: formatTimestamp(user.UpdatedAt),
 		Settings: dto.UserSettings{
-			Timezone:                 defaultTimezone,
+			Timezone:                 a.timezone,
 			Maps:                     dto.MapsPref{DistanceUnit: defaultDistanceUnit},
 			FogOfWarMeters:           defaultFogOfWarMeters,
 			MetersBetweenRoutes:      defaultMetersBetweenRoutes,

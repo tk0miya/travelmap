@@ -837,25 +837,25 @@ compare against.
 
 No HTTP. Write the *full* rebuild first, as the definition of correct.
 
-- [ ] `daily_stats` table, per "Data Model"
-- [ ] Rebuild-a-day function (that day's points plus the immediately preceding point)
-- [ ] `GET /api/v1/users/me` reports the configured zone in `settings.timezone`, which Step 5
+- [x] `daily_stats` table, per "Data Model"
+- [x] Rebuild-a-day function (that day's points plus the immediately preceding point)
+- [x] `GET /api/v1/users/me` reports the configured zone in `settings.timezone`, which Step 5
       answers with the constant `UTC`
-- [ ] `TRAVELMAP_TIMEZONE` and `TRAVELMAP_TRACK_BREAK_MINUTES` in `internal/config`.
+- [x] `TRAVELMAP_TIMEZONE` and `TRAVELMAP_TRACK_BREAK_MINUTES` in `internal/config`.
       The README already documents both and says that **changing either requires
       `travelmap recalculate`**; check that what it says still matches what was built
-- [ ] `travelmap recalculate` (rebuilds `daily_stats` from points; for recovery after imports or
+- [x] `travelmap recalculate` (rebuilds `daily_stats` from points; for recovery after imports or
       inconsistency, and after either variable above changes)
-- [ ] A test that the Haversine in `internal/geo` and the Haversine in SQL agree on the same
+- [x] A test that the Haversine in `internal/geo` and the Haversine in SQL agree on the same
       input (pass the Earth-radius constant from Go into SQL; do not put the literal in two
       places)
-- [ ] **A test with `TRAVELMAP_TIMEZONE=Asia/Tokyo`.** Every other case passes under the default
+- [x] **A test with `TRAVELMAP_TIMEZONE=Asia/Tokyo`.** Every other case passes under the default
       `UTC`, so forgetting the timezone conversion would go undetected. Verify that a point at a
       time which falls on the previous day in UTC (e.g. 00:30 JST) is counted on the current
       day's row
-- [ ] A boundary test for `TRAVELMAP_TRACK_BREAK_MINUTES`: a segment of exactly 30 minutes
+- [x] A boundary test for `TRAVELMAP_TRACK_BREAK_MINUTES`: a segment of exactly 30 minutes
       **is counted** (catches a `>` versus `>=` mix-up)
-- [ ] **A test pinning the expected value of a cross-midnight segment distance.** Agreement
+- [x] **A test pinning the expected value of a cross-midnight segment distance.** Agreement
       testing in Step 9 cannot catch this: if both paths drop the segment they still agree.
       Verify that the distance between the previous day's last point and the current day's first
       point appears in `km`

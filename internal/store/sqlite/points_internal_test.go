@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
+
 	"github.com/tk0miya/travelmap/internal/model"
 )
 
@@ -179,5 +181,83 @@ func TestPointsCreateEmptyBatch(t *testing.T) {
 
 	if inserted != 0 {
 		t.Errorf("Create returned %d, want 0", inserted)
+	}
+}
+
+// TestPointsUserIDs pins that it reports the distinct users with at least
+// one point, in ascending order, and nobody else — a full recalculation
+// walks exactly this list.
+func TestPointsUserIDs(t *testing.T) {
+	t.Parallel()
+
+	db := newTestDB(t)
+
+	withPoints, err := db.Users().Create(t.Context(), testUser("with-points@example.com"))
+	if err != nil {
+		t.Fatalf("creating the user: %v", err)
+	}
+
+	if _, err := db.Users().Create(t.Context(), testUser("without-points@example.com")); err != nil {
+		t.Fatalf("creating the other user: %v", err)
+	}
+
+	base := time.Date(2026, time.February, 3, 4, 5, 6, 0, time.UTC)
+
+	if _, err := db.Points().Create(t.Context(), []model.Point{
+		testPoint(withPoints.ID, base),
+		testPoint(withPoints.ID, base.Add(time.Minute)),
+	}); err != nil {
+		t.Fatalf("inserting points: %v", err)
+	}
+
+	got, err := db.Points().UserIDs(t.Context())
+	if err != nil {
+		t.Fatalf("UserIDs returned %v", err)
+	}
+
+	want := []int64{withPoints.ID}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("UserIDs differs (-want +got):\n%s", diff)
+	}
+}
+
+// TestPointsTimestamps pins that it reports every timestamp for the given
+// user, in ascending order, and none of another user's.
+func TestPointsTimestamps(t *testing.T) {
+	t.Parallel()
+
+	db := newTestDB(t)
+
+	user, err := db.Users().Create(t.Context(), testUser("timestamps@example.com"))
+	if err != nil {
+		t.Fatalf("creating the user: %v", err)
+	}
+
+	other, err := db.Users().Create(t.Context(), testUser("other-timestamps@example.com"))
+	if err != nil {
+		t.Fatalf("creating the other user: %v", err)
+	}
+
+	base := time.Date(2026, time.February, 3, 4, 5, 6, 0, time.UTC)
+	first, second := base.Add(time.Hour), base
+
+	// Inserted out of order, so the result being sorted is the test rather
+	// than an accident of insertion order.
+	if _, err := db.Points().Create(t.Context(), []model.Point{
+		testPoint(user.ID, first),
+		testPoint(user.ID, second),
+		testPoint(other.ID, base.Add(2*time.Hour)),
+	}); err != nil {
+		t.Fatalf("inserting points: %v", err)
+	}
+
+	got, err := db.Points().Timestamps(t.Context(), user.ID)
+	if err != nil {
+		t.Fatalf("Timestamps returned %v", err)
+	}
+
+	want := []time.Time{second, first}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("Timestamps differs (-want +got):\n%s", diff)
 	}
 }

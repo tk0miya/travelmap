@@ -50,6 +50,13 @@ func openDatabase(ctx context.Context, getenv func(string) string) (*sqlite.DB, 
 		return nil, "", err
 	}
 
+	return openConfiguredDatabase(ctx, cfg)
+}
+
+// openConfiguredDatabase is openDatabase for a caller that has already loaded
+// the configuration — recalculate needs more of it than just the database
+// path, and loading it twice would risk the two loads disagreeing.
+func openConfiguredDatabase(ctx context.Context, cfg config.Config) (*sqlite.DB, string, error) {
 	db, err := sqlite.Open(ctx, cfg.DatabasePath)
 	if err != nil {
 		return nil, "", err

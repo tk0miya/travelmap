@@ -65,6 +65,11 @@ func TestRunArguments(t *testing.T) {
 			wantErr:   errUsage,
 			wantUsage: true,
 		},
+		"an argument after recalculate is a usage error": {
+			args:      []string{"recalculate", "other.db"},
+			wantErr:   errUsage,
+			wantUsage: true,
+		},
 		"user without a subcommand is a usage error": {
 			args:    []string{"user"},
 			wantErr: errUsage,

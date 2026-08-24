@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/tk0miya/travelmap/internal/model"
 )
@@ -35,6 +36,9 @@ type Store interface {
 
 	// Points returns the point repository.
 	Points() PointRepository
+
+	// DailyStats returns the daily_stats repository.
+	DailyStats() DailyStatsRepository
 
 	// Tx runs fn inside a transaction, committing when it returns nil and
 	// rolling back when it returns an error, which Tx then returns.
@@ -79,4 +83,42 @@ type PointRepository interface {
 	// per "Deduplication" under "Data Model" in TODO.md — and reports how many
 	// rows were actually inserted.
 	Create(ctx context.Context, points []model.Point) (int, error)
+
+	// UserIDs returns the distinct user_id of every user with at least one
+	// point, for a full recalculation to iterate over.
+	UserIDs(ctx context.Context) ([]int64, error)
+
+	// Timestamps returns every timestamp recorded for user, in ascending
+	// order. A full recalculation groups these into calendar days itself,
+	// because which day a timestamp falls on depends on TRAVELMAP_TIMEZONE,
+	// which this package does not know.
+	Timestamps(ctx context.Context, userID int64) ([]time.Time, error)
+}
+
+// DailyStatsRepository stores the daily_stats table: one precomputed per-day
+// aggregate per user, rebuilt from points rather than adjusted arithmetically.
+// See "daily_stats" under "Data Model" in TODO.md.
+type DailyStatsRepository interface {
+	// Rebuild recomputes user's row for day from scratch and writes it, or —
+	// if the day now has no points — deletes it. day must be local midnight
+	// in the timezone day boundaries are cut on, i.e. what
+	// PointRepository.Timestamps' caller grouped a timestamp into.
+	//
+	// The rebuild input is that day's points plus the point immediately
+	// preceding it, which may belong to an earlier day: the day's first
+	// point measures its segment against that point. A segment whose gap
+	// exceeds trackBreak is excluded entirely from km, matching
+	// TRAVELMAP_TRACK_BREAK_MINUTES.
+	Rebuild(ctx context.Context, userID int64, day time.Time, trackBreak time.Duration) error
+
+	// DeleteAll removes every row. It is the first step of a full
+	// recalculation: changing TRAVELMAP_TIMEZONE reshuffles which days
+	// exist, and rebuilding only the days the new grouping produces would
+	// leave rows from the old grouping behind forever.
+	DeleteAll(ctx context.Context) error
+
+	// Get returns user's row for day, and [ErrNotFound] if that day has no
+	// points at all — the state Rebuild represents by deleting the row
+	// rather than storing one at zero.
+	Get(ctx context.Context, userID int64, day time.Time) (model.DailyStat, error)
 }

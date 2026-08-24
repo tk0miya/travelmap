@@ -57,6 +57,59 @@ func (r pointRepository) Create(ctx context.Context, points []model.Point) (int,
 	return inserted, nil
 }
 
+// UserIDs implements [store.PointRepository].
+func (r pointRepository) UserIDs(ctx context.Context) ([]int64, error) {
+	rows, err := r.q.QueryContext(ctx, `SELECT DISTINCT user_id FROM points ORDER BY user_id`)
+	if err != nil {
+		return nil, fmt.Errorf("sqlite: listing the users with points: %w", err)
+	}
+	defer rows.Close()
+
+	var userIDs []int64
+
+	for rows.Next() {
+		var userID int64
+		if err := rows.Scan(&userID); err != nil {
+			return nil, fmt.Errorf("sqlite: listing the users with points: %w", err)
+		}
+
+		userIDs = append(userIDs, userID)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("sqlite: listing the users with points: %w", err)
+	}
+
+	return userIDs, nil
+}
+
+// Timestamps implements [store.PointRepository].
+func (r pointRepository) Timestamps(ctx context.Context, userID int64) ([]time.Time, error) {
+	rows, err := r.q.QueryContext(ctx,
+		`SELECT timestamp FROM points WHERE user_id = ? ORDER BY timestamp`, userID)
+	if err != nil {
+		return nil, fmt.Errorf("sqlite: listing the timestamps for user %d: %w", userID, err)
+	}
+	defer rows.Close()
+
+	var timestamps []time.Time
+
+	for rows.Next() {
+		var unix int64
+		if err := rows.Scan(&unix); err != nil {
+			return nil, fmt.Errorf("sqlite: listing the timestamps for user %d: %w", userID, err)
+		}
+
+		timestamps = append(timestamps, time.Unix(unix, 0).UTC())
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("sqlite: listing the timestamps for user %d: %w", userID, err)
+	}
+
+	return timestamps, nil
+}
+
 // The interface this type exists to satisfy. See the equivalent assertion on
 // [DB] for why this is worth spelling out.
 var _ store.PointRepository = pointRepository{}
