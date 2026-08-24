@@ -73,26 +73,41 @@ func testUser(t *testing.T) model.User {
 // so they substitute it rather than open one. The SQL itself is tested in
 // internal/store/sqlite, against a real database.
 type fakeStore struct {
-	users fakeUsers
+	users  fakeUsers
+	points *fakePoints
 }
 
 // newFakeStore returns a store holding [testUser] and nothing else.
 func newFakeStore(t *testing.T) *fakeStore {
 	t.Helper()
 
-	return &fakeStore{users: fakeUsers{user: testUser(t)}}
+	return &fakeStore{users: fakeUsers{user: testUser(t)}, points: &fakePoints{}}
 }
 
 // newFailingStore returns a store whose lookups all fail, which is how the
 // tests reach the paths that answer 500.
 func newFailingStore() *fakeStore {
-	return &fakeStore{users: fakeUsers{err: errStoreUnavailable}}
+	return &fakeStore{users: fakeUsers{err: errStoreUnavailable}, points: &fakePoints{err: errStoreUnavailable}}
+}
+
+// newFakeStoreWithFailingPoints returns a store that authenticates as
+// [testUser] normally but fails every write to the point repository — the
+// authenticating lookup and the one this test is actually about are two
+// different calls, and newFailingStore fails both.
+func newFakeStoreWithFailingPoints(t *testing.T) *fakeStore {
+	t.Helper()
+
+	return &fakeStore{users: fakeUsers{user: testUser(t)}, points: &fakePoints{err: errStoreUnavailable}}
 }
 
 // Users implements [store.Store].
 func (s *fakeStore) Users() store.UserRepository { return s.users }
 
-// Tx implements [store.Store].
+// Points implements [store.Store].
+func (s *fakeStore) Points() store.PointRepository { return s.points }
+
+// Tx implements [store.Store]. There is nothing here to roll back — the fake
+// has no transaction of its own — so fn always runs against this same store.
 func (s *fakeStore) Tx(ctx context.Context, fn func(ctx context.Context, tx store.Store) error) error {
 	return fn(ctx, s)
 }
@@ -133,4 +148,47 @@ func (u fakeUsers) match(found bool) (model.User, error) {
 	default:
 		return model.User{}, store.ErrNotFound
 	}
+}
+
+// fakePointKey identifies a point the way the real schema's unique index
+// does, for the fake's own deduplication.
+type fakePointKey struct {
+	userID    int64
+	timestamp int64
+}
+
+// fakePoints implements [store.PointRepository] over an in-memory slice, with
+// the same (user_id, timestamp) deduplication the real schema enforces — a
+// handler test asserting on Created has to see the same count a real database
+// would report.
+type fakePoints struct {
+	err     error
+	created []model.Point
+	seen    map[fakePointKey]bool
+}
+
+// Create implements [store.PointRepository].
+func (p *fakePoints) Create(_ context.Context, points []model.Point) (int, error) {
+	if p.err != nil {
+		return 0, p.err
+	}
+
+	if p.seen == nil {
+		p.seen = make(map[fakePointKey]bool)
+	}
+
+	var inserted int
+
+	for _, pt := range points {
+		key := fakePointKey{userID: pt.UserID, timestamp: pt.Timestamp.Unix()}
+		if p.seen[key] {
+			continue
+		}
+
+		p.seen[key] = true
+		p.created = append(p.created, pt)
+		inserted++
+	}
+
+	return inserted, nil
 }

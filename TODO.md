@@ -77,13 +77,30 @@ under "Per-endpoint".
 
 ### `points`
 
-Cover every field of the upstream point object. One index: `(user_id, timestamp)`.
-Without it the `GET /points` time filter degrades to a full scan.
+Store the fields `POST /api/v1/points` and `POST /api/v1/overland/batches` actually populate —
+coordinates, timestamp, and the device properties listed under their "Per-endpoint" bullet — not
+the full width of upstream's own `points` table. That one also carries columns for
+OwnTracks/Traccar ingest, imports, visits and reverse geocoding, none of which this server
+implements yet; a step that adds one of those (Milestone F/G) adds the columns it needs in its
+own migration, rather than every column of an unbuilt feature sitting unused since Step 7.
+
+One index: `(user_id, timestamp)`, **unique**. It does two jobs: it is what the `GET /points` time
+filter needs (Step 10) to avoid a full scan, and it is what lets an insert deduplicate on conflict
+without a lookup first — see "Deduplication" below.
 
 No latitude/longitude index and no R\*Tree: no in-scope endpoint takes a bounding box
 (`GET /points` accepts only `start_at` / `end_at` / `page` / `per_page` / `order`), and an index
 with no query to serve costs insert time and storage for nothing. Decide which to add if and
 when rectangular search is actually needed.
+
+#### Deduplication
+
+A second point at the same `(user_id, timestamp)` is silently dropped on insert
+(`ON CONFLICT (user_id, timestamp) DO NOTHING`), matching the unique index above. This is
+narrower than upstream's own dedup key, which also includes the coordinates: two points from one
+user at the same instant are not a case a device sends deliberately, and the narrower key is what
+one index can serve for both deduplication and the time-range query, rather than needing an
+index of its own.
 
 ### `daily_stats`
 
@@ -241,6 +258,23 @@ Upstream quirks that must be checked before implementing.
   `horizontal_accuracy`, `vertical_accuracy`, `altitude`, `speed`, `speed_accuracy`, `course`,
   `course_accuracy`, `battery_state`, `battery_level`, `wifi`, `track_id`, `device_id`.
   **The success status codes differ**: 200 for points, 201 for overland.
+  `speed_accuracy` and `track_id` are accepted but not stored: upstream itself does not persist
+  either to a column, keeping them only in the raw device payload it archives — which this server
+  does not have, having no use for it yet.
+  **Neither response body is part of the compatibility contract.** Upstream answers
+  `{"data": [...]}` and `{"result": "ok"}` respectively, but the community Android client checks
+  only the status code (`api_point_repository.dart`), so both answer `{"created": <n>}` here — the
+  count of points actually inserted after deduplication, which is the one thing worth reporting
+  before Step 10 gives points their own serialization.
+  A Feature missing usable coordinates or a parseable timestamp is dropped rather than failing the
+  whole batch, matching upstream's own tolerance (`Points::Params#params_valid?`): a batch is a
+  stream of device samples, and one bad sample should not cost the rest of it.
+  A 1000-point batch — `settings/mobile`'s `batch_size` ceiling (Step 16) — runs to roughly 435 KB
+  as JSON, comfortably inside `maxRequestBody`'s 1 MiB.
+  `timestamp` is accepted in both RFC 3339's own zone-offset form (`-07:00`) and the original
+  Overland iOS app's (`-0700`, no colon — see its README's example payload): `/overland/batches`
+  exists to accept that app's own format, and Go's `time.Parse` treats the two as different
+  layouts rather than one lenient one, so both are tried.
 - **`GET /api/v1/points`** — `start_at` / `end_at` / `page` / `per_page` / `order`. Must return
   the `X-Current-Page` and `X-Total-Pages` response headers. Body is an array of point objects
   with roughly 30 fields.
@@ -775,16 +809,16 @@ app needs and the community client does not, and it is the input to Milestone F'
 Deliberately excludes `daily_stats`: `/stats` is not needed until Milestone E, and mixing
 aggregation into this PR is what made the original plan's second stage unreviewable.
 
-- [ ] `points` schema and its `(user_id, timestamp)` index, per "Data Model"
-- [ ] GeoJSON Feature parser (`internal/httpapi/dto`)
-- [ ] `POST /api/v1/points`
-- [ ] `POST /api/v1/overland/batches` (note the different success status code)
-- [ ] Deduplication (same user × timestamp)
-- [ ] Batch inserts wrapped in a transaction
-- [ ] Check `maxRequestBody` in `internal/httpapi` (1 MiB as of Step 5) against a full batch —
+- [x] `points` schema and its `(user_id, timestamp)` index, per "Data Model"
+- [x] GeoJSON Feature parser (`internal/httpapi/dto`)
+- [x] `POST /api/v1/points`
+- [x] `POST /api/v1/overland/batches` (note the different success status code)
+- [x] Deduplication (same user × timestamp)
+- [x] Batch inserts wrapped in a transaction
+- [x] Check `maxRequestBody` in `internal/httpapi` (1 MiB as of Step 5) against a full batch —
       the mobile settings allow a `batch_size` of up to 1000 points, and a body over the limit
       is answered `400 invalid request body`, which reads like malformed JSON rather than like
-      a body that was too large
+      a body that was too large. Measured: a 1000-point batch is ~435 KB, well inside the limit
 
 **Settles**: how the wide Dawarich JSON shapes are modelled and pinned with golden files.
 
