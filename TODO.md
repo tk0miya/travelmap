@@ -771,7 +771,7 @@ disagreement between the two paths shows up as those columns flipping language o
 **The fetch therefore sends no locale**: it is the only setting that does not assert an answer, and
 the push has no locale to match it against anyway.
 
-**Step 19 measures it rather than trusting it.** Fetch a check-in that also arrived by push and
+**Step 22 measures it rather than trusting it.** Fetch a check-in that also arrived by push and
 compare those five columns. If they agree, this section is settled and says so. **If they differ,
 the fix is not a locale setting** — no setting can track whatever the push does — but removing
 those columns from what a repeat write refreshes, leaving the first writer's rendering in place.
@@ -1425,6 +1425,12 @@ and run for real before the OAuth flow is written. Until it is, the access token
 Foursquare application's own console, which issues one for the account that owns the application;
 that is the whole of what Step 20 later automates.
 
+**Step 19 grew a second step rather than one long checklist.** Calling the endpoint and knowing a
+page-walk succeeded is one decision; how that client copes with a rate limit, an ambiguous error
+code, or a check-in whose language disagrees between paths is another, confirmed empirically
+rather than designed alongside the first. That second half is Step 22 — it follows both 18 and
+19, and nothing in this milestone waits on it in turn.
+
 ### Step 17: Check-in storage and the Foursquare account link
 
 No HTTP and no outbound calls. Separated so the schema and the single write path are reviewed
@@ -1485,9 +1491,12 @@ replaying it again still leaves one.
 
 ### Step 19: The Foursquare API client
 
-One fetch, run by hand. The timer that repeats it is Step 21 — split that way because a client
-and a scheduler settle different conventions, and this half already reaches real check-ins on
-its own.
+One fetch, run by hand, against an API that is answering normally. Two things are split out of
+this step, for two different reasons. The timer that repeats it is Step 21 — a client and a
+scheduler settle different conventions, and this half already reaches real check-ins on its own.
+This client's response to rate limits, ambiguous error codes and locale drift is Step 22 instead:
+none of that is decided by this step's design, only confirmed once it exists — and, for locale,
+once Step 18's push path has a check-in to compare against.
 
 - [ ] `internal/foursquare`: a client for `GET /v2/users/self/checkins` — `v=` pinned, `m=swarm`,
       the token in an `Authorization: Bearer` header rather than the URL, `limit=250`,
@@ -1503,23 +1512,6 @@ its own.
       an ignored `beforeTimestamp` produces — makes the run **fail**. Assert the failure, not merely
       that the run terminates: termination alone passes with the progress check missing, which is
       the whole reason for writing this one
-- [ ] The client **reads `meta`, not only the HTTP status**: it logs `meta.requestId` on every
-      failure and surfaces `errorType: deprecated` on a 200 loudly, that being the only notice
-      this design gets before a pinned `v` stops answering
-- [ ] **Branch on `meta.errorType`, never on the status alone**: 403 is both
-      `rate_limit_exceeded` and `not_authorized`, and 429 is `quota_exceeded`. A revoked
-      authorisation must not be retried as a rate limit, and an exhausted hourly limit must not be
-      reported as a permissions failure
-- [ ] Read `X-RateLimit-Remaining` and `X-RateLimit-Reset` and **log them**, and when `Remaining`
-      reaches zero **end the run rather than sending the request that would 403**. No sleeping
-      inside a run: the window has moved on by the next tick anyway. Such a run **does not advance
-      `synced_through`**, because it did not cover its window — and running it again walks the
-      window from the top rather than resuming, there being no stored position to resume from
-- [ ] Send **no locale**, for the reason in "Localisation is left unset on both paths" — this is
-      a decision the fetch path has to make and the push path cannot
-- [ ] **Measure whether that matches the push**: fetch a check-in that also arrived by push and
-      compare `venue_name`, `country`, `city`, `state` and `category_name`. If they differ, take
-      those columns out of what a repeat write refreshes and record the outcome in that section
 - [ ] `internal/config`: `TRAVELMAP_FOURSQUARE_SYNC_LOOKBACK_DAYS` and
       `TRAVELMAP_FOURSQUARE_API_URL` (default `https://api.foursquare.com`)
 - [ ] `internal/checkin`: one sync run — the lookback window from "The periodic fetch takes a
@@ -1531,9 +1523,6 @@ its own.
       run"
 - [ ] Test the client against `httptest.NewServer` serving a recorded response;
       `TRAVELMAP_FOURSQUARE_API_URL` exists so the test can point at it
-- [ ] A test for the two `meta` cases the status code alone would hide: a 200 carrying
-      `errorType: deprecated` is reported and its items are still stored, and a 403 is
-      distinguished by `errorType` between the rate limit and a revoked authorisation
 - [ ] A test that the same check-in arriving by push and then by fetch leaves one row, with
       `source` still naming the first path
 - [ ] **A test that pins the window against a cursor**: a check-in dated before the last
@@ -1542,8 +1531,8 @@ its own.
       stops a later change from turning `synced_through` into the lower bound, which is the one
       mistake that would silently defeat the whole fetch path
 
-**Settles**: the conventions for calling an external API from this server — timeouts, the `meta`
-check, rate-limit handling, closing bodies.
+**Settles**: the conventions for calling an external API from this server — timeouts, closing
+bodies, and how a page-walk knows it succeeded.
 
 **Confirms**, and records the answers in "Fetching check-ins":
 
@@ -1618,7 +1607,8 @@ the meantime; the rest of the milestone does not depend on it.
 
 ### Step 21: The periodic fetch worker
 
-Follows Step 19, whose sync run this repeats on a timer; nothing in Step 20 is in the way.
+Follows Step 19, whose sync run this repeats on a timer; nothing in Step 20 is in the way, and
+Step 22's hardening is not required first either — see that step's note on why.
 
 - [ ] `internal/config`: `TRAVELMAP_FOURSQUARE_SYNC_INTERVAL` (default `1h`, `0` disabling the
       fetch), which brings duration parsing into that package
@@ -1653,6 +1643,50 @@ paths work. **Step 21's Done when is the fetch path's proof**, because it runs w
 unset and nothing else can have collected the row. Read this condition as "both paths are
 configured and nothing is lost", and that one as "the fetch path collects".
 
+### Step 22: Rate limits, ambiguous errors and locale drift
+
+Split out of Step 19 because none of this is decided by the calling convention or the paging
+design — it is confirmed empirically, once a client exists to run and a check-in has arrived by
+both paths to compare. Depends on Step 19, which this extends, and on Step 18 for the check-in
+the locale bullet compares against.
+
+- [ ] The client **reads `meta`, not only the HTTP status**: it logs `meta.requestId` on every
+      failure and surfaces `errorType: deprecated` on a 200 loudly, that being the only notice
+      this design gets before a pinned `v` stops answering
+- [ ] **Branch on `meta.errorType`, never on the status alone**: 403 is both
+      `rate_limit_exceeded` and `not_authorized`, and 429 is `quota_exceeded`. A revoked
+      authorisation must not be retried as a rate limit, and an exhausted hourly limit must not be
+      reported as a permissions failure
+- [ ] Read `X-RateLimit-Remaining` and `X-RateLimit-Reset` and **log them**, and when `Remaining`
+      reaches zero **end the run rather than sending the request that would 403**. No sleeping
+      inside a run: the window has moved on by the next tick anyway. Such a run **does not advance
+      `synced_through`**, because it did not cover its window — and running it again walks the
+      window from the top rather than resuming, there being no stored position to resume from
+- [ ] Send **no locale**, for the reason in "Localisation is left unset on both paths" — this is
+      a decision the fetch path has to make and the push path cannot
+- [ ] **Measure whether that matches the push**: fetch a check-in that also arrived by push and
+      compare `venue_name`, `country`, `city`, `state` and `category_name`. If they differ, take
+      those columns out of what a repeat write refreshes and record the outcome in that section
+- [ ] A test for the two `meta` cases the status code alone would hide: a 200 carrying
+      `errorType: deprecated` is reported and its items are still stored, and a 403 is
+      distinguished by `errorType` between the rate limit and a revoked authorisation
+
+**Settles**: how this client behaves when Foursquare pushes back — an ambiguous status, an
+exhausted quota, a deprecation notice — and what the two collection paths do when they disagree
+about a check-in's language.
+
+**Nothing else in the milestone waits on this.** Step 21's worker runs unattended, which is where
+a stuck retry or a wasted request would actually bite — but "What the fetch path costs" shows
+normal use nowhere near the 500-request budget, so Step 21 does not hold for this step, and an
+account that runs into either problem before it lands sees the run fail with a plain HTTP error —
+no branch yet to say whether it was a quota or a revoked token — until this step's logging exists
+to tell them apart.
+
+**Done when**: a fake server answering 403 with `errorType: not_authorized` is not retried as a
+rate limit, one answering with `X-RateLimit-Remaining: 0` ends the run without a further request,
+and a check-in observed by both paths either matches on the five columns or has them recorded as
+excluded from refresh.
+
 ## Risks and Open Questions
 
 - **Because the iOS app is closed source, the endpoints it actually calls and the required
@@ -1681,7 +1715,7 @@ configured and nothing is lost", and that one as "the fetch path collects".
   source of this data exists. Two things are the hedge and both are already in the design: the push
   path is a separate mechanism, which one would expect to outlive the fetch endpoint though nothing
   documents that either, and `checkins.raw` means a later column can be derived from stored payloads
-  instead of re-fetching. The `errorType: deprecated` check in Step 19 is the early warning.
+  instead of re-fetching. The `errorType: deprecated` check in Step 22 is the early warning.
 - **What each collection path actually sees is only partly known.** Whether a push fires for a
   check-in added after the fact, and whether one fires for an edit to a check-in already stored,
   are both undocumented and unobserved. Nothing in the design rests on either answer — the fetch
