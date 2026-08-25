@@ -28,7 +28,7 @@ const (
 func newTestServer(t *testing.T) *httptest.Server {
 	t.Helper()
 
-	return newTestServerWith(t, newFakeStore(t))
+	return newTestServerWith(t, newTestStore(t))
 }
 
 // newTestServerWith starts the real router over st on a test server, so that

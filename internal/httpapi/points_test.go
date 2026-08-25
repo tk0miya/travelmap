@@ -169,7 +169,7 @@ func TestCreatePointsRequiresAuthentication(t *testing.T) {
 func TestCreatePointsStoreFailure(t *testing.T) {
 	t.Parallel()
 
-	srv := newTestServerWith(t, newFakeStoreWithFailingPoints(t))
+	srv := newTestServerWith(t, newStoreWithUnavailablePoints(t))
 	resp := do(t, srv, http.MethodPost, "/api/v1/points?api_key="+testAPIKey, withBody(validLocationsBody))
 
 	if resp.status != http.StatusInternalServerError {
