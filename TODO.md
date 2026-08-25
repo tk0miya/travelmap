@@ -79,11 +79,15 @@ change it — after updating this file.
 
 ## Data Model
 
+Columns and indexes for the tables already migrated (`users`, `points`, `daily_stats`) are in
+`internal/store/sqlite/schema.sql`, kept current by `TestSchema`. What follows is the behaviour
+that file cannot show. `checkins` and `foursquare_accounts` (Milestone I) have no migration yet,
+so their columns are still specified here, in the step that adds them.
+
 ### `users`
 
-Columns: `id`, `email`, `password_hash`, `api_key`, `created_at`, `updated_at`. Unique indexes on
-`email` and on `api_key`; `email` is declared `COLLATE NOCASE`, so an address is one identity
-however it was typed and the index refuses a second account differing only in case.
+`email` is declared `COLLATE NOCASE`, so an address is one identity however it was typed and the
+unique index refuses a second account differing only in case.
 
 `api_key` is stored **as issued, not hashed**: `POST /api/v1/auth/login` has to hand the key
 itself back to the client, and a digest could not be turned back into one.
@@ -102,9 +106,9 @@ OwnTracks/Traccar ingest, imports, visits and reverse geocoding, none of which t
 implements yet; a step that adds one of those (Milestone F/G) adds the columns it needs in its
 own migration, rather than every column of an unbuilt feature sitting unused since Step 7.
 
-One index: `(user_id, timestamp)`, **unique**. It does two jobs: it is what the `GET /points` time
-filter needs (Step 10) to avoid a full scan, and it is what lets an insert deduplicate on conflict
-without a lookup first — see "Deduplication" below.
+The `(user_id, timestamp)` unique index does two jobs: it is what the `GET /points` time filter
+needs (Step 10) to avoid a full scan, and it is what lets an insert deduplicate on conflict without
+a lookup first — see "Deduplication" below.
 
 No latitude/longitude index and no R\*Tree: no in-scope endpoint takes a bounding box
 (`GET /points` accepts only `start_at` / `end_at` / `page` / `per_page` / `order`), and an index
@@ -125,8 +129,6 @@ index of its own.
 A precomputed per-day aggregate. `/stats` and `/points/tracked_months` read only from here and
 must never aggregate `points` directly.
 
-Columns: `user_id`, `day`, `points`, `reverse_geocoded_points`, `km`, `countries`, `cities`.
-Primary key: the composite `(user_id, day)`.
 `countries` / `cities` are JSON arrays of the country and city names visited that day; take the
 union when aggregating over a longer range. All five `/stats` totals (`totalDistanceKm`,
 `totalPointsTracked`, `totalReverseGeocodedPoints`, `totalCountriesVisited`,
