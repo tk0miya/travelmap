@@ -84,7 +84,7 @@ WHERE timestamp >= :day_start AND timestamp < :day_end
 `
 
 // emptyJSONArray is what countries and cities are written as until reverse
-// geocoding (Milestone G) is enabled, per "daily_stats" in docs/database.md.
+// geocoding (Milestone G) is enabled.
 const emptyJSONArray = "[]"
 
 // dailyStatsRepository implements [store.DailyStatsRepository].

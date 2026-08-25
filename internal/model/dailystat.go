@@ -3,8 +3,7 @@ package model
 import "time"
 
 // DailyStat is one user's precomputed distance and point count for one
-// calendar day. See "daily_stats" in docs/database.md for why nothing else
-// may compute one by aggregating Points directly.
+// calendar day.
 type DailyStat struct {
 	UserID int64
 

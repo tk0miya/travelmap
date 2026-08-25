@@ -37,6 +37,13 @@ Three rules keep them from drifting:
   that cannot be written inside such a statement — about a table as a whole, or an absence —
   stays in the migration regardless, in `internal/store/sqlite/migrations/`, rather than moving to
   `docs/database.md`, which is for behaviour that does not attach to one column or table at all.
+  A comment inside a statement's own parentheses is one line: `schema.sql` is for scanning the
+  current structure at a glance, and a multi-line one breaks that up. **Only write one in a
+  migration that has not been merged yet.** A merged migration may already be applied to a real
+  database, and editing the exact text of a statement it contains does not reach a database that
+  ran the version before the edit — only what sits outside every statement (a table's own leading
+  comment, a standalone note) is free to edit after the fact, because no database depends on its
+  exact text.
 
 Long-form rationale belongs in the commit message. Facts that later work depends on belong in
 `TODO.md`, because nobody reads a commit message they do not know exists.

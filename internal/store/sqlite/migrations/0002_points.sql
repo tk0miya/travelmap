@@ -38,14 +38,10 @@ CREATE TABLE points (
     updated_at        INTEGER NOT NULL
 ) STRICT;
 
-CREATE UNIQUE INDEX points_user_id_timestamp_key ON points (
-    -- Unique so that an insert can deduplicate on conflict instead of needing
-    -- a lookup first, and so that it also serves as the index GET /points'
-    -- time filter needs (Step 10) — one index doing both jobs. See
-    -- "Deduplication" under "points" in docs/database.md for what happens on
-    -- conflict.
-    user_id, timestamp
-);
+-- Unique so that an insert can deduplicate on conflict instead of needing a
+-- lookup first, and so that it also serves as the index GET /points' time
+-- filter needs (Step 10) — one index doing both jobs.
+CREATE UNIQUE INDEX points_user_id_timestamp_key ON points (user_id, timestamp);
 
 -- No latitude/longitude index and no R*Tree: no in-scope endpoint takes a
 -- bounding box (GET /points accepts only start_at/end_at/page/per_page/

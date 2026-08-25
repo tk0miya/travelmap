@@ -1,8 +1,6 @@
 -- +goose Up
 
--- A precomputed per-day aggregate; see "daily_stats" in docs/database.md for
--- why nothing else may compute one by aggregating points directly, and for
--- the rebuild-from-scratch and delete-at-zero rules it is rebuilt under.
+-- A precomputed per-day aggregate.
 CREATE TABLE daily_stats (
     user_id                 INTEGER NOT NULL REFERENCES users (id),
 
