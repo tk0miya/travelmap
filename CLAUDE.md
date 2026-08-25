@@ -96,6 +96,13 @@ The rules that matter, stated directly:
   and gets read as one.
 - **Store tests run against a real temporary SQLite database** created by the shared test
   helper, not a mock. The SQL is the thing being tested.
+- **The current schema is a generated snapshot, not documentation to hand-maintain.**
+  `internal/store/sqlite/schema.sql` is a dump of a freshly migrated database — the structure
+  every migration adds up to, in one file, rather than something read by replaying diffs.
+  Regenerate it with `go test ./internal/store/sqlite/... -update` whenever a migration changes
+  the schema; `TestSchema` compares it against a fresh migration run on every other invocation, so
+  a stale file fails `make test` and the pre-commit hook exactly as a stale JSON golden does — no
+  separate rule or CI step is needed to catch a forgotten regeneration.
 - **A test that only passes in a particular order is a broken test**: `make test` shuffles.
 - Tests live beside the code as `_test.go`. Use an external `_test` package when the test
   should only see the exported surface.
