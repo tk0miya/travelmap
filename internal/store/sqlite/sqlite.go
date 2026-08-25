@@ -101,6 +101,11 @@ func (db *DB) Points() store.PointRepository {
 	return pointRepository{q: db.q}
 }
 
+// DailyStats implements [store.Store].
+func (db *DB) DailyStats() store.DailyStatsRepository {
+	return dailyStatsRepository{q: db.q}
+}
+
 // Tx implements [store.Store].
 func (db *DB) Tx(ctx context.Context, fn func(ctx context.Context, tx store.Store) error) error {
 	// A nested call joins the transaction already running rather than opening a

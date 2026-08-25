@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // prefix is prepended to every environment variable this server reads.
@@ -17,6 +18,12 @@ const (
 	defaultAddr         = ":3000"
 	defaultLogLevel     = slog.LevelInfo
 	defaultDatabasePath = "travelmap.db"
+
+	// defaultTimezone and defaultTrackBreakMinutes are also the values
+	// GET /api/v1/users/me and the daily_stats rebuild fall back to, per
+	// "Configuration affecting stored aggregates" in TODO.md.
+	defaultTimezone          = "UTC"
+	defaultTrackBreakMinutes = 30
 )
 
 // Config is the server configuration.
@@ -47,6 +54,22 @@ type Config struct {
 	// Turning it on holds [Config.LogLevel] down to Info, since that is the
 	// level those lines are written at.
 	DebugLogRequests bool
+
+	// Timezone is the IANA zone name day boundaries in daily_stats are cut
+	// on, and what GET /api/v1/users/me reports in settings.timezone.
+	// Changing it invalidates every stored daily_stats row and requires
+	// `travelmap recalculate`; see "Configuration affecting stored
+	// aggregates" in TODO.md.
+	Timezone string
+
+	// TrackBreakMinutes is the gap, in minutes, above which a segment
+	// between two consecutive points is excluded entirely from a day's km
+	// rather than counted as travelled distance. Distinct from
+	// settings/mobile's own track_break, which is the device's own
+	// track-splitting setting; see "Configuration affecting stored
+	// aggregates" in TODO.md. Changing it likewise requires `travelmap
+	// recalculate`.
+	TrackBreakMinutes int
 }
 
 // Load reads the configuration from the TRAVELMAP_* environment variables,
@@ -57,9 +80,11 @@ type Config struct {
 // them from running in parallel. Callers outside tests pass [os.Getenv].
 func Load(getenv func(string) string) (Config, error) {
 	cfg := Config{
-		Addr:         lookup(getenv, "ADDR", defaultAddr),
-		LogLevel:     defaultLogLevel,
-		DatabasePath: lookup(getenv, "DATABASE", defaultDatabasePath),
+		Addr:              lookup(getenv, "ADDR", defaultAddr),
+		LogLevel:          defaultLogLevel,
+		DatabasePath:      lookup(getenv, "DATABASE", defaultDatabasePath),
+		Timezone:          lookup(getenv, "TIMEZONE", defaultTimezone),
+		TrackBreakMinutes: defaultTrackBreakMinutes,
 	}
 
 	if raw := lookup(getenv, "LOG_LEVEL", ""); raw != "" {
@@ -90,7 +115,47 @@ func Load(getenv func(string) string) (Config, error) {
 		cfg.LogLevel = slog.LevelInfo
 	}
 
+	// Resolved and discarded rather than kept on Config: what daily_stats
+	// needs is a *time.Location, but every caller of Load runs in the same
+	// process as the one that will use it, so resolving it again there costs
+	// nothing and keeps Config itself made of plain, comparable values.
+	// Doing it here means a typo is refused at startup rather than the first
+	// time `travelmap recalculate` runs.
+	if _, err := time.LoadLocation(cfg.Timezone); err != nil {
+		return Config{}, fmt.Errorf("%sTIMEZONE: %w", prefix, err)
+	}
+
+	if raw := lookup(getenv, "TRACK_BREAK_MINUTES", ""); raw != "" {
+		minutes, err := strconv.Atoi(raw)
+		if err != nil || minutes <= 0 {
+			return Config{}, fmt.Errorf("%sTRACK_BREAK_MINUTES: must be a positive number of minutes", prefix)
+		}
+
+		cfg.TrackBreakMinutes = minutes
+	}
+
 	return cfg, nil
+}
+
+// Location resolves [Config.Timezone] into a *time.Location.
+//
+// Load already resolves it once, to refuse a typo at startup rather than the
+// first time it is needed; this does the same lookup again for the caller
+// that actually wants the value; see the comment in Load for why it is not
+// carried on Config itself instead.
+func (c Config) Location() (*time.Location, error) {
+	loc, err := time.LoadLocation(c.Timezone)
+	if err != nil {
+		return nil, fmt.Errorf("%sTIMEZONE: %w", prefix, err)
+	}
+
+	return loc, nil
+}
+
+// TrackBreak is [Config.TrackBreakMinutes] as a [time.Duration], which is
+// the form the daily_stats rebuild takes it in.
+func (c Config) TrackBreak() time.Duration {
+	return time.Duration(c.TrackBreakMinutes) * time.Minute
 }
 
 // NewLogger builds the logger described by the configuration.

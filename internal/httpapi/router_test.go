@@ -37,12 +37,21 @@ func newTestServer(t *testing.T) *httptest.Server {
 func newTestServerWith(t *testing.T, st store.Store) *httptest.Server {
 	t.Helper()
 
-	handler := httpapi.New(httpapi.Options{
-		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
-		Store:  st,
-	})
+	return newTestServerWithOptions(t, httpapi.Options{Store: st})
+}
 
-	srv := httptest.NewServer(handler)
+// newTestServerWithOptions is [newTestServerWith] for a test that needs to
+// set an option [newTestServerWith] does not expose, such as Timezone. Logger
+// is filled in when left unset, since no test in this package wants to see
+// what the server logs.
+func newTestServerWithOptions(t *testing.T, opts httpapi.Options) *httptest.Server {
+	t.Helper()
+
+	if opts.Logger == nil {
+		opts.Logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	}
+
+	srv := httptest.NewServer(httpapi.New(opts))
 	t.Cleanup(srv.Close)
 
 	return srv

@@ -67,6 +67,10 @@ running up to ten seconds to finish.
 `bin/travelmap --version` reports the build the binary came from, which is the thing to quote
 in a bug report.
 
+`recalculate` rebuilds the precomputed statistics (`/stats`, `/points/tracked_months`) from the
+points already stored. Run it after an import, after fixing an inconsistency, or after changing
+`TRAVELMAP_TIMEZONE` or `TRAVELMAP_TRACK_BREAK_MINUTES` — see "Configuration" below.
+
 ## Configuration
 
 The server is configured through `TRAVELMAP_*` environment variables. Every one of them has a

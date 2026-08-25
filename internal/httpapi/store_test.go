@@ -106,6 +106,11 @@ func (s *fakeStore) Users() store.UserRepository { return s.users }
 // Points implements [store.Store].
 func (s *fakeStore) Points() store.PointRepository { return s.points }
 
+// DailyStats implements [store.Store]. No handler reaches this yet —
+// daily_stats is read starting Step 11 — so it is here only to satisfy the
+// interface.
+func (s *fakeStore) DailyStats() store.DailyStatsRepository { return fakeDailyStats{} }
+
 // Tx implements [store.Store]. There is nothing here to roll back — the fake
 // has no transaction of its own — so fn always runs against this same store.
 func (s *fakeStore) Tx(ctx context.Context, fn func(ctx context.Context, tx store.Store) error) error {
@@ -191,4 +196,36 @@ func (p *fakePoints) Create(_ context.Context, points []model.Point) (int, error
 	}
 
 	return inserted, nil
+}
+
+// UserIDs implements [store.PointRepository]. Unreached by any handler, so
+// it is here only to satisfy the interface.
+func (p *fakePoints) UserIDs(context.Context) ([]int64, error) {
+	return nil, errors.New("fakePoints: UserIDs is not implemented")
+}
+
+// Timestamps implements [store.PointRepository]. Unreached by any handler,
+// so it is here only to satisfy the interface.
+func (p *fakePoints) Timestamps(context.Context, int64) ([]time.Time, error) {
+	return nil, errors.New("fakePoints: Timestamps is not implemented")
+}
+
+// fakeDailyStats implements [store.DailyStatsRepository]. No handler reaches
+// it yet — daily_stats is read starting Step 11 and written starting Step 9
+// — so every method fails, the same way fakeUsers.Create does.
+type fakeDailyStats struct{}
+
+// Rebuild implements [store.DailyStatsRepository].
+func (fakeDailyStats) Rebuild(context.Context, int64, time.Time, time.Duration) error {
+	return errors.New("fakeDailyStats: Rebuild is not implemented")
+}
+
+// DeleteAll implements [store.DailyStatsRepository].
+func (fakeDailyStats) DeleteAll(context.Context) error {
+	return errors.New("fakeDailyStats: DeleteAll is not implemented")
+}
+
+// Get implements [store.DailyStatsRepository].
+func (fakeDailyStats) Get(context.Context, int64, time.Time) (model.DailyStat, error) {
+	return model.DailyStat{}, errors.New("fakeDailyStats: Get is not implemented")
 }

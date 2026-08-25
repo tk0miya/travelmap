@@ -1,11 +1,14 @@
 package httpapi_test
 
 import (
+	"encoding/json"
 	"net/http"
 	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+
+	"github.com/tk0miya/travelmap/internal/httpapi"
 )
 
 // bearer is the Authorization header value carrying key.
@@ -133,6 +136,37 @@ func TestUsersMe(t *testing.T) {
 
 			assertGolden(t, "users_me.json", resp.body)
 		})
+	}
+}
+
+// TestUsersMeReportsTheConfiguredTimezone pins that settings.timezone comes
+// from Options.Timezone (TRAVELMAP_TIMEZONE) rather than a constant, which
+// [TestUsersMe]'s golden file — taken under the "UTC" default — cannot tell
+// apart from a hardcoded "UTC" on its own.
+func TestUsersMeReportsTheConfiguredTimezone(t *testing.T) {
+	t.Parallel()
+
+	srv := newTestServerWithOptions(t, httpapi.Options{Store: newFakeStore(t), Timezone: "Asia/Tokyo"})
+	resp := do(t, srv, http.MethodGet, "/api/v1/users/me?api_key="+testAPIKey)
+
+	if resp.status != http.StatusOK {
+		t.Fatalf("status = %d, want %d", resp.status, http.StatusOK)
+	}
+
+	var body struct {
+		User struct {
+			Settings struct {
+				Timezone string `json:"timezone"`
+			} `json:"settings"`
+		} `json:"user"`
+	}
+
+	if err := json.Unmarshal(resp.body, &body); err != nil {
+		t.Fatalf("decoding the response body: %v", err)
+	}
+
+	if got := body.User.Settings.Timezone; got != "Asia/Tokyo" {
+		t.Errorf("settings.timezone = %q, want Asia/Tokyo", got)
 	}
 }
 

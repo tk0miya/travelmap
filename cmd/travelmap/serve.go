@@ -46,6 +46,7 @@ func serve(getenv func(string) string, stderr io.Writer) error {
 		Logger:           logger,
 		Store:            db,
 		DebugLogRequests: cfg.DebugLogRequests,
+		Timezone:         cfg.Timezone,
 	})
 
 	return httpapi.Serve(ctx, cfg.Addr, handler, logger)

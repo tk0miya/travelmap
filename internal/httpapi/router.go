@@ -25,19 +25,31 @@ type Options struct {
 	// every request, unmatched routes included, with the credentials taken out.
 	// Off unless TRAVELMAP_DEBUG_LOG_REQUESTS says otherwise.
 	DebugLogRequests bool
+
+	// Timezone is what GET /api/v1/users/me reports in settings.timezone —
+	// TRAVELMAP_TIMEZONE, unvalidated here because config.Load already
+	// refused an invalid one at startup. Left empty, it defaults to "UTC",
+	// which is what every test in this package that does not set it gets.
+	Timezone string
 }
 
 // api holds the dependencies shared by the handlers. Handlers are methods on
 // it rather than free functions, so a new dependency is added in one place
 // instead of being threaded through every signature.
 type api struct {
-	logger *slog.Logger
-	store  store.Store
+	logger   *slog.Logger
+	store    store.Store
+	timezone string
 }
 
 // New builds the server's HTTP handler.
 func New(opts Options) http.Handler {
-	a := &api{logger: opts.Logger, store: opts.Store}
+	timezone := opts.Timezone
+	if timezone == "" {
+		timezone = defaultTimezone
+	}
+
+	a := &api{logger: opts.Logger, store: opts.Store, timezone: timezone}
 
 	r := chi.NewRouter()
 
