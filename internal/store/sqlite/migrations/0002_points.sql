@@ -9,8 +9,8 @@
 -- actually populate, not the full width of upstream's own points table: that
 -- one also carries columns for OwnTracks/Traccar ingest, imports, visits and
 -- reverse geocoding, none of which this server implements yet. A step that
--- adds one of those adds the columns it needs in its own migration, per
--- "points" under "Data Model" in TODO.md.
+-- adds one of those adds the columns it needs in its own migration, rather
+-- than every column of an unbuilt feature sitting unused since Step 7.
 CREATE TABLE points (
     id                INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id           INTEGER NOT NULL REFERENCES users (id),
@@ -38,8 +38,16 @@ CREATE TABLE points (
     updated_at        INTEGER NOT NULL
 ) STRICT;
 
--- Unique so that an insert can deduplicate on conflict instead of needing a
--- lookup first, and so that it also serves as the index GET /points' time
--- filter needs (Step 10) — one index doing both jobs. See "Deduplication"
--- under "points" in TODO.md.
-CREATE UNIQUE INDEX points_user_id_timestamp_key ON points (user_id, timestamp);
+CREATE UNIQUE INDEX points_user_id_timestamp_key ON points (
+    -- Unique so that an insert can deduplicate on conflict instead of needing
+    -- a lookup first, and so that it also serves as the index GET /points'
+    -- time filter needs (Step 10) — one index doing both jobs. See
+    -- "Deduplication" under "points" in docs/database.md for what happens on
+    -- conflict.
+    user_id, timestamp
+);
+
+-- No latitude/longitude index and no R*Tree: no in-scope endpoint takes a
+-- bounding box (GET /points accepts only start_at/end_at/page/per_page/
+-- order), and an index with no query to serve costs insert time and storage
+-- for nothing. Add one if and when rectangular search is actually needed.

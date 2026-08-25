@@ -1,12 +1,8 @@
 -- +goose Up
 
--- A precomputed per-day aggregate. /stats and /points/tracked_months (Step 11)
--- read only from here and must never aggregate points directly, per
--- "daily_stats" under "Data Model" in TODO.md.
---
--- Rebuilt from scratch, never adjusted arithmetically: a row is deleted
--- entirely once its day has zero points, rather than kept at zero, per the
--- same section.
+-- A precomputed per-day aggregate; see "daily_stats" in docs/database.md for
+-- why nothing else may compute one by aggregating points directly, and for
+-- the rebuild-from-scratch and delete-at-zero rules it is rebuilt under.
 CREATE TABLE daily_stats (
     user_id                 INTEGER NOT NULL REFERENCES users (id),
 

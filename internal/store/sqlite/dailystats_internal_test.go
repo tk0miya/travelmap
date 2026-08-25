@@ -84,9 +84,9 @@ func TestDailyStatsRebuild(t *testing.T) {
 }
 
 // TestDailyStatsRebuildDeletesTheEmptiedDay pins "Delete the row entirely
-// once a day has zero points" under "daily_stats" in TODO.md: rebuilding a
-// day that has no points removes any row already there instead of leaving
-// one behind at zero.
+// once a day has zero points" under "daily_stats" in docs/database.md:
+// rebuilding a day that has no points removes any row already there instead
+// of leaving one behind at zero.
 func TestDailyStatsRebuildDeletesTheEmptiedDay(t *testing.T) {
 	t.Parallel()
 

@@ -68,7 +68,7 @@ func TestPointsCreate(t *testing.T) {
 
 // TestPointsCreateDeduplicates pins that a second point at the same
 // (user_id, timestamp) is dropped rather than duplicated or refused, per
-// "Deduplication" under "points" in TODO.md.
+// "Deduplication" under "points" in docs/database.md.
 func TestPointsCreateDeduplicates(t *testing.T) {
 	t.Parallel()
 
