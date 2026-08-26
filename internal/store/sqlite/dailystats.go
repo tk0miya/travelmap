@@ -24,11 +24,11 @@ const dayFormat = "2006-01-02"
 //
 // The candidate set is that day's points plus the single point immediately
 // preceding :day_start, which may belong to an earlier day — the day's first
-// point measures its segment against it, per "How to update" under
-// "daily_stats" in TODO.md. LAG over that set (ordered by timestamp) pairs
-// each row with its predecessor; the outer WHERE then keeps only the rows
-// that actually fall in the day, so the preceding point contributes its
-// coordinates to that pairing but never a distance of its own.
+// point measures its segment against it. LAG over that set (ordered by
+// timestamp) pairs each row with its predecessor; the outer WHERE then keeps
+// only the rows that actually fall in the day, so the preceding point
+// contributes its coordinates to that pairing but never a distance of its
+// own.
 //
 // Named parameters are used, rather than positional ones, because
 // :earth_radius_km, :user_id, :day_start and :day_end each appear more than
@@ -84,8 +84,7 @@ WHERE timestamp >= :day_start AND timestamp < :day_end
 `
 
 // emptyJSONArray is what countries and cities are written as until reverse
-// geocoding (Milestone G) is enabled, per "daily_stats" under "Data Model" in
-// TODO.md.
+// geocoding is enabled.
 const emptyJSONArray = "[]"
 
 // dailyStatsRepository implements [store.DailyStatsRepository].

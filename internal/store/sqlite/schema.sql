@@ -53,8 +53,6 @@ CREATE TABLE points (
     updated_at        INTEGER NOT NULL
 ) STRICT;
 
-CREATE UNIQUE INDEX points_user_id_timestamp_key ON points (user_id, timestamp);
-
 CREATE TABLE daily_stats (
     user_id                 INTEGER NOT NULL REFERENCES users (id),
 
@@ -73,3 +71,8 @@ CREATE TABLE daily_stats (
 
     PRIMARY KEY (user_id, day)
 ) STRICT;
+
+CREATE UNIQUE INDEX points_user_id_timestamp_key ON points (
+    -- Deduplicates inserts on conflict; also serves GET /points' time filter.
+    user_id, timestamp
+);

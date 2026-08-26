@@ -87,7 +87,7 @@ func TestCreateOverlandBatchAcceptsTheOverlandTimestampFormat(t *testing.T) {
 // TestCreatePointsDeduplicates pins that a point already stored at the same
 // (user, timestamp) is silently dropped rather than duplicated or refused —
 // the batch_size settings.mobile allows means a client is expected to resend
-// overlapping ranges. See "Deduplication" under "points" in TODO.md.
+// overlapping ranges.
 func TestCreatePointsDeduplicates(t *testing.T) {
 	t.Parallel()
 

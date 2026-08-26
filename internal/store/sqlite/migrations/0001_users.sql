@@ -2,7 +2,9 @@
 
 -- The accounts the API authenticates. On a self-hosted instance they are issued
 -- from the command line (`travelmap user create`), so there is no sign-up flow
--- and no columns for one.
+-- and no columns for one. Likewise no status/plan/subscription_source/
+-- active_until: those are upstream Cloud's billing fields, billing is a
+-- non-goal, and auth/login answers them with constants instead.
 --
 -- STRICT, here and in every table that follows: without it SQLite's type
 -- affinity accepts a string where an integer is declared and stores it as a

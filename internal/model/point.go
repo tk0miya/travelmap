@@ -15,8 +15,9 @@ type Point struct {
 	// UserID is the owning [User]'s id.
 	UserID int64
 
-	// Timestamp is when the device recorded the point, at second resolution —
-	// the column's own, per "Data Model" in TODO.md.
+	// Timestamp is when the device recorded the point, at second resolution,
+	// for the reason on users.created_at
+	// (internal/store/sqlite/migrations/0001_users.sql).
 	Timestamp time.Time
 
 	Latitude  float64

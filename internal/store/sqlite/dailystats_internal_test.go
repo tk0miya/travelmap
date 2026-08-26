@@ -83,10 +83,9 @@ func TestDailyStatsRebuild(t *testing.T) {
 	}
 }
 
-// TestDailyStatsRebuildDeletesTheEmptiedDay pins "Delete the row entirely
-// once a day has zero points" under "daily_stats" in TODO.md: rebuilding a
-// day that has no points removes any row already there instead of leaving
-// one behind at zero.
+// TestDailyStatsRebuildDeletesTheEmptiedDay pins that rebuilding a day that
+// has no points removes any row already there instead of leaving one behind
+// at zero.
 func TestDailyStatsRebuildDeletesTheEmptiedDay(t *testing.T) {
 	t.Parallel()
 
@@ -171,8 +170,7 @@ func TestDailyStatsRebuildTrackBreakBoundary(t *testing.T) {
 
 // TestDailyStatsRebuildCrossMidnightSegment pins that the distance between
 // the previous day's last point and the current day's first point is
-// attributed to the current day, per "Segment attribution" under
-// "daily_stats" in TODO.md — an agreement test between a full and an
+// attributed to the current day — an agreement test between a full and an
 // incremental rebuild cannot catch this, because both would drop the segment
 // the same way if it were missed.
 func TestDailyStatsRebuildCrossMidnightSegment(t *testing.T) {

@@ -69,7 +69,6 @@ func Open(ctx context.Context, path string) (*DB, error) {
 	// in database/sql instead and each runs to completion. The cost is that a
 	// read waits behind a write in progress, which for a personal server
 	// holding one user's location history is not a load worth optimising for.
-	// See "Switching to PostgreSQL / PostGIS" in TODO.md for the escape hatch.
 	pool.SetMaxOpenConns(1)
 	pool.SetMaxIdleConns(1)
 

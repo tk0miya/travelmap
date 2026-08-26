@@ -11,8 +11,7 @@ import (
 // Recalculate rebuilds daily_stats for every user, from scratch, in one
 // transaction. It is what `travelmap recalculate` runs: for recovery after an
 // import or an inconsistency, and after TRAVELMAP_TIMEZONE or
-// TRAVELMAP_TRACK_BREAK_MINUTES changes — both invalidate every existing row,
-// per "Configuration affecting stored aggregates" in TODO.md.
+// TRAVELMAP_TRACK_BREAK_MINUTES changes — both invalidate every existing row.
 //
 // loc is the timezone day boundaries are cut on and trackBreak the gap above
 // which a segment is excluded from km; both come from config, which this

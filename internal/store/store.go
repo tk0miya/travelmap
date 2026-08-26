@@ -79,9 +79,8 @@ type UserRepository interface {
 // guaranteed to eventually forget.
 type PointRepository interface {
 	// Create inserts points, silently dropping any whose (user_id, timestamp)
-	// pair is already stored — the same pair the caller cannot query without,
-	// per "Deduplication" under "Data Model" in TODO.md — and reports how many
-	// rows were actually inserted.
+	// pair is already stored — the same pair the caller cannot query without —
+	// and reports how many rows were actually inserted.
 	Create(ctx context.Context, points []model.Point) (int, error)
 
 	// UserIDs returns the distinct user_id of every user with at least one
@@ -97,7 +96,6 @@ type PointRepository interface {
 
 // DailyStatsRepository stores the daily_stats table: one precomputed per-day
 // aggregate per user, rebuilt from points rather than adjusted arithmetically.
-// See "daily_stats" under "Data Model" in TODO.md.
 type DailyStatsRepository interface {
 	// Rebuild recomputes user's row for day from scratch and writes it, or —
 	// if the day now has no points — deletes it. day must be local midnight

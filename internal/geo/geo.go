@@ -4,9 +4,8 @@ import "math"
 
 // EarthRadiusKm is the mean radius of the Earth in kilometres, used by
 // [Haversine]. The SQL rebuild query in internal/store/sqlite computes the
-// same formula and is handed this same constant, per "Distance calculation"
-// in TODO.md, rather than carrying the literal in two places where it could
-// drift.
+// same formula and is handed this same constant, rather than carrying the
+// literal in two places where it could drift.
 const EarthRadiusKm = 6371.0088
 
 // Haversine returns the great-circle distance in kilometres between two
