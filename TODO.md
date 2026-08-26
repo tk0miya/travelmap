@@ -1310,6 +1310,14 @@ the above pinned by tests.
       cases — Milestone E's updates and deletes, and Milestone G's imports, owntracks/traccar
       and reverse-geocoding worker all go through this layer
 - [ ] Update the affected days in the same transaction as the mutation, per "Data Model"
+- [ ] **Revisit `Recalculate`'s transaction scope.** It wraps every user's rebuild in one `Tx`
+      (Step 8), so on a database with several users it can hold SQLite's single write lock for
+      the whole run — long enough for a concurrent `POST /points` to exhaust the 5 s
+      `busyTimeout` and answer 500, which is not the brief CLI/server overlap that timeout's
+      comment in `sqlite.go` assumes. `recalculateUser` is already a per-user boundary; whether
+      the transaction should be scoped there instead, and what that costs `Recalculate`'s
+      all-or-nothing atomicity, is this step's to decide alongside the incremental update's own
+      transaction scope
 - [ ] A test that the incremental update and `recalculate` agree. For the same set of points, the
       `daily_stats` built up by per-ingest updates must equal the one produced by a full rebuild.
       Cover: the day boundary; out-of-order and late-arriving batches; **points separated by
