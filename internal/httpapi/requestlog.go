@@ -38,6 +38,16 @@ var sensitiveWords = []string{
 // nothing in their name says what they carry.
 var sensitiveHeaders = []string{"Cookie"}
 
+// urlValuedHeaders are the headers whose value is a URL rather than a bare
+// credential, so the redaction they need is [redactQuery]'s, applied to
+// their own query string, not [redacted]'s. Enumerated rather than detected
+// by shape: parsing every header as a URL would mangle an ordinary header
+// that merely contains a "?", where the credential this guards against —
+// api_key travels in the query string, per "Authentication" — only ever
+// arrives by a client copying the URL it was given, and Referer is the
+// header that carries one.
+var urlValuedHeaders = []string{"Referer"}
+
 // logRequests writes one line per request: what was asked for, and what it was
 // answered with.
 //
@@ -159,11 +169,41 @@ func headerAttrs(header http.Header) []any {
 }
 
 // headerValue joins the values a header arrived with, unless the header is one
-// whose value is a credential.
+// whose value is a credential, or one whose value is a URL that could carry
+// one in its query string.
 func headerValue(name string, values []string) string {
 	if sensitiveName(name) || slices.Contains(sensitiveHeaders, http.CanonicalHeaderKey(name)) {
 		return redacted
 	}
 
+	if slices.Contains(urlValuedHeaders, http.CanonicalHeaderKey(name)) {
+		values = redactURLs(values)
+	}
+
 	return strings.Join(values, ", ")
+}
+
+// redactURLs returns values with the query string of each redacted the same
+// way [redactQuery] redacts the request's own. A value that does not parse as
+// a URL, or carries no query string, is returned unchanged.
+func redactURLs(values []string) []string {
+	out := make([]string, len(values))
+
+	for i, value := range values {
+		out[i] = redactURL(value)
+	}
+
+	return out
+}
+
+// redactURL is [redactURLs] for one value.
+func redactURL(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil || u.RawQuery == "" {
+		return raw
+	}
+
+	u.RawQuery = redactQuery(u.Query())
+
+	return u.String()
 }

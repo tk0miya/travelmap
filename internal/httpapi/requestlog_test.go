@@ -91,6 +91,10 @@ func TestRequestLogCarriesNoCredentials(t *testing.T) {
 	resp := do(t, srv, http.MethodGet, "/api/v1/users/me?api_key="+testAPIKey,
 		withHeader("Authorization", "Bearer "+testAPIKey),
 		withHeader("Cookie", "session="+testAPIKey),
+		// A client that reached this endpoint from a page carrying its own
+		// api_key in the URL, the way this API's query-parameter
+		// authentication makes routine.
+		withHeader("Referer", "https://app.example/map?api_key="+testAPIKey),
 	)
 	if resp.status != http.StatusOK {
 		t.Fatalf("status = %d, want %d", resp.status, http.StatusOK)
@@ -103,7 +107,11 @@ func TestRequestLogCarriesNoCredentials(t *testing.T) {
 	}
 
 	// The credential is gone; that the client sent one, and where, is not.
-	for _, want := range []string{"api_key=[REDACTED]", "header.Authorization=[REDACTED]"} {
+	for _, want := range []string{
+		"api_key=[REDACTED]",
+		"header.Authorization=[REDACTED]",
+		`header.Referer="https://app.example/map?api_key=[REDACTED]"`,
+	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("log = %q, want it to contain %q", got, want)
 		}

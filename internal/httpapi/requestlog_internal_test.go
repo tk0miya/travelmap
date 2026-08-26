@@ -109,6 +109,27 @@ func TestHeaderValue(t *testing.T) {
 			values: []string{"application/json", "text/plain"},
 			want:   "application/json, text/plain",
 		},
+		// A device may hand its previous URL back verbatim in Referer, and
+		// that URL is a plausible carrier for the api_key it authenticated
+		// with — the same credential redactQuery exists to hide from the
+		// query string this server received directly.
+		"a Referer carrying the query-string credential": {
+			header: "Referer",
+			values: []string{"https://app.example/api/v1/points?api_key=0f1e2d3c&per_page=100"},
+			want:   "https://app.example/api/v1/points?api_key=[REDACTED]&per_page=100",
+		},
+		"a Referer with no query string": {
+			header: "Referer",
+			values: []string{"https://app.example/settings"},
+			want:   "https://app.example/settings",
+		},
+		// Not a URL at all: passed through rather than dropped, the same as
+		// any other header this facility cannot make sense of.
+		"a Referer that does not parse as a URL": {
+			header: "Referer",
+			values: []string{"bad\x7fvalue"},
+			want:   "bad\x7fvalue",
+		},
 	}
 
 	for name, tt := range tests {
