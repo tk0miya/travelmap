@@ -5,12 +5,9 @@ definition shows.
 
 `internal/store/sqlite/schema.sql` is the accompanying source for the structure itself — a
 generated, always-current snapshot of every table and index (kept current by `TestSchema`),
-carrying a column or index's own rationale as a comment where one exists. Migrations only ever
-show a diff from the version before them, so schema.sql is what shows the structure they add up
-to; read it first. What follows here is whatever does not fit there — too long for a schema.sql
-comment, or not attached to any single column or index at all. That can still be about one
-table, one column, or several; the distinction is only whether it fits in schema.sql, not how
-many tables it spans.
+carrying a column or index's own rationale as a comment where one exists. Read it first; what
+follows here is whatever does not fit there — too long for a schema.sql comment, or not attached
+to any single column or index at all.
 
 ## `points`
 
@@ -72,35 +69,10 @@ cross-midnight movement from `km`.
 
 The update runs in the same transaction as the mutation that triggered it.
 
-## Configuration affecting stored aggregates
-
-Both are **server-side** settings. Changing either invalidates every existing `daily_stats` row
-and requires `travelmap recalculate`.
-
-| Variable | Default | Effect |
-| --- | --- | --- |
-| `TRAVELMAP_TIMEZONE` | `UTC` | The timezone used to cut `day`. Part of the primary key, so a change means rebuilding for every user. Running in Japan without `Asia/Tokyo` attributes movement between 00:00 and 09:00 to the previous day, making `/stats` and `tracked_months` disagree with the app |
-| `TRAVELMAP_TRACK_BREAK_MINUTES` | `30` | The gap above which a segment is excluded from `km` |
-
-`TRAVELMAP_TRACK_BREAK_MINUTES` is **distinct from `track_break` in `settings/mobile`**, which
-is the app's own setting for how the device splits tracks. Using the app setting for aggregation
-would change the meaning of past aggregates whenever the user changes it in the app.
-
-The spec does not say how upstream computes distance, so compare against the app's own display
-and revisit if the numbers diverge.
-
 ## Distance calculation
 
 Haversine in SQL for aggregation, `internal/geo` (Go) for one-off calculations. The formula
 therefore exists twice: share the Earth-radius constant and pin agreement with a test.
 
-## Switching to PostgreSQL / PostGIS
-
-SQLite was chosen after benchmarking; see commit 59d0e04 for the measurements. None of the
-following apply today, but if one becomes real, add a PostgreSQL implementation behind the
-`internal/store` interface — which is why the store is abstracted.
-
-- Multiple users writing concurrently and continuously (SQLite always has a single writer)
-- kNN or complex spatial joins against our own boundary data rather than an external geocoder
-- H3 hex aggregation / fog of war (both non-goals)
-- The database reaching tens of GB (roughly 100 bytes per point, so 10M points is about 1 GB)
+The spec does not say how upstream computes distance, so compare against the app's own display
+and revisit if the numbers diverge.

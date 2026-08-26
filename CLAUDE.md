@@ -21,10 +21,10 @@ any language; what lands in git does not.
 | `CLAUDE.md` | This file — the conventions, so that no pull request has to re-argue them |
 | `README.md` | What the project is, and how to build, run and configure it. Written for someone approaching the project from outside, whether to run it or to start contributing |
 | `api/openapi.yaml` | OpenAPI describing the subset actually implemented here, for reference (upstream's own spec stays the compatibility source of truth) |
-| `docs/database.md` | What explains the database beyond `schema.sql` itself: invariants, algorithms, config effects, or table/column detail too long for a schema.sql comment (see "Testing") |
+| `docs/database.md` | What explains the database beyond `schema.sql` itself: invariants, algorithms, or table/column detail too long for a schema.sql comment (see "Testing") |
 | Package doc comments (`doc.go`) | What belongs in that package |
 
-Three rules keep them from drifting:
+Five rules keep them from drifting:
 
 - **A decision that changes is changed in `TODO.md` in the same pull request.** The plan
   records defaults as of planning; when implementation proves one wrong, the plan is updated,
@@ -36,15 +36,14 @@ Three rules keep them from drifting:
   reader through `schema.sql` (see "Testing"); `docs/database.md`'s own opening explains why. One
   that cannot be written inside such a statement — about a table as a whole, or an absence —
   stays in the migration regardless, in `internal/store/sqlite/migrations/`, rather than moving to
-  `docs/database.md`, which is for whatever does not fit as a schema.sql comment, one column,
-  one table or several alike.
-  A comment inside a statement's own parentheses is one line: `schema.sql` is for scanning the
-  current structure at a glance, and a multi-line one breaks that up. **Only write one in a
-  migration that has not been merged yet.** A merged migration may already be applied to a real
-  database, and editing the exact text of a statement it contains does not reach a database that
-  ran the version before the edit — only what sits outside every statement (a table's own leading
-  comment, a standalone note) is free to edit after the fact, because no database depends on its
-  exact text.
+  `docs/database.md`, which is for what does not fit `schema.sql` at all.
+- **A comment inside a statement's own parentheses is one line.** `schema.sql` is for scanning the
+  current structure at a glance, and a multi-line comment there breaks that up.
+- **Only write one in a migration that has not been merged yet.** A merged migration may already
+  be applied to a real database, and editing the exact text of a statement it contains does not
+  reach a database that ran the version before the edit — only what sits outside every statement
+  (a table's own leading comment, a standalone note) is free to edit after the fact, because no
+  database depends on its exact text.
 
 Long-form rationale belongs in the commit message. Facts that later work depends on belong in
 `TODO.md`, because nobody reads a commit message they do not know exists.

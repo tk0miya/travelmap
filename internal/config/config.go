@@ -20,8 +20,7 @@ const (
 	defaultDatabasePath = "travelmap.db"
 
 	// defaultTimezone and defaultTrackBreakMinutes are also the values
-	// GET /api/v1/users/me and the daily_stats rebuild fall back to, per
-	// "Configuration affecting stored aggregates" in TODO.md.
+	// GET /api/v1/users/me and the daily_stats rebuild fall back to.
 	defaultTimezone          = "UTC"
 	defaultTrackBreakMinutes = 30
 )
@@ -57,18 +56,19 @@ type Config struct {
 
 	// Timezone is the IANA zone name day boundaries in daily_stats are cut
 	// on, and what GET /api/v1/users/me reports in settings.timezone.
-	// Changing it invalidates every stored daily_stats row and requires
-	// `travelmap recalculate`; see "Configuration affecting stored
-	// aggregates" in TODO.md.
+	// Running in Japan without "Asia/Tokyo" attributes movement between
+	// 00:00 and 09:00 to the previous day, making /stats and tracked_months
+	// disagree with the app. Changing it invalidates every stored
+	// daily_stats row and requires `travelmap recalculate`.
 	Timezone string
 
 	// TrackBreakMinutes is the gap, in minutes, above which a segment
 	// between two consecutive points is excluded entirely from a day's km
 	// rather than counted as travelled distance. Distinct from
 	// settings/mobile's own track_break, which is the device's own
-	// track-splitting setting; see "Configuration affecting stored
-	// aggregates" in TODO.md. Changing it likewise requires `travelmap
-	// recalculate`.
+	// track-splitting setting: using that one here would change the
+	// meaning of past aggregates whenever the user changes it in the app.
+	// Changing this one likewise requires `travelmap recalculate`.
 	TrackBreakMinutes int
 }
 

@@ -11,8 +11,7 @@ import (
 
 // recalculate rebuilds daily_stats for every user, from scratch. It is what
 // an operator runs for recovery after an import or an inconsistency, and
-// after TRAVELMAP_TIMEZONE or TRAVELMAP_TRACK_BREAK_MINUTES changes — see
-// "Configuration affecting stored aggregates" in TODO.md.
+// after TRAVELMAP_TIMEZONE or TRAVELMAP_TRACK_BREAK_MINUTES changes.
 func recalculate(getenv func(string) string, stdout io.Writer) error {
 	ctx := context.Background()
 

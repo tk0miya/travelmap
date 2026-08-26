@@ -166,10 +166,6 @@ fetch takes a window, not a cursor". Its two uses are reporting how current an a
 recognising that an account has been offline longer than the window so a wider one-off fetch is
 needed to close the gap.
 
-Configuration affecting stored aggregates, distance calculation, and what would justify a second
-`internal/store` backend are in `docs/database.md` — none of it is specific to `checkins` or
-`foursquare_accounts`.
-
 ## Dawarich API Compatibility Notes
 
 Upstream quirks that must be checked before implementing.
