@@ -1,17 +1,16 @@
 # Database
 
-This is the behaviour of the data model that does not attach to a single column or table:
-cross-table invariants and algorithms. Structural rationale — why a column has the type or
-constraint it does, why an index exists — is a comment in the migration that adds it
-(`internal/store/sqlite/migrations/`), not repeated here; where that comment sits inside the
-`CREATE TABLE` or `CREATE INDEX` it explains, it also shows up in the generated
-`internal/store/sqlite/schema.sql` (kept current by `TestSchema`), so that file is the quick way
-to check a column or index's own rationale before coming here.
+This explains travelmap's database: what a table or column means or does, beyond what its own
+definition shows.
 
-`checkins` and `foursquare_accounts` have no migration yet, so this file says nothing about them.
-Their design lives in `TODO.md`'s "Data Model" section until the step that adds them, which is
-also when their column-level rationale moves into the migration itself and whatever does not fit
-a single column moves here.
+`internal/store/sqlite/schema.sql` is the accompanying source for the structure itself — a
+generated, always-current snapshot of every table and index (kept current by `TestSchema`),
+carrying a column or index's own rationale as a comment where one exists. Migrations only ever
+show a diff from the version before them, so schema.sql is what shows the structure they add up
+to; read it first. What follows here is whatever does not fit there — too long for a schema.sql
+comment, or not attached to any single column or index at all. That can still be about one
+table, one column, or several; the distinction is only whether it fits in schema.sql, not how
+many tables it spans.
 
 ## `points`
 

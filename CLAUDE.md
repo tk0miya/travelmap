@@ -21,7 +21,7 @@ any language; what lands in git does not.
 | `CLAUDE.md` | This file — the conventions, so that no pull request has to re-argue them |
 | `README.md` | What the project is, and how to build, run and configure it. Written for someone approaching the project from outside, whether to run it or to start contributing |
 | `api/openapi.yaml` | OpenAPI describing the subset actually implemented here, for reference (upstream's own spec stays the compatibility source of truth) |
-| `docs/database.md` | Data-model behaviour that spans tables or does not attach to a single column: invariants, algorithms, config effects. Not column- or index-level rationale — that lives beside the column, as a migration comment (see "Testing") |
+| `docs/database.md` | What explains the database beyond `schema.sql` itself: invariants, algorithms, config effects, or table/column detail too long for a schema.sql comment (see "Testing") |
 | Package doc comments (`doc.go`) | What belongs in that package |
 
 Three rules keep them from drifting:
@@ -36,7 +36,8 @@ Three rules keep them from drifting:
   reader through `schema.sql` (see "Testing"); `docs/database.md`'s own opening explains why. One
   that cannot be written inside such a statement — about a table as a whole, or an absence —
   stays in the migration regardless, in `internal/store/sqlite/migrations/`, rather than moving to
-  `docs/database.md`, which is for behaviour that does not attach to one column or table at all.
+  `docs/database.md`, which is for whatever does not fit as a schema.sql comment, one column,
+  one table or several alike.
   A comment inside a statement's own parentheses is one line: `schema.sql` is for scanning the
   current structure at a glance, and a multi-line one breaks that up. **Only write one in a
   migration that has not been merged yet.** A merged migration may already be applied to a real
