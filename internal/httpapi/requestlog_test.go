@@ -45,7 +45,7 @@ func newLoggedTestServer(t *testing.T, debugLogRequests bool) (*httptest.Server,
 
 	handler := httpapi.New(httpapi.Options{
 		Logger:           slog.New(slog.NewTextHandler(logs, nil)),
-		Store:            newFakeStore(t),
+		Store:            newTestStore(t),
 		DebugLogRequests: debugLogRequests,
 	})
 

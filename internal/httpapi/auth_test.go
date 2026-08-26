@@ -146,7 +146,7 @@ func TestUsersMe(t *testing.T) {
 func TestUsersMeReportsTheConfiguredTimezone(t *testing.T) {
 	t.Parallel()
 
-	srv := newTestServerWithOptions(t, httpapi.Options{Store: newFakeStore(t), Timezone: "Asia/Tokyo"})
+	srv := newTestServerWithOptions(t, httpapi.Options{Store: newTestStore(t), Timezone: "Asia/Tokyo"})
 	resp := do(t, srv, http.MethodGet, "/api/v1/users/me?api_key="+testAPIKey)
 
 	if resp.status != http.StatusOK {
@@ -304,7 +304,7 @@ func TestHealthIsAuthenticationAware(t *testing.T) {
 func TestHealthDoesNotNeedTheStore(t *testing.T) {
 	t.Parallel()
 
-	srv := newTestServerWith(t, newFailingStore())
+	srv := newTestServerWith(t, newUnavailableStore(t))
 	resp := do(t, srv, http.MethodGet, "/api/v1/health")
 
 	if resp.status != http.StatusOK {
@@ -345,7 +345,7 @@ func TestAStoreFailureIsNotA401(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			srv := newTestServerWith(t, newFailingStore())
+			srv := newTestServerWith(t, newUnavailableStore(t))
 			resp := do(t, srv, tt.method, tt.path, tt.opts...)
 
 			if resp.status != http.StatusInternalServerError {

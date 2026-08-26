@@ -1,8 +1,6 @@
 package httpapi_test
 
 import (
-	"context"
-	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -10,6 +8,7 @@ import (
 	"github.com/tk0miya/travelmap/internal/auth"
 	"github.com/tk0miya/travelmap/internal/model"
 	"github.com/tk0miya/travelmap/internal/store"
+	"github.com/tk0miya/travelmap/internal/store/storetest"
 )
 
 // The account every test in this package authenticates as. The API key is a
@@ -31,10 +30,6 @@ var (
 	testUpdatedAt = time.Date(2026, time.March, 4, 5, 6, 7, 0, time.UTC)
 )
 
-// errStoreUnavailable stands in for a database that cannot be read, which the
-// handlers have to tell apart from a lookup that simply matched nothing.
-var errStoreUnavailable = errors.New("the database is unavailable")
-
 // testPasswordDigest is the bcrypt digest of [testPassword], made once for the
 // package.
 //
@@ -47,7 +42,7 @@ var testPasswordDigest = sync.OnceValues(func() (string, error) {
 	return auth.HashPassword(testPassword)
 })
 
-// testUser builds the account the fake store holds.
+// testUser builds the account the store holds.
 func testUser(t *testing.T) model.User {
 	t.Helper()
 
@@ -66,166 +61,27 @@ func testUser(t *testing.T) model.User {
 	}
 }
 
-// fakeStore is the store the handlers are tested against.
-//
-// The HTTP tests are about what the handlers do with what the store returns —
-// including its errors, which a real database cannot be asked for on demand —
-// so they substitute it rather than open one. The SQL itself is tested in
-// internal/store/sqlite, against a real database.
-type fakeStore struct {
-	users  fakeUsers
-	points *fakePoints
-}
-
-// newFakeStore returns a store holding [testUser] and nothing else.
-func newFakeStore(t *testing.T) *fakeStore {
+// newTestStore returns the store the handlers are tested against: a real,
+// migrated SQLite database holding [testUser] and nothing else.
+func newTestStore(t *testing.T) store.Store {
 	t.Helper()
 
-	return &fakeStore{users: fakeUsers{user: testUser(t)}, points: &fakePoints{}}
+	return storetest.New(t, testUser(t))
 }
 
-// newFailingStore returns a store whose lookups all fail, which is how the
-// tests reach the paths that answer 500.
-func newFailingStore() *fakeStore {
-	return &fakeStore{users: fakeUsers{err: errStoreUnavailable}, points: &fakePoints{err: errStoreUnavailable}}
-}
-
-// newFakeStoreWithFailingPoints returns a store that authenticates as
-// [testUser] normally but fails every write to the point repository — the
-// authenticating lookup and the one this test is actually about are two
-// different calls, and newFailingStore fails both.
-func newFakeStoreWithFailingPoints(t *testing.T) *fakeStore {
+// newUnavailableStore returns a store that cannot be read at all, which is how
+// the tests reach the paths that answer 500.
+func newUnavailableStore(t *testing.T) store.Store {
 	t.Helper()
 
-	return &fakeStore{users: fakeUsers{user: testUser(t)}, points: &fakePoints{err: errStoreUnavailable}}
+	return storetest.Unavailable(t)
 }
 
-// Users implements [store.Store].
-func (s *fakeStore) Users() store.UserRepository { return s.users }
+// newStoreWithUnavailablePoints returns a store that authenticates as
+// [testUser] normally but fails every write to the point repository, for the
+// tests newUnavailableStore would fail too early for.
+func newStoreWithUnavailablePoints(t *testing.T) store.Store {
+	t.Helper()
 
-// Points implements [store.Store].
-func (s *fakeStore) Points() store.PointRepository { return s.points }
-
-// DailyStats implements [store.Store]. No handler reaches this yet —
-// daily_stats is read starting Step 11 — so it is here only to satisfy the
-// interface.
-func (s *fakeStore) DailyStats() store.DailyStatsRepository { return fakeDailyStats{} }
-
-// Tx implements [store.Store]. There is nothing here to roll back — the fake
-// has no transaction of its own — so fn always runs against this same store.
-func (s *fakeStore) Tx(ctx context.Context, fn func(ctx context.Context, tx store.Store) error) error {
-	return fn(ctx, s)
-}
-
-// fakeUsers implements [store.UserRepository] over a single user.
-type fakeUsers struct {
-	user model.User
-	err  error
-}
-
-// Create implements [store.UserRepository]. Users are issued from the command
-// line, so no handler creates one and this is only here to satisfy the
-// interface.
-func (u fakeUsers) Create(_ context.Context, _ model.User) (model.User, error) {
-	return model.User{}, errors.New("fakeUsers: Create is not implemented")
-}
-
-// ByEmail implements [store.UserRepository]. The comparison is exact because
-// every caller has normalised the address first, which is what the real
-// column's NOCASE collation is there to survive.
-func (u fakeUsers) ByEmail(_ context.Context, email string) (model.User, error) {
-	return u.match(email == u.user.Email)
-}
-
-// ByAPIKey implements [store.UserRepository].
-func (u fakeUsers) ByAPIKey(_ context.Context, apiKey string) (model.User, error) {
-	return u.match(apiKey == u.user.APIKey)
-}
-
-// match answers a lookup: the configured failure first, then the user or
-// [store.ErrNotFound].
-func (u fakeUsers) match(found bool) (model.User, error) {
-	switch {
-	case u.err != nil:
-		return model.User{}, u.err
-	case found:
-		return u.user, nil
-	default:
-		return model.User{}, store.ErrNotFound
-	}
-}
-
-// fakePointKey identifies a point the way the real schema's unique index
-// does, for the fake's own deduplication.
-type fakePointKey struct {
-	userID    int64
-	timestamp int64
-}
-
-// fakePoints implements [store.PointRepository] over an in-memory slice, with
-// the same (user_id, timestamp) deduplication the real schema enforces — a
-// handler test asserting on Created has to see the same count a real database
-// would report.
-type fakePoints struct {
-	err     error
-	created []model.Point
-	seen    map[fakePointKey]bool
-}
-
-// Create implements [store.PointRepository].
-func (p *fakePoints) Create(_ context.Context, points []model.Point) (int, error) {
-	if p.err != nil {
-		return 0, p.err
-	}
-
-	if p.seen == nil {
-		p.seen = make(map[fakePointKey]bool)
-	}
-
-	var inserted int
-
-	for _, pt := range points {
-		key := fakePointKey{userID: pt.UserID, timestamp: pt.Timestamp.Unix()}
-		if p.seen[key] {
-			continue
-		}
-
-		p.seen[key] = true
-		p.created = append(p.created, pt)
-		inserted++
-	}
-
-	return inserted, nil
-}
-
-// UserIDs implements [store.PointRepository]. Unreached by any handler, so
-// it is here only to satisfy the interface.
-func (p *fakePoints) UserIDs(context.Context) ([]int64, error) {
-	return nil, errors.New("fakePoints: UserIDs is not implemented")
-}
-
-// Timestamps implements [store.PointRepository]. Unreached by any handler,
-// so it is here only to satisfy the interface.
-func (p *fakePoints) Timestamps(context.Context, int64) ([]time.Time, error) {
-	return nil, errors.New("fakePoints: Timestamps is not implemented")
-}
-
-// fakeDailyStats implements [store.DailyStatsRepository]. No handler reaches
-// it yet — daily_stats is read starting Step 11 and written starting Step 9
-// — so every method fails, the same way fakeUsers.Create does.
-type fakeDailyStats struct{}
-
-// Rebuild implements [store.DailyStatsRepository].
-func (fakeDailyStats) Rebuild(context.Context, int64, time.Time, time.Duration) error {
-	return errors.New("fakeDailyStats: Rebuild is not implemented")
-}
-
-// DeleteAll implements [store.DailyStatsRepository].
-func (fakeDailyStats) DeleteAll(context.Context) error {
-	return errors.New("fakeDailyStats: DeleteAll is not implemented")
-}
-
-// Get implements [store.DailyStatsRepository].
-func (fakeDailyStats) Get(context.Context, int64, time.Time) (model.DailyStat, error) {
-	return model.DailyStat{}, errors.New("fakeDailyStats: Get is not implemented")
+	return storetest.UnavailablePoints(t, testUser(t))
 }

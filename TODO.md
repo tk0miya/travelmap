@@ -1146,7 +1146,10 @@ discussion separate from the API discussion.
       `TRAVELMAP_DATABASE` into a working server holding none of the user's history. `user create`
       reports an unmigrated database and names the command to run
 - [x] Temp-database test helper (`newTestDB`, package-internal to `internal/store/sqlite`; promote
-      it if another package ever needs a real database rather than a substituted store)
+      it if another package ever needs a real database rather than a substituted store).
+      **Promoted to `internal/store/storetest`**, which `internal/httpapi` now uses. Migrating
+      costs about 65 ms per database under `-race`, so the migrated file is built once per test
+      binary and copied per test, which brings a test's own database to about 12 ms
 - [x] One file per command under `cmd/travelmap` (`serve.go`, `migrate.go`, `user.go`), leaving
       `main.go` with the argument handling and the dispatch alone
 
@@ -1512,7 +1515,6 @@ without a webhook in the same diff.
       `foursquare_checkin_id`
 - [ ] `travelmap foursquare connect --email <email> --foursquare-user-id <id>`, reading the
       token from standard input like `user create` does, so the token stays out of `ps` output
-- [ ] Extend `fakeStore` in `internal/httpapi/store_test.go` with the new repositories
 
 **Settles**: the `checkins` schema, that a third-party credential is a row rather than an env
 var, and that both collection paths converge on one writer.

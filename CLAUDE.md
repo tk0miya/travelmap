@@ -52,16 +52,17 @@ httpapi  →  httpapi/dto
     ↓
 ingest   checkin   auth
     ↓
-store  ←  store/sqlite
+store  ←  store/sqlite  ←  store/storetest (tests only)
     ↓
 model      geo      config      foursquare
 ```
 
 The rules that matter, stated directly:
 
-- **Only `cmd/travelmap` imports `internal/store/sqlite`.** Everything else depends on the
-  `internal/store` interfaces. This is what keeps a second backend possible, and what lets
-  tests substitute a store.
+- **Only `cmd/travelmap` and `internal/store/storetest` import `internal/store/sqlite`.**
+  Everything else depends on the `internal/store` interfaces, which is what keeps a second
+  backend possible. `storetest` is the deliberate second place: handing a test a real database
+  means naming an implementation. It hands back a `store.Store` all the same.
 - **Nothing imports `internal/httpapi`** except `cmd/travelmap`. The HTTP surface is the
   outermost layer, reached only through the entry point.
 - **DTOs do not escape `internal/httpapi`.** `internal/ingest`, `internal/store` and
@@ -94,8 +95,13 @@ The rules that matter, stated directly:
   Regenerate with `-update` on the packages that own golden files (`go test
   ./internal/httpapi/... -update`); a golden diff in a pull request is a compatibility change
   and gets read as one.
-- **Store tests run against a real temporary SQLite database** created by the shared test
-  helper, not a mock. The SQL is the thing being tested.
+- **A test that needs a store gets a real temporary SQLite database**: `newTestDB` inside
+  `internal/store/sqlite`, `internal/store/storetest` above it. A fake would have to reimplement
+  what the schema enforces and grow a repository per table, and the paths that answer 500 are
+  reached by breaking the database instead — `storetest.Unavailable` closes it,
+  `storetest.UnavailablePoints` drops the table the write needs. Substitute a store only for what
+  a database cannot show: which calls a unit made, or one repository failing while the rest work
+  (`internal/ingest`).
 - **The current schema is a generated snapshot, not documentation to hand-maintain.**
   `internal/store/sqlite/schema.sql` is a dump of a freshly migrated database — the structure
   every migration adds up to, in one file, rather than something read by replaying diffs.
