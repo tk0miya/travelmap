@@ -8,10 +8,10 @@ constraint it does, why an index exists — is a comment in the migration that a
 `internal/store/sqlite/schema.sql` (kept current by `TestSchema`), so that file is the quick way
 to check a column or index's own rationale before coming here.
 
-`checkins` and `foursquare_accounts` (Milestone I) have no migration yet, so this file says
-nothing about them. Their design lives in `TODO.md`'s "Data Model" section until the step that
-adds them, which is also when their column-level rationale moves into the migration itself and
-whatever does not fit a single column moves here.
+`checkins` and `foursquare_accounts` have no migration yet, so this file says nothing about them.
+Their design lives in `TODO.md`'s "Data Model" section until the step that adds them, which is
+also when their column-level rationale moves into the migration itself and whatever does not fit
+a single column moves here.
 
 ## `points`
 
@@ -47,8 +47,7 @@ The distance between two consecutive points is **attributed to the day of the la
 
 Segments whose time gap exceeds `TRAVELMAP_TRACK_BREAK_MINUTES` are **not counted at all**,
 so `km` means "distance travelled within tracks". Without this, the straight-line distance
-across a tracking gap or a flight lands in the total. Track splitting (Step 13) uses the same
-value.
+across a tracking gap or a flight lands in the total. Track splitting uses the same value.
 
 ### Which days to update
 
@@ -88,8 +87,8 @@ and requires `travelmap recalculate`.
 is the app's own setting for how the device splits tracks. Using the app setting for aggregation
 would change the meaning of past aggregates whenever the user changes it in the app.
 
-The spec does not say how upstream computes distance, so compare against the app's display in
-Step 11 and revisit if the numbers diverge.
+The spec does not say how upstream computes distance, so compare against the app's own display
+and revisit if the numbers diverge.
 
 ## Distance calculation
 

@@ -10,7 +10,7 @@
 -- one also carries columns for OwnTracks/Traccar ingest, imports, visits and
 -- reverse geocoding, none of which this server implements yet. A step that
 -- adds one of those adds the columns it needs in its own migration, rather
--- than every column of an unbuilt feature sitting unused since Step 7.
+-- than every column of an unbuilt feature sitting unused.
 CREATE TABLE points (
     id                INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id           INTEGER NOT NULL REFERENCES users (id),

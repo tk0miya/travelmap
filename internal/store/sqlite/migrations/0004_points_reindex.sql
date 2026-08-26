@@ -9,6 +9,6 @@
 DROP INDEX points_user_id_timestamp_key;
 
 CREATE UNIQUE INDEX points_user_id_timestamp_key ON points (
-    -- Deduplicates inserts on conflict; also serves GET /points' time filter (Step 10).
+    -- Deduplicates inserts on conflict; also serves GET /points' time filter.
     user_id, timestamp
 );
