@@ -4,10 +4,10 @@ This explains travelmap's database: what a table or column means or does, beyond
 definition shows.
 
 `internal/store/sqlite/schema.sql` is the accompanying source for the structure itself — a
-generated, always-current snapshot of every table and index (kept current by `TestSchema`),
-carrying a column or index's own rationale as a comment where one exists. Read it first; what
-follows here is whatever does not fit there — too long for a schema.sql comment, or not attached
-to any single column or index at all.
+generated, always-current snapshot of every table and index, carrying a column or index's own
+rationale as a comment where one exists. Read it first; what follows here is whatever does not
+fit there — too long for a schema.sql comment, or not attached to any single column or index at
+all.
 
 ## `points`
 
