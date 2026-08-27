@@ -840,27 +840,6 @@ rather than designed alongside the first. That second half is Step 22 — it fol
 
 ### Step 17: Check-in storage and the Foursquare account link
 
-No HTTP and no outbound calls. Separated so the schema and the single write path are reviewed
-without a webhook in the same diff.
-
-- [x] Migration (the next free number) creating `checkins` and `foursquare_accounts` per
-      "Data Model"
-- [x] `model.Checkin` and `model.FoursquareAccount`
-- [x] `store.CheckinRepository` and `store.FoursquareAccountRepository`, handed out by
-      `store.Store` alongside `Users()`, with SQLite implementations following `users.go`
-      (shared column list, `scanX(row)`, `translate(err)`)
-- [x] `internal/checkin`: **the single path through which check-ins are written**, upserting on
-      `foursquare_checkin_id`
-- [x] `travelmap foursquare connect --email <email> --foursquare-user-id <id>`, reading the
-      token from standard input like `user create` does, so the token stays out of `ps` output
-
-**Settles**: the `checkins` schema, that a third-party credential is a row rather than an env
-var, and that both collection paths converge on one writer.
-
-**Done when**: `travelmap foursquare connect` stores a row, and a store test writing the same
-check-in twice finds one row carrying the second write's values everywhere except `source` and
-`created_at`, which still name the first path and the first write.
-
 ### Step 18: The push webhook
 
 - [ ] `POST /webhooks/foursquare`, registered **at the top level, outside
