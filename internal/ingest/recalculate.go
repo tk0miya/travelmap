@@ -8,37 +8,50 @@ import (
 	"github.com/tk0miya/travelmap/internal/store"
 )
 
-// Recalculate rebuilds daily_stats for every user, from scratch, in one
-// transaction. It is what `travelmap recalculate` runs: for recovery after an
-// import or an inconsistency, and after TRAVELMAP_TIMEZONE or
-// TRAVELMAP_TRACK_BREAK_MINUTES changes — both invalidate every existing row.
+// Recalculate rebuilds daily_stats for every user, from points. It is what
+// `travelmap recalculate` runs: for recovery after an import or an
+// inconsistency, and after TRAVELMAP_TIMEZONE or TRAVELMAP_TRACK_BREAK_MINUTES
+// changes — both invalidate every existing row.
+//
+// Each user is rebuilt in its own transaction, deliberately not the whole run
+// in one: a single transaction would hold SQLite's one write lock for as long
+// as the largest deployment's entire history takes to rebuild — long enough
+// for a concurrent POST /api/v1/points to exhaust busyTimeout and answer 500,
+// which is not the brief CLI/server overlap that timeout is sized for. The
+// cost is Recalculate's own atomicity: a run interrupted partway leaves some
+// users rebuilt and others not, and daily_stats can be observed empty for a
+// user not yet reached. Recalculate is idempotent, so re-running it is the
+// recovery from either case, and that is a better trade than the single lock.
 //
 // loc is the timezone day boundaries are cut on and trackBreak the gap above
 // which a segment is excluded from km; both come from config, which this
 // package does not otherwise depend on, so they are passed in rather than
 // read here.
 func Recalculate(ctx context.Context, st store.Store, loc *time.Location, trackBreak time.Duration) error {
-	return st.Tx(ctx, func(ctx context.Context, tx store.Store) error {
-		// First, not last: changing TRAVELMAP_TIMEZONE reshuffles which days
-		// exist, and rebuilding only the days the new grouping produces would
-		// leave rows from the old grouping behind forever.
-		if err := tx.DailyStats().DeleteAll(ctx); err != nil {
-			return fmt.Errorf("ingest: recalculating: %w", err)
-		}
+	// First, not last, and in its own transaction: changing TRAVELMAP_TIMEZONE
+	// reshuffles which days exist, and a per-user rebuild committed ahead of
+	// this would leave rows from the old grouping behind.
+	if err := st.Tx(ctx, func(ctx context.Context, tx store.Store) error {
+		return tx.DailyStats().DeleteAll(ctx)
+	}); err != nil {
+		return fmt.Errorf("ingest: recalculating: %w", err)
+	}
 
-		userIDs, err := tx.Points().UserIDs(ctx)
+	userIDs, err := st.Points().UserIDs(ctx)
+	if err != nil {
+		return fmt.Errorf("ingest: recalculating: %w", err)
+	}
+
+	for _, userID := range userIDs {
+		err := st.Tx(ctx, func(ctx context.Context, tx store.Store) error {
+			return recalculateUser(ctx, tx, userID, loc, trackBreak)
+		})
 		if err != nil {
-			return fmt.Errorf("ingest: recalculating: %w", err)
+			return fmt.Errorf("ingest: recalculating user %d: %w", userID, err)
 		}
+	}
 
-		for _, userID := range userIDs {
-			if err := recalculateUser(ctx, tx, userID, loc, trackBreak); err != nil {
-				return fmt.Errorf("ingest: recalculating user %d: %w", userID, err)
-			}
-		}
-
-		return nil
-	})
+	return nil
 }
 
 // recalculateUser rebuilds every calendar day, cut in loc, on which userID has

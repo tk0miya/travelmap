@@ -68,18 +68,52 @@ func (f *fakeDailyStats) Get(context.Context, int64, time.Time) (model.DailyStat
 }
 
 // fakePoints implements [store.PointRepository] over the fixed data a test
-// sets up, since Recalculate only ever reads through it.
+// sets up. Recalculate only ever reads userIDs and timestamps through it;
+// CreatePoints (create_test.go) is what exercises Create and NextTimestamp.
 type fakePoints struct {
 	userIDs    []int64
 	timestamps map[int64][]time.Time
 
-	// userIDsErr and timestampsErr, when set, are what UserIDs and
-	// Timestamps fail with.
-	userIDsErr, timestampsErr error
+	// existing is every timestamp recorded for a user, standing in for the
+	// points table NextTimestamp searches: seeded with what a test treats as
+	// already stored before its batch, and appended to by Create so a
+	// second NextTimestamp call sees what the first Create just inserted.
+	existing map[int64][]time.Time
+
+	// created records every point Create was given, across calls, for a test
+	// to assert on.
+	created []model.Point
+
+	// createResult, when set, is what Create reports as inserted instead of
+	// len(points) — for a test pinning that CreatePoints returns exactly what
+	// Create reported rather than the size of the batch it was given.
+	createResult *int
+
+	// userIDsErr, timestampsErr, createErr and nextTimestampErr, when set,
+	// are what UserIDs, Timestamps, Create and NextTimestamp fail with.
+	userIDsErr, timestampsErr, createErr, nextTimestampErr error
 }
 
-func (f *fakePoints) Create(context.Context, []model.Point) (int, error) {
-	return 0, nil
+func (f *fakePoints) Create(_ context.Context, points []model.Point) (int, error) {
+	if f.createErr != nil {
+		return 0, f.createErr
+	}
+
+	f.created = append(f.created, points...)
+
+	if f.existing == nil {
+		f.existing = make(map[int64][]time.Time)
+	}
+
+	for _, p := range points {
+		f.existing[p.UserID] = append(f.existing[p.UserID], p.Timestamp)
+	}
+
+	if f.createResult != nil {
+		return *f.createResult, nil
+	}
+
+	return len(points), nil
 }
 
 func (f *fakePoints) UserIDs(context.Context) ([]int64, error) {
@@ -96,6 +130,33 @@ func (f *fakePoints) Timestamps(_ context.Context, userID int64) ([]time.Time, e
 	}
 
 	return f.timestamps[userID], nil
+}
+
+// NextTimestamp implements [store.PointRepository] over [fakePoints.existing],
+// the smallest recorded timestamp after after, exactly as the real query
+// would find it.
+func (f *fakePoints) NextTimestamp(_ context.Context, userID int64, after time.Time) (time.Time, bool, error) {
+	if f.nextTimestampErr != nil {
+		return time.Time{}, false, f.nextTimestampErr
+	}
+
+	var (
+		next  time.Time
+		found bool
+	)
+
+	for _, ts := range f.existing[userID] {
+		if !ts.After(after) {
+			continue
+		}
+
+		if !found || ts.Before(next) {
+			next = ts
+			found = true
+		}
+	}
+
+	return next, found, nil
 }
 
 // fakeStore implements [store.Store] over [fakePoints] and [fakeDailyStats].
