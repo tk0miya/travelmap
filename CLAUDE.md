@@ -30,7 +30,16 @@ Five rules keep them from drifting:
   records defaults as of planning; when implementation proves one wrong, the plan is updated,
   not silently ignored.
 - **Tick the step's checkboxes in `TODO.md` in the pull request that completes them.** A step
-  is done when its box is ticked, not when the code merges.
+  is done when its box is ticked, not when the code merges. Once a step is done and everything
+  it decided has a permanent home (`schema.sql`/`docs/database.md`, `api/openapi.yaml`, this
+  file, a package's `doc.go`), trim its `TODO.md` entry down to its number and title — the
+  checklist, the `Settles`/`Done when` lines and the narrative belong to planning, not to the
+  finished record, and git history already keeps them.
+- **Code never names a `TODO.md` step.** A comment explains why the code in front of the reader
+  is shaped the way it is, in terms of the invariant or constraint that shapes it — not by
+  pointing at "Step N". A past step's number stops resolving to anything once that step is
+  trimmed by the rule above, and a future step is a plan that can still change, which a comment
+  has no business promising.
 - **A migration writes its own rationale as a comment, not as prose elsewhere.** A comment written
   inside a `CREATE TABLE`'s or a multi-column `CREATE INDEX`'s own parentheses also reaches a
   reader through `schema.sql` (see "Testing"); `docs/database.md`'s own opening explains why. One

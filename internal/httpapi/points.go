@@ -29,9 +29,8 @@ func (a *api) createOverlandBatch(w http.ResponseWriter, r *http.Request) {
 // ingestLocations decodes a GeoJSON locations batch, stores the points it
 // carries for the authenticated user, and answers with success on ok.
 //
-// Points ingest predates internal/ingest (Step 9), so it writes through
-// [store.Store.Points] directly rather than through that layer — there is no
-// daily_stats yet for a mutation to keep in sync.
+// It writes through [store.Store.Points] directly rather than through
+// internal/ingest: there is no daily_stats yet for a mutation to keep in sync.
 func (a *api) ingestLocations(w http.ResponseWriter, r *http.Request, success int) {
 	user, ok := userFrom(r.Context())
 	if !ok {

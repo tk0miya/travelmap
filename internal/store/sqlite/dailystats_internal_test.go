@@ -38,8 +38,7 @@ func insertPoint(t *testing.T, db *DB, userID int64, ts time.Time, lat, lon floa
 
 // TestDailyStatsRebuild pins the plain case: a day with two points sums to
 // the Haversine distance between them — the check against got.KM below is
-// also the agreement test between the SQL formula and internal/geo's own,
-// per Step 8's checklist in TODO.md.
+// also the agreement test between the SQL formula and internal/geo's own.
 func TestDailyStatsRebuild(t *testing.T) {
 	t.Parallel()
 
