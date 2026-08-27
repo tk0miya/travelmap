@@ -78,6 +78,14 @@ func TestRunArguments(t *testing.T) {
 			args:    []string{"user", "promote"},
 			wantErr: errUsage,
 		},
+		"foursquare without a subcommand is a usage error": {
+			args:    []string{"foursquare"},
+			wantErr: errUsage,
+		},
+		"an unknown foursquare subcommand is a usage error": {
+			args:    []string{"foursquare", "disconnect"},
+			wantErr: errUsage,
+		},
 		// --help is what the flag package answers itself; it is a successful
 		// run, and a wrapper script that calls it must not see an exit status.
 		"--help is not an error": {

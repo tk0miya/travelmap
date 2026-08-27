@@ -71,92 +71,11 @@ change it — after updating this file.
 
 ## Data Model
 
-Columns and indexes for the tables already migrated (`users`, `points`, `daily_stats`) are in
-`internal/store/sqlite/schema.sql`, kept current by `TestSchema`; the rationale for how a column
-or index is shaped is a comment in the migration that adds it. Behaviour that spans tables or
-does not attach to a single column — invariants, algorithms, config effects — is in
-`docs/database.md`.
-
-`checkins` and `foursquare_accounts` (Milestone I) have no migration yet, so this section still
-specifies their columns, until the step that adds them moves the column-level rationale into that
-migration and whatever else into `docs/database.md`.
-
-### `checkins`
-
-Swarm check-ins, collected by the two paths in Milestone I. Not a Dawarich concept — see
-"travelmap's own extensions".
-
-Columns: `user_id`, `foursquare_checkin_id`, `checked_in_at`, `timezone_offset`, `venue_id`,
-`venue_name`, `latitude`, `longitude`, `country_code`, `city`, `state`, `country`,
-`category_id`, `category_name`, `shout`, `source`, `raw`, `created_at`, `updated_at`.
-A unique index on `foursquare_checkin_id`, and one index on `(user_id, checked_in_at)`.
-
-`source` is `push` or `sync`, naming the path that first observed the check-in. **A repeat write
-keeps `source` and `created_at` and refreshes everything else**, `raw` and the derived columns
-included: when the row appeared and which path brought it are facts about history that a later
-write does not change, while every other column is only the newest rendering of the same
-check-in. The prose here calls that second path the periodic fetch while the identifiers say
-`sync` (`TRAVELMAP_FOURSQUARE_SYNC_INTERVAL`, `synced_through`, `travelmap foursquare sync`);
-that split is deliberate, "fetch" being the clearer word for what it does and `sync` the shorter
-one to type.
-
-The check-in's own time is `checked_in_at`, **not `created_at`**, which stays the row's own
-bookkeeping as in every other table. The payload calls both of them `createdAt` — the check-in
-has one and so does the venue inside it — so reusing the name here would make the interesting
-one unfindable.
-
-**The unique index on `foursquare_checkin_id` is where idempotency lives.** Push and the
-periodic fetch will both carry the same check-in, by design, so every write is an upsert against
-that index rather than a look-before-you-write in the caller.
-
-`country_code` (the payload's `cc`) is kept separately from `country` because **the display text
-is localised and `cc` is not**. In an observed push, `cc` was `JP` while `country` and the category
-name came back as Japanese. **What decides that language is unknown** — for `country` the app's
-own locale and v2's fallback to the venue country's language predict the same thing, so the
-observation does not choose between them; "Localisation is left unset on both paths" weighs what
-the category name adds. Either way `cc` is the only stable column, so `country`, `city`, `state`,
-`venue_name` and `category_name` are for display and nothing keys off them.
-
-`raw` holds the check-in JSON as received. The payload carries much more than these columns
-(`visibility`, `canonicalUrl`, `editableUntil`, `labeledLatLngs`, `formattedAddress`, the
-category icon set), and it is not this server's to re-request at will: the fetch path spends an
-hourly per-account budget, and `editableUntil` says a check-in Foursquare once returned can be
-edited afterwards. So when a later step wants one of those fields, deriving it from stored JSON
-beats re-fetching a payload that may no longer be the same one.
-
-`venue_id` and `venue_name` are nullable, for a check-in made without one. **The venueless shape
-has not been observed** — the captured push had a venue — so confirm where its coordinates sit
-before relying on it; Step 18's fixture covers only the shape actually seen. The documentation
-will not settle it either. The schema on `reference/get-checkin-details` describes `venue` without
-saying whether it can be absent, and that schema is demonstrably incomplete — it omits `shout`,
-`visibility` and `editableUntil`, which the observed push carries — so its silence is not evidence
-either way. Only an observation decides this one. Venue data is denormalised onto the check-in
-rather than given its own table; split it out if and when something needs a list of distinct
-venues, which nothing does yet.
-
-**`checkins` does not touch `daily_stats`.** A check-in is neither a point nor a segment, so it
-contributes to no `/stats` total, and `internal/ingest`'s invariant is untouched by this
-milestone.
-
-### `foursquare_accounts`
-
-One row per user, linking a travelmap account to a Swarm account.
-
-Columns: `user_id` (primary key, referencing `users`), `foursquare_user_id`, `access_token`,
-`synced_through`, `created_at`, `updated_at`. Unique index on `foursquare_user_id`.
-
-`foursquare_user_id` is **TEXT**: the payload sends it quoted (`"1709193"`). Its unique index is
-what makes an incoming push resolve to exactly one travelmap user — the webhook has no other way
-to know whose check-in it is.
-
-`access_token` is stored as issued, for the reason in the "Third-party credentials" row under
-"Technical Decisions".
-
-`synced_through` records the end of the last successful fetch window. **It is never the lower
-bound of a normal run** — that is always the lookback window, for the reason under "The periodic
-fetch takes a window, not a cursor". Its two uses are reporting how current an account is, and
-recognising that an account has been offline longer than the window so a wider one-off fetch is
-needed to close the gap.
+Columns and indexes for the tables already migrated (`users`, `points`, `daily_stats`, `checkins`,
+`foursquare_accounts`) are in `internal/store/sqlite/schema.sql`, kept current by `TestSchema`;
+the rationale for how a column or index is shaped is a comment in the migration that adds it.
+Behaviour that spans tables or does not attach to a single column — invariants, algorithms,
+config effects — is in `docs/database.md`.
 
 ## Dawarich API Compatibility Notes
 
@@ -317,13 +236,22 @@ Three form parameters, each a JSON string except `secret`. So this route parses 
 - `checkin.venue`: `id`, `name`, `location` (`address`, `lat`, `lng`, `labeledLatLngs`,
   `postalCode`, `cc`, `city`, `state`, `country`, `formattedAddress`), `categories` (`id`,
   `name`, `pluralName`, `shortName`, `icon`, `categoryCode`, `mapIcon`, `primary`), `timeZone`
+- `checkins.venue_id` and `.venue_name` are nullable for a check-in made without one, per
+  "checkins" in docs/database.md, but **the venueless shape has not been observed** — the
+  captured push had a venue — so confirm where its coordinates sit before relying on it; Step
+  18's fixture covers only the shape actually seen. The documentation will not settle it either.
+  The schema on `reference/get-checkin-details` describes `venue` without saying whether it can
+  be absent, and that schema is demonstrably incomplete — it omits `shout`, `visibility` and
+  `editableUntil`, which the observed push carries — so its silence is not evidence either way.
+  Only an observation decides this one
 - `shout` was **absent as a key** in the observed push, which carried no comment — so treat it
   as optional rather than as an empty string
 - `checkin.user.id` is a quoted string, and is the join key onto `foursquare_accounts`. The
   separate `user` parameter repeats it with extra profile fields; **read the key off
   `checkin.user.id`**, which keeps the identity inside the object being stored
 - The display text is **localised**, and what decides the language is unknown — see "Localisation
-  is left unset on both paths" and the `checkins` note in "Data Model"
+  is left unset on both paths" and "checkins" in docs/database.md. In an observed push, `cc` was
+  `JP` while `country` and the category name came back as Japanese
 - `editableUntil` says a check-in stays editable long after it is made, which is why the write
   path is an upsert and not an insert-if-absent
 
@@ -563,7 +491,7 @@ the push has no locale to match it against anyway.
 compare those five columns. If they agree, this section is settled and says so. **If they differ,
 the fix is not a locale setting** — no setting can track whatever the push does — but removing
 those columns from what a repeat write refreshes, leaving the first writer's rendering in place.
-`cc` is stable under either outcome, per the `checkins` note in "Data Model".
+`cc` is stable under either outcome, per "checkins" in docs/database.md.
 
 ### The periodic fetch takes a window, not a cursor
 
@@ -587,8 +515,8 @@ So **re-fetch a fixed window on every run** and let the unique index on
   `afterTimestamp`. A run's first request carries no `beforeTimestamp`; the rest carry the cursor
   defined under "Page with `beforeTimestamp`, not `offset`", which is where that rule lives
 - `foursquare_accounts.synced_through` advances on success; what it is and is not used for is
-  under `foursquare_accounts` in "Data Model"
-- Which columns a repeat write keeps and which it refreshes is under `checkins` there too
+  under "foursquare_accounts" in docs/database.md
+- Which columns a repeat write keeps and which it refreshes is under "checkins" there too
 
 **Open, and the documentation does not close it**: whether a retroactive check-in's `createdAt` is
 the visit time or the time it was created. The reference describes `createdAt` only as a "UNIX
@@ -876,7 +804,7 @@ does need is the store foundation and the authenticated router, both already in 
 extends the same test store. So it can be taken at any time after Milestone B, like Step 16.
 
 External behaviour these steps rely on is in "Foursquare / Swarm Integration Notes"; the two
-tables are in "Data Model".
+tables are in `internal/store/sqlite/schema.sql` and docs/database.md, per "Data Model".
 
 There are seven `TRAVELMAP_FOURSQUARE_*` settings, and no step adds all of them: the push secret
 belongs to Step 18, the lookback and the API URL to Step 19, the three OAuth settings to Step 20,
@@ -915,15 +843,15 @@ rather than designed alongside the first. That second half is Step 22 — it fol
 No HTTP and no outbound calls. Separated so the schema and the single write path are reviewed
 without a webhook in the same diff.
 
-- [ ] Migration (the next free number) creating `checkins` and `foursquare_accounts` per
+- [x] Migration (the next free number) creating `checkins` and `foursquare_accounts` per
       "Data Model"
-- [ ] `model.Checkin` and `model.FoursquareAccount`
-- [ ] `store.CheckinRepository` and `store.FoursquareAccountRepository`, handed out by
+- [x] `model.Checkin` and `model.FoursquareAccount`
+- [x] `store.CheckinRepository` and `store.FoursquareAccountRepository`, handed out by
       `store.Store` alongside `Users()`, with SQLite implementations following `users.go`
       (shared column list, `scanX(row)`, `translate(err)`)
-- [ ] `internal/checkin`: **the single path through which check-ins are written**, upserting on
+- [x] `internal/checkin`: **the single path through which check-ins are written**, upserting on
       `foursquare_checkin_id`
-- [ ] `travelmap foursquare connect --email <email> --foursquare-user-id <id>`, reading the
+- [x] `travelmap foursquare connect --email <email> --foursquare-user-id <id>`, reading the
       token from standard input like `user create` does, so the token stays out of `ps` output
 
 **Settles**: the `checkins` schema, that a third-party credential is a row rather than an env
