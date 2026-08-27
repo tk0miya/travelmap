@@ -31,7 +31,14 @@ type rebuildCall struct {
 // call rather than storing anything: what Recalculate does with the store is
 // what these tests are about, not the SQL, which internal/store/sqlite tests
 // against a real database.
+//
+// The embedded interface is left nil: a method this type does not override
+// panics on the nil call rather than needing a stub here, so a method added
+// to store.DailyStatsRepository that these tests never exercise does not
+// force a change to this file.
 type fakeDailyStats struct {
+	store.DailyStatsRepository
+
 	events *[]string
 
 	rebuilt []rebuildCall
@@ -70,7 +77,13 @@ func (f *fakeDailyStats) Get(context.Context, int64, time.Time) (model.DailyStat
 // fakePoints implements [store.PointRepository] over the fixed data a test
 // sets up. Recalculate only ever reads userIDs and timestamps through it;
 // CreatePoints (create_test.go) is what exercises Create and NextTimestamp.
+//
+// The embedded interface is left nil, for the same reason as
+// [fakeDailyStats]'s: a method added to store.PointRepository that neither
+// caller exercises panics on the nil call instead of needing a stub here.
 type fakePoints struct {
+	store.PointRepository
+
 	userIDs    []int64
 	timestamps map[int64][]time.Time
 
@@ -160,14 +173,17 @@ func (f *fakePoints) NextTimestamp(_ context.Context, userID int64, after time.T
 }
 
 // fakeStore implements [store.Store] over [fakePoints] and [fakeDailyStats].
-// Users is never reached by Recalculate, so it panics rather than being
-// implemented, which would fail a test that reaches it just as loudly.
+//
+// The embedded interface is left nil, for the same reason as
+// [fakeDailyStats]'s: Users, and any repository that store.Store grows
+// later, are never reached by Recalculate, so a call to one of them panics
+// on the nil call instead of needing a stub here.
 type fakeStore struct {
+	store.Store
+
 	points     *fakePoints
 	dailyStats *fakeDailyStats
 }
-
-func (s *fakeStore) Users() store.UserRepository { panic("fakeStore: Users is not implemented") }
 
 func (s *fakeStore) Points() store.PointRepository { return s.points }
 
