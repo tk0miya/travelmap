@@ -14,7 +14,8 @@ import (
 // This file, alone in this package's tests, opens internal/store/sqlite
 // directly: cmd/travelmap is the only package allowed to, per "Layering" in
 // CLAUDE.md, and there is no CLI command that inserts a point to set one up
-// through instead — that is Step 7's HTTP endpoints.
+// through instead — that goes through the HTTP endpoints (POST
+// /api/v1/points, /api/v1/overland/batches).
 
 // seedPoints migrates env's database and inserts one user's points directly,
 // standing in for what a device's uploads would have put there. It returns
@@ -55,9 +56,9 @@ func seedPoints(t *testing.T, env func(string) string, points []model.Point) int
 	return user.ID
 }
 
-// TestRecalculateCommand is the completion condition of Step 8 seen from
-// outside: rebuilding from a set of points known to travel a fixed distance
-// produces the daily_stats row that distance predicts.
+// TestRecalculateCommand verifies travelmap recalculate from outside:
+// rebuilding from a set of points known to travel a fixed distance produces
+// the daily_stats row that distance predicts.
 func TestRecalculateCommand(t *testing.T) {
 	t.Parallel()
 

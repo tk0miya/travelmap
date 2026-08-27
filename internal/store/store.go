@@ -27,9 +27,9 @@ var (
 //
 // Repositories are reached through it rather than being handed out
 // individually so that [Store.Tx] can offer all of them inside one
-// transaction: from Step 9 on, a point insert and the daily_stats rebuild it
-// triggers have to commit together, and that is only expressible if both
-// repositories can be scoped to the same transaction.
+// transaction: a point insert and the daily_stats rebuild it triggers have to
+// commit together, and that is only expressible if both repositories can be
+// scoped to the same transaction.
 type Store interface {
 	// Users returns the user repository.
 	Users() UserRepository
@@ -73,10 +73,9 @@ type UserRepository interface {
 
 // PointRepository stores the points ingested from a device.
 //
-// Step 7 predates internal/ingest, which from Step 9 on is the only caller
-// allowed to reach this: every mutation of a point also has to rebuild the
-// affected days of daily_stats, and a second caller writing directly would be
-// guaranteed to eventually forget.
+// internal/ingest is the only caller meant to reach this: every mutation of a
+// point also has to rebuild the affected days of daily_stats, and a second
+// caller writing directly would be guaranteed to eventually forget.
 type PointRepository interface {
 	// Create inserts points, silently dropping any whose (user_id, timestamp)
 	// pair is already stored — the same pair the caller cannot query without —

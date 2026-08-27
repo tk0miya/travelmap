@@ -101,7 +101,9 @@ func open(t *testing.T, path string) *sqlite.DB {
 // The migration is what costs, and copying its result is what a test pays
 // instead: the driver is pure Go, so under -race — which `make test` always
 // passes — the race detector instruments the translated SQLite along with
-// everything else. TODO.md's Step 4 carries the measurement.
+// everything else. Migrating costs about 65 ms per database under -race;
+// copying the migrated file instead brings a test's own database to about
+// 12 ms.
 var template = sync.OnceValues(func() ([]byte, error) {
 	dir, err := os.MkdirTemp("", "storetest")
 	if err != nil {

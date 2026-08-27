@@ -829,54 +829,9 @@ No application behaviour yet. Three small PRs, each settling conventions.
 
 ### Step 1: Toolchain and CI
 
-- [x] `go.mod` with `go 1.26.6` and `tool` directives for golangci-lint, govulncheck and gofumpt
-      (see "Language and toolchain"), and the package skeleton (empty packages with a doc
-      comment each)
-- [x] `Makefile` (targets invoke `go tool <name>`, so a checkout needs no tool installation),
-      `.gitignore` (Go plus `*.db`, `bin/`), `.golangci.yml`
-- [x] `.github/workflows/go.yml` (build / test / lint / govulncheck, all via `go tool`).
-      `govulncheck` runs only here — it cannot reach `vuln.go.dev` from the development
-      container
-- [x] Add `gomod` to `.github/dependabot.yml`, and `.github/workflows/go-tools.yml` for the
-      development tools its scope does not reach
-
-**Settles**: directory layout, the enabled linter set, CI conventions.
-
-**Done when**: CI is green.
-
 ### Step 2: Project conventions
 
-No code. Separated so that the convention discussion does not ride along with a code diff.
-
-- [x] `CLAUDE.md`: **English as the project language**, layering rules (what may import what),
-      testing approach, where documents live, commit conventions
-- [x] Expand `README.md` (currently one line): what the project is, how to build and run it
-
-**Settles**: everything a reviewer would otherwise re-litigate in each later PR.
-
-**Done when**: `CLAUDE.md` states the layering rules and the conventions a later pull request
-would otherwise re-argue, without restating what each package's `doc.go` already says — adding
-a package must not mean editing `CLAUDE.md` too.
-
 ### Step 3: Server skeleton and `GET /api/v1/health`
-
-The smallest possible full-stack slice: no database, no authentication. Chosen first precisely
-because it carries almost no logic, so the review is entirely about the shapes that every later
-handler will copy.
-
-- [x] `internal/config` env-var loader (`TRAVELMAP_ADDR`, `TRAVELMAP_LOG_LEVEL`; read through
-      an injected `getenv` so tests never touch the process environment), `log/slog` setup,
-      chi router, graceful shutdown on SIGINT/SIGTERM
-- [x] `cmd/travelmap serve` and `--version`
-- [x] JSON response and error helpers
-- [x] `GET /api/v1/health` with the `X-Dawarich-Response` and `X-Dawarich-Version` headers
-      (the authenticated variant of the header comes in Step 5)
-- [x] `httptest` + golden-file test helper
-
-**Settles**: handler signature, JSON and error response shape, config loading, the
-golden-file testing pattern.
-
-**Done when**: `curl` returns both headers and `{"status":"ok"}`, pinned by a golden test.
 
 ---
 
@@ -884,67 +839,7 @@ golden-file testing pattern.
 
 ### Step 4: Store foundation and users
 
-No HTTP. Splitting the store from the handlers that use it keeps the migration and repository
-discussion separate from the API discussion.
-
-- [x] SQLite open with WAL and pragmas, embedded migrations run through goose. The file comes
-      from `TRAVELMAP_DATABASE` (default `travelmap.db`), added to `internal/config` here
-- [x] The store exposes no schema version. `Migrate` reports whether it applied anything and
-      `Migrated` whether the schema is there at all — the version number had no caller but the
-      CLI's own output, and what `travelmap migrate` owes the operator is whether the database is
-      at the current schema, not which files went by
-- [x] `users` table, repository interface and its SQLite implementation
-- [x] API key generation and bcrypt password hashing (`internal/auth`)
-- [x] `travelmap user create --email --password`. `--password` may be left out, in which case the
-      first line of standard input is read instead, for a script or a systemd unit that redirects
-      a file. Neither is good: `argv` is readable by every user on the host through `ps`, and a
-      bare standard-input read has no prompt, so at a terminal the command waits in silence. The
-      documented procedure therefore uses `--password` for now, and the echo-off prompt that
-      replaces both is its own step in Milestone G
-- [x] `travelmap migrate`. Neither `serve` nor `user create` migrates implicitly: opening a
-      SQLite database creates the file, so migrating on the way up would turn a typo in
-      `TRAVELMAP_DATABASE` into a working server holding none of the user's history. `user create`
-      reports an unmigrated database and names the command to run
-- [x] Temp-database test helper (`newTestDB`, package-internal to `internal/store/sqlite`; promote
-      it if another package ever needs a real database rather than a substituted store).
-      **Promoted to `internal/store/storetest`**, which `internal/httpapi` now uses. Migrating
-      costs about 65 ms per database under `-race`, so the migrated file is built once per test
-      binary and copied per test, which brings a test's own database to about 12 ms
-- [x] One file per command under `cmd/travelmap` (`serve.go`, `migrate.go`, `user.go`), leaving
-      `main.go` with the argument handling and the dispatch alone
-
-**Settles**: migration mechanism, repository interface style, hand-written SQL versus generated,
-transaction handling, how store tests get a database.
-
-**Done when**: `travelmap user create` issues a user and an API key, and running migrations
-twice is a no-op.
-
 ### Step 5: Authentication
-
-- [x] Auth middleware accepting both the `api_key` query parameter and `Authorization: Bearer`
-- [x] `POST /api/v1/auth/login`
-- [x] `GET /api/v1/users/me`
-- [x] `GET /api/v1/health` becomes auth-aware (`Hey, I'm alive and authenticated!`)
-
-**Settles**: how handlers reach the authenticated user, the 401 body shape.
-
-The middleware resolves the credentials a request carries and **refuses nothing**: the user
-goes on the request context, and a second middleware on the authenticated routes turns "no
-user" into the empty-bodied 401. That split is what lets `/health` answer 200 either way and
-report which it was, and what keeps a key that names no user from being a server error. A
-route registered outside that group serves one account's data to whoever asks, so the group —
-not the handler — is where a new endpoint is added.
-
-`serve` now opens the database, and refuses to start against an unmigrated one with the same
-message `user create` gives. Opening a SQLite file creates it, so without the check a typo in
-`TRAVELMAP_DATABASE` would come up as a healthy server answering every request with an error
-about a missing table.
-
-**Done when**: **the iPhone app reports a successful connection** after entering the server URL
-and API key. **Not yet confirmed**: no device has been pointed at this server. The endpoints
-are covered by tests against the router, and Step 6's request log is how the remaining half of
-this condition gets checked — including whether the app insists on `auth/apple` (see "Risks and
-Open Questions").
 
 ### Step 6: Request logging for endpoint discovery
 
@@ -1006,25 +901,6 @@ app needs and the community client does not, and it is the input to Milestone F'
 
 ### Step 7: Points ingest
 
-Deliberately excludes `daily_stats`: `/stats` is not needed until Milestone E, and mixing
-aggregation into this PR is what made the original plan's second stage unreviewable.
-
-- [x] `points` schema and its `(user_id, timestamp)` index, per "Data Model"
-- [x] GeoJSON Feature parser (`internal/httpapi/dto`)
-- [x] `POST /api/v1/points`
-- [x] `POST /api/v1/overland/batches` (note the different success status code)
-- [x] Deduplication (same user × timestamp)
-- [x] Batch inserts wrapped in a transaction
-- [x] Check `maxRequestBody` in `internal/httpapi` (1 MiB as of Step 5) against a full batch —
-      the mobile settings allow a `batch_size` of up to 1000 points, and a body over the limit
-      is answered `400 invalid request body`, which reads like malformed JSON rather than like
-      a body that was too large. Measured: a 1000-point batch is ~435 KB, well inside the limit
-
-**Settles**: how the wide Dawarich JSON shapes are modelled and pinned with golden files.
-
-**Done when**: starting tracking in the app puts real device locations into the database and the
-point count grows.
-
 ---
 
 ## Milestone D — Aggregation
@@ -1035,62 +911,7 @@ compare against.
 
 ### Step 8: `daily_stats` and full rebuild
 
-No HTTP. Write the *full* rebuild first, as the definition of correct.
-
-- [x] `daily_stats` table, per "Data Model"
-- [x] Rebuild-a-day function (that day's points plus the immediately preceding point)
-- [x] `GET /api/v1/users/me` reports the configured zone in `settings.timezone`, which Step 5
-      answers with the constant `UTC`
-- [x] `TRAVELMAP_TIMEZONE` and `TRAVELMAP_TRACK_BREAK_MINUTES` in `internal/config`.
-      The README already documents both and says that **changing either requires
-      `travelmap recalculate`**; check that what it says still matches what was built
-- [x] `travelmap recalculate` (rebuilds `daily_stats` from points; for recovery after imports or
-      inconsistency, and after either variable above changes)
-- [x] A test that the Haversine in `internal/geo` and the Haversine in SQL agree on the same
-      input (pass the Earth-radius constant from Go into SQL; do not put the literal in two
-      places)
-- [x] **A test with `TRAVELMAP_TIMEZONE=Asia/Tokyo`.** Every other case passes under the default
-      `UTC`, so forgetting the timezone conversion would go undetected. Verify that a point at a
-      time which falls on the previous day in UTC (e.g. 00:30 JST) is counted on the current
-      day's row
-- [x] A boundary test for `TRAVELMAP_TRACK_BREAK_MINUTES`: a segment of exactly 30 minutes
-      **is counted** (catches a `>` versus `>=` mix-up)
-- [x] **A test pinning the expected value of a cross-midnight segment distance.** Agreement
-      testing in Step 9 cannot catch this: if both paths drop the segment they still agree.
-      Verify that the distance between the previous day's last point and the current day's first
-      point appears in `km`
-
-**Done when**: `travelmap recalculate` produces correct `daily_stats` for a seeded database, with
-the above pinned by tests.
-
 ### Step 9: Ingest layer and incremental update
-
-- [x] **Route every path that changes points through a single `internal/ingest` layer**, and
-      move Step 7's handlers onto it. Scattered `daily_stats` updates are guaranteed to miss
-      cases — Milestone E's updates and deletes, and Milestone G's imports, owntracks/traccar
-      and reverse-geocoding worker all go through this layer
-- [x] Update the affected days in the same transaction as the mutation, per "Data Model"
-- [x] **Revisit `Recalculate`'s transaction scope.** It wrapped every user's rebuild in one `Tx`
-      (Step 8), so on a database with several users it could hold SQLite's single write lock for
-      the whole run — long enough for a concurrent `POST /points` to exhaust the 5 s
-      `busyTimeout` and answer 500, which is not the brief CLI/server overlap that timeout's
-      comment in `sqlite.go` assumes. **Decided: `recalculateUser` gets its own transaction**,
-      with `DeleteAll` in a leading transaction of its own. The cost is `Recalculate`'s
-      all-or-nothing atomicity: a run interrupted partway leaves some users rebuilt and others
-      not, and `daily_stats` can be observed empty for a user not yet reached. `Recalculate` is
-      idempotent, so re-running it is the recovery from either an interruption or the timeout
-      above, and that is a better trade than a single process holding the one write lock for
-      as long as the whole database takes to rebuild
-- [x] A test that the incremental update and `recalculate` agree. For the same set of points,
-      inserted across several `internal/ingest` batches, the `daily_stats` built up by per-ingest
-      updates must equal the one produced by a full rebuild. Cover: the day boundary; out-of-order
-      and late-arriving batches; and **points separated by several days** (either side of a period
-      with tracking stopped — also confirming segments over `TRAVELMAP_TRACK_BREAK_MINUTES` are
-      not counted). **Moved to Step 12**: the same agreement once a day's points can shrink or
-      disappear — no mutation but insert exists yet for that test to drive
-
-**Done when**: inserting points updates the corresponding `daily_stats` day, and running
-`travelmap recalculate` afterwards produces identical values.
 
 ---
 

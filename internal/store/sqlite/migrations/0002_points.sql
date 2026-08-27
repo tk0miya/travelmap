@@ -1,9 +1,8 @@
 -- +goose Up
 
--- Locations recorded from a device. Step 7 predates internal/ingest, so it
--- writes here directly; from Step 9 on, internal/ingest is the only caller,
--- because every mutation also has to rebuild the affected days of
--- daily_stats.
+-- Locations recorded from a device. internal/ingest is the only caller meant
+-- to reach this table, because every mutation also has to rebuild the
+-- affected days of daily_stats.
 --
 -- Columns cover what POST /api/v1/points and POST /api/v1/overland/batches
 -- actually populate, not the full width of upstream's own points table: that

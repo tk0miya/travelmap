@@ -10,9 +10,10 @@ import (
 // client cannot make this server hold an arbitrary amount of memory by
 // sending one that never ends.
 //
-// A megabyte is far more than the bodies of this milestone need — a login is
-// under a hundred bytes. Step 7's point batches are the first bodies where the
-// limit is a real question, and this is the one place to raise it.
+// A megabyte is far more than a login needs — under a hundred bytes — but
+// comfortably covers the point batches POST /api/v1/points and
+// /api/v1/overland/batches accept: the mobile app's batch_size caps at 1000
+// points, which serializes to about 435 KB.
 const maxRequestBody = 1 << 20
 
 // decodeJSON reads the request body as JSON into v.
@@ -24,7 +25,7 @@ const maxRequestBody = 1 << 20
 // caller answers it as it answers a body that is not JSON. RFC 9110 has 413
 // for it, but upstream is fronted by a proxy that would answer first, and
 // inventing a status this API is not known to send is the kind of difference a
-// client trips over. Revisit with Step 7, where the limit first matters.
+// client trips over.
 func decodeJSON(w http.ResponseWriter, r *http.Request, v any) error {
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxRequestBody)).Decode(v); err != nil {
 		return fmt.Errorf("decoding the request body: %w", err)

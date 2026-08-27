@@ -89,9 +89,9 @@ func TestUserLookups(t *testing.T) {
 	}
 }
 
-// TestUserLookupsReportMissing pins ErrNotFound rather than a zero user, because
-// Step 5's authentication turns exactly this into a 401 and would otherwise
-// authenticate a request as a user with no id.
+// TestUserLookupsReportMissing pins ErrNotFound rather than a zero user,
+// because the auth middleware turns exactly this into a 401 and would
+// otherwise authenticate a request as a user with no id.
 func TestUserLookupsReportMissing(t *testing.T) {
 	t.Parallel()
 

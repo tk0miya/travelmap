@@ -22,8 +22,8 @@ type pointRepository struct {
 // because ON CONFLICT ... DO NOTHING reports its own rows affected per
 // statement — a multi-row insert would report the whole statement's count,
 // not which rows were the duplicates. A batch is at most the mobile app's
-// batch_size (Step 16, up to 1000), so the round trips this costs are not
-// worth avoiding on the one connection this server holds anyway.
+// batch_size (up to 1000), so the round trips this costs are not worth
+// avoiding on the one connection this server holds anyway.
 func (r pointRepository) Create(ctx context.Context, points []model.Point) (int, error) {
 	// Truncated to the second for the reason on userRepository.Create: it is
 	// what a later lookup will find.

@@ -25,9 +25,9 @@ func tempDatabase(t *testing.T) (func(string) string, string) {
 	}, path
 }
 
-// TestMigrateCommand is the completion condition of Step 4 seen from outside:
-// the first run creates the schema, and a second one changes nothing and says
-// so instead of failing.
+// TestMigrateCommand verifies travelmap migrate from outside: the first run
+// creates the schema, and a second one changes nothing and says so instead of
+// failing.
 func TestMigrateCommand(t *testing.T) {
 	t.Parallel()
 

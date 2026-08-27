@@ -74,9 +74,9 @@ func TestMigratedRejectsAVersionTableWithoutTheSchema(t *testing.T) {
 	}
 }
 
-// TestMigrateIsANoOpWhenUpToDate is the completion condition of Step 4: the
-// command can be run again — after an upgrade that added nothing, or by an
-// operator who is not sure whether they ran it — without touching the data.
+// TestMigrateIsANoOpWhenUpToDate verifies that migrate can be run again —
+// after an upgrade that added nothing, or by an operator who is not sure
+// whether they ran it — without touching the data.
 func TestMigrateIsANoOpWhenUpToDate(t *testing.T) {
 	t.Parallel()
 

@@ -25,8 +25,8 @@ func migrated(t *testing.T) func(string) string {
 	return env
 }
 
-// TestUserCreateCommand is the other half of Step 4's completion condition: a
-// user and an API key, printed where a script can read them.
+// TestUserCreateCommand verifies travelmap user create: a user and an API
+// key, printed where a script can read them.
 func TestUserCreateCommand(t *testing.T) {
 	t.Parallel()
 
