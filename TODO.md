@@ -24,9 +24,9 @@ landmark data, collected to enrich the automatically recorded GPS trace.
 
 Such a feature gets **its own tables and its own routes at the top level, never a path under
 `/api/v1`**. Dawarich has no version negotiation, so clients read a 404 under `/api/v1` as
-"feature unsupported" (see "Unimplemented endpoints must return 404"); inventing paths in that
-namespace would make that signal meaningless. Keeping the compatibility surface exactly
-upstream's is what keeps the 404 rule true.
+"feature unsupported" (see "An endpoint this server does not implement answers 404" in
+`docs/api-notes.md`); inventing paths in that namespace would make that signal meaningless.
+Keeping the compatibility surface exactly upstream's is what keeps the 404 rule true.
 
 ### Non-goals
 
@@ -168,92 +168,11 @@ needed to close the gap.
 
 ## Dawarich API Compatibility Notes
 
-Upstream quirks that must be checked before implementing.
-
-### Authentication
-
-- Either an `api_key` query parameter **or** an `Authorization: Bearer {api_key}` header.
-- The spec lists only one of the two per endpoint (query for points / stats / tracks /
-  settings; header for users/me and visits), but **the implementation should accept both on
-  every endpoint**. The community Android client sends `Authorization: Bearer` on everything
-  including `/api/v1/points`, which the spec documents as query-only — so the spec's per-endpoint
-  split does not reflect what clients actually do.
+Upstream quirks for endpoints not yet implemented. For an endpoint already implemented,
+`docs/api-notes.md` covers it — this section holds only what is still ahead.
 
 ### Per-endpoint
 
-- **`GET /api/v1/health`** — No authentication. The response headers `X-Dawarich-Response`
-  (`Hey, I'm alive!` when unauthenticated, `Hey, I'm alive and authenticated!` when
-  authenticated) and `X-Dawarich-Version` are **required**. Body is `{"status":"ok"}`.
-  Implemented in Step 3, on the **assumption** that the app's server-URL validation goes
-  through here (needs confirmation against a real device — but health is needed regardless, so
-  being wrong costs no rework).
-  **Both headers belong on every `/api/v1` response, not just this one**: upstream sets them in
-  a `before_action` on `ApiController`, so a client is free to read the version off any
-  response. They are therefore middleware on the whole `/api/v1` group here (Step 3), and Step
-  5 made the `X-Dawarich-Response` value authentication-aware. That middleware runs **inside**
-  the authentication one, because the header reports the outcome of the key lookup; the one
-  response it cannot reach — the 500 the authentication answers itself when the database is
-  unreadable — sets both headers directly.
-  Note what that means for health: a request **carrying a key** reaches the database, so it is
-  answered 500 when the database cannot be read. That is upstream's behaviour too — its
-  `set_version_header` resolves `current_api_user` before the controller runs — and it is the
-  honest answer, since a server that cannot read its database is not one a client should be
-  told is fine. One deliberate difference: a request carrying **no** key is not looked up at
-  all here, where upstream queries for a user whose `api_key` is NULL.
-- **`POST /api/v1/auth/login`** — Body `{email, password}` → 200 with
-  `{user_id, email, api_key, status, plan, subscription_source, active_until}`. With 2FA
-  enabled it returns 202 plus a `challenge_token` (this project always returns 200).
-  The last four are upstream Cloud's billing fields and get no columns here (see "`users`"
-  above). Step 5 answers them with what a **self-hosted upstream instance** ends up reporting,
-  so that a client gating a feature on them sees what it would see there: `status` `active`,
-  `plan` `pro`, `subscription_source` `none`, and an `active_until` far enough out never to
-  have passed — upstream activates a self-hosted user with `active_until: 1000.years.from_now`,
-  and this server sends the constant `9999-12-31T23:59:59Z` because it has no subscription to
-  expire. Note that it carries **no milliseconds**, unlike the timestamps of `users/me` below:
-  upstream renders this one with an explicit `active_until&.iso8601` rather than handing a time
-  to the JSON encoder, and the two really do differ.
-  **A refused login is the one 401 with a body**: upstream's auth controllers render
-  `{"error": "auth_failed", "message": "Invalid email or password"}`, which is also the 401
-  the spec documents for this endpoint. Every way of failing gets that same answer — wrong
-  password, unknown address, an address that is not one, no password field at all — and an
-  unknown address is answered only after a bcrypt comparison against a throwaway digest
-  (`auth.CheckAbsentPassword`), so that how long the refusal takes does not say which addresses
-  have accounts.
-- **`GET /api/v1/users/me`** — **The spec documents no response body for it** ("user found",
-  no schema), so the shape was read off upstream's `Api::UserSerializer` instead:
-  `{"user": {email, theme, created_at, updated_at, settings: {...}}}`. Three things follow.
-  The user object **carries no id** — a client that needs one has the `user_id` of
-  `auth/login`. The `subscription` key beside `user` is Cloud-only (`unless self_hosted?`), so
-  it is not sent. And `settings` is a **smaller set than `GET /api/v1/settings` answers with**:
-  the 18 keys the serializer picks (`maps` among them), in its order. Nothing stores them yet,
-  so Step 5 answers upstream's own defaults (`Users::SafeSettings::DEFAULT_VALUES`); `immich_url`,
-  `photoprism_url` and `speed_color_scale` are `null`, and the first two stay that way, being a
-  non-goal.
-  Timestamps are written **RFC 3339 with milliseconds** (`2026-02-03T04:05:06.000Z`), which is
-  what upstream's JSON encoder produces (`ActiveSupport::JSON::Encoding.time_precision = 3`) —
-  a client parsing with a fixed format string would fail on a value without them.
-- **`POST /api/v1/points`** / **`POST /api/v1/overland/batches`** — Both take
-  `{"locations": [GeoJSON Feature, ...]}`. Feature `properties` include `timestamp` (ISO 8601),
-  `horizontal_accuracy`, `vertical_accuracy`, `altitude`, `speed`, `speed_accuracy`, `course`,
-  `course_accuracy`, `battery_state`, `battery_level`, `wifi`, `track_id`, `device_id`.
-  **The success status codes differ**: 200 for points, 201 for overland.
-  `speed_accuracy` and `track_id` are accepted but not stored: upstream itself does not persist
-  either to a column, keeping them only in the raw device payload it archives — which this server
-  does not have, having no use for it yet.
-  **Neither response body is part of the compatibility contract.** Upstream answers
-  `{"data": [...]}` and `{"result": "ok"}` respectively, but the community Android client checks
-  only the status code (`api_point_repository.dart`), so both answer `{"created": <n>}` here — the
-  count of points actually inserted after deduplication, which is the one thing worth reporting
-  before Step 10 gives points their own serialization.
-  A Feature missing usable coordinates or a parseable timestamp is dropped rather than failing the
-  whole batch, matching upstream's own tolerance (`Points::Params#params_valid?`): a batch is a
-  stream of device samples, and one bad sample should not cost the rest of it.
-  A 1000-point batch — `settings/mobile`'s `batch_size` ceiling (Step 16) — runs to roughly 435 KB
-  as JSON, comfortably inside `maxRequestBody`'s 1 MiB.
-  `timestamp` is accepted in both RFC 3339's own zone-offset form (`-07:00`) and the original
-  Overland iOS app's (`-0700`, no colon — see its README's example payload): `/overland/batches`
-  exists to accept that app's own format, and Go's `time.Parse` treats the two as different
-  layouts rather than one lenient one, so both are tried.
 - **`GET /api/v1/points`** — `start_at` / `end_at` / `page` / `per_page` / `order`. Must return
   the `X-Current-Page` and `X-Total-Pages` response headers. Body is an array of point objects
   with roughly 30 fields.
@@ -278,54 +197,13 @@ Upstream quirks that must be checked before implementing.
   `DELETE /api/v1/points/bulk_destroy` takes `{"point_ids": [...]}` at the top level. Check the
   spec per endpoint.
 
-### Responses carry `Content-Type: application/json; charset=utf-8`
-
-Upstream's `render json:` sends the charset, and it is worth copying rather than sending a bare
-`application/json`: Dart's `http` package — what the community Android client is built on —
-decodes a body whose `Content-Type` names no charset as latin1, so every non-ASCII city or
-country name would arrive as mojibake. Fixed in Step 3 for every response, error ones included.
-
-### Error responses are a bare `{"error": "..."}`
-
-Upstream renders `{"error": "<message>"}` and nothing else — no code, no details, no field a
-client could match on other than the message. Step 3 fixes that as the error body of every
-failing request, `internal/httpapi/dto.Error`.
-
-One exception is already visible in upstream's `ApiController`: a request that fails
-authentication is answered with `head :unauthorized`, so a **401 has an empty body**. Step 5
-reproduces that rather than sending the error body, since a client parsing the body of a 401 is
-parsing nothing.
-
-The other exception is `POST /api/v1/auth/login`, which renders `error` **and** `message`; it
-is on that endpoint's bullet above. So a 401 has an empty body everywhere except the one
-endpoint whose whole purpose is to tell a client whether its credentials work.
-
-### Unimplemented endpoints must return 404
-
-**Never return an empty array or empty object with 200 for an endpoint we do not implement.**
-
-Dawarich has no version negotiation. Feature detection is done by calling the endpoint and
-treating **404 as "this server does not support the feature", at which point the client hides it
-entirely** (upstream PR #3067 introduces `/api/v1/demo_data` on exactly this basis). A 200 with
-an empty body therefore tells the app the feature *exists*, and it will surface UI that then
-misbehaves.
-
-This makes the exclusions in "Endpoints Deliberately Excluded" safe by construction: not
-implementing them is the supported way to say we do not have them.
-
 ### `GET /api/v1/points` must answer HTTP HEAD
 
 Clients issue a `HEAD /api/v1/points` with the same query parameters first, read
 `X-Total-Pages` from the response, and only then fetch the pages. **If `X-Total-Pages` is absent
 or 0 the client concludes there is nothing to fetch and stops** — the map silently shows no
-points.
-
-chi registers methods explicitly, so a route declared with `r.Get` returns 405 to a HEAD
-request. Register HEAD alongside GET and make sure the pagination headers are computed for it.
-
-**This is not specific to `/points`.** Rails answers HEAD on every route it routes GET to, so
-every upstream GET endpoint does. Step 3 therefore registers both methods for every GET route
-through one helper, and a later handler gets the behaviour without having to remember it.
+points. This endpoint therefore needs the pagination headers computed on the HEAD path too, not
+only on GET.
 
 Verified in the community Android client
 (`lib/core/network/repositories/api_point_repository.dart`).
@@ -343,8 +221,8 @@ Two sources close the gap, in this order:
    order and which response fields are actually consumed. Cheaper and more precise than
    observing traffic. Caveats: it is a different client from the official iOS app, and its
    maintainer states updates have stalled and recommends the official app — so treat it as
-   evidence about *a* client, not *the* one. The HEAD requirement and the Bearer-everywhere
-   behaviour above both came from it.
+   evidence about *a* client, not *the* one. The HEAD requirement above, and the
+   Bearer-everywhere behaviour in `docs/api-notes.md`, both came from it.
    Endpoints it uses: `/api/v1/health`, `/api/v1/users/me`, `/api/v1/points`,
    `/api/v1/points/{id}`, `/api/v1/stats`, `/api/v1/countries/visited_cities`.
 2. **Request logging against a real device** (Step 6), for anything the above does not settle —
@@ -1074,9 +952,9 @@ Small, but its output is a planning input for everything after: the iOS app is c
 so this is how the remaining endpoint list gets confirmed.
 
 - [x] Request-logging middleware behind `TRAVELMAP_DEBUG_LOG_REQUESTS=1`, logging unmatched
-      routes too. Everything not yet implemented keeps returning 404, which is both the correct
-      answer (see "Unimplemented endpoints must return 404") and what makes the log a complete
-      list of what the app wants
+      routes too. Everything not yet implemented keeps returning 404 (see
+      "An endpoint this server does not implement answers 404" in `docs/api-notes.md`), which is
+      both the correct answer and what makes the log a complete list of what the app wants
 - [x] **Redact `api_key` and `Authorization` before logging.** The whole point is to capture
       real device traffic, which carries live credentials
 - [ ] Record the endpoints a real device actually hits in this file, and diff them against the

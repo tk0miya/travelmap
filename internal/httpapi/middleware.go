@@ -8,8 +8,7 @@ import (
 
 // dawarichVersion is the upstream release reported in X-Dawarich-Version. It
 // is a compatibility claim rather than this server's own version, which
-// `travelmap --version` reports. See the version bullet in "Risks and Open
-// Questions" in TODO.md for when it is raised.
+// `travelmap --version` reports.
 const dawarichVersion = "1.12.2"
 
 // The two values of X-Dawarich-Response. Which one a request gets is how a
@@ -22,8 +21,7 @@ const (
 )
 
 // dawarichHeaders sets the two headers upstream sets on every API response.
-// They are deliberately not specific to /health; see the /api/v1/health bullet
-// in "Per-endpoint" in TODO.md.
+// They are deliberately not specific to /health.
 //
 // It runs inside authenticate rather than around it, because the value of
 // X-Dawarich-Response is the outcome of that lookup.

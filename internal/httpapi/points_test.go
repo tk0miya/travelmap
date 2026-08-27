@@ -44,7 +44,7 @@ func TestCreatePoints(t *testing.T) {
 }
 
 // TestCreateOverlandBatch covers the endpoint's other name: the same body,
-// answered with 201 instead of 200. See "Per-endpoint" in TODO.md.
+// answered with 201 instead of 200.
 func TestCreateOverlandBatch(t *testing.T) {
 	t.Parallel()
 

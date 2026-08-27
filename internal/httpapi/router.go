@@ -101,8 +101,8 @@ func New(opts Options) http.Handler {
 // chi answers 405 to the HEAD of a route declared with Get, where upstream
 // answers it like any GET; a client that probes with HEAD reads the 405 as
 // "nothing to fetch". Registering both here means no later handler has to
-// remember it. See "GET /api/v1/points must answer HTTP HEAD" in TODO.md.
-// net/http discards the body of a HEAD response, so h needs no branch.
+// remember it. net/http discards the body of a HEAD response, so h needs no
+// branch.
 func get(r chi.Router, pattern string, h http.HandlerFunc) {
 	r.Get(pattern, h)
 	r.Head(pattern, h)
