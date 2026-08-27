@@ -41,7 +41,7 @@ func (r userRepository) Create(ctx context.Context, user model.User) (model.User
 	result, err := r.q.ExecContext(ctx,
 		`INSERT INTO users (email, password_hash, api_key, created_at, updated_at)
 		 VALUES (?, ?, ?, ?, ?)`,
-		user.Email, user.PasswordHash, user.APIKey, now.Unix(), now.Unix(),
+		user.Email, user.PasswordHash, user.APIKey, unixTime(now), unixTime(now),
 	)
 	if err != nil {
 		return model.User{}, fmt.Errorf("sqlite: creating the user %q: %w", user.Email, translate(err))
@@ -86,15 +86,15 @@ func (r userRepository) one(ctx context.Context, query string, args ...any) (mod
 func scanUser(row *sql.Row) (model.User, error) {
 	var (
 		user                 model.User
-		createdAt, updatedAt int64
+		createdAt, updatedAt unixTime
 	)
 
 	if err := row.Scan(&user.ID, &user.Email, &user.PasswordHash, &user.APIKey, &createdAt, &updatedAt); err != nil {
 		return model.User{}, translate(err)
 	}
 
-	user.CreatedAt = time.Unix(createdAt, 0).UTC()
-	user.UpdatedAt = time.Unix(updatedAt, 0).UTC()
+	user.CreatedAt = time.Time(createdAt)
+	user.UpdatedAt = time.Time(updatedAt)
 
 	return user, nil
 }

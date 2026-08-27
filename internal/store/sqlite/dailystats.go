@@ -3,7 +3,6 @@ package sqlite
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"time"
 
@@ -83,10 +82,6 @@ FROM lagged
 WHERE timestamp >= :day_start AND timestamp < :day_end
 `
 
-// emptyJSONArray is what countries and cities are written as until reverse
-// geocoding is enabled.
-const emptyJSONArray = "[]"
-
 // dailyStatsRepository implements [store.DailyStatsRepository].
 type dailyStatsRepository struct {
 	q querier
@@ -95,8 +90,6 @@ type dailyStatsRepository struct {
 // Rebuild implements [store.DailyStatsRepository].
 func (r dailyStatsRepository) Rebuild(ctx context.Context, userID int64, day time.Time, trackBreak time.Duration) error {
 	label := day.Format(dayFormat)
-	start := day.Unix()
-	end := day.AddDate(0, 0, 1).Unix()
 
 	var (
 		points int
@@ -105,8 +98,8 @@ func (r dailyStatsRepository) Rebuild(ctx context.Context, userID int64, day tim
 
 	err := r.q.QueryRowContext(ctx, rebuildQuery,
 		sql.Named("user_id", userID),
-		sql.Named("day_start", start),
-		sql.Named("day_end", end),
+		sql.Named("day_start", unixTime(day)),
+		sql.Named("day_end", unixTime(day.AddDate(0, 0, 1))),
 		sql.Named("track_break", int64(trackBreak/time.Second)),
 		sql.Named("earth_radius_km", geo.EarthRadiusKm),
 	).Scan(&points, &km)
@@ -133,7 +126,8 @@ func (r dailyStatsRepository) Rebuild(ctx context.Context, userID int64, day tim
 		     km = excluded.km,
 		     countries = excluded.countries,
 		     cities = excluded.cities`,
-		userID, label, points, km, emptyJSONArray, emptyJSONArray,
+		// Written empty until reverse geocoding is enabled.
+		userID, label, points, km, jsonStrings(nil), jsonStrings(nil),
 	); err != nil {
 		return fmt.Errorf("sqlite: writing daily_stats for user %d, day %s: %w", userID, label, err)
 	}
@@ -155,28 +149,22 @@ func (r dailyStatsRepository) Get(ctx context.Context, userID int64, day time.Ti
 	label := day.Format(dayFormat)
 
 	var (
-		stat                      model.DailyStat
-		countriesJSON, citiesJSON string
+		stat              model.DailyStat
+		countries, cities jsonStrings
 	)
 
 	err := r.q.QueryRowContext(ctx,
 		`SELECT points, reverse_geocoded_points, km, countries, cities
 		 FROM daily_stats WHERE user_id = ? AND day = ?`,
 		userID, label,
-	).Scan(&stat.Points, &stat.ReverseGeocodedPoints, &stat.KM, &countriesJSON, &citiesJSON)
+	).Scan(&stat.Points, &stat.ReverseGeocodedPoints, &stat.KM, &countries, &cities)
 	if err != nil {
 		return model.DailyStat{}, fmt.Errorf("sqlite: looking up daily_stats for user %d, day %s: %w",
 			userID, label, translate(err))
 	}
 
-	if err := json.Unmarshal([]byte(countriesJSON), &stat.Countries); err != nil {
-		return model.DailyStat{}, fmt.Errorf("sqlite: decoding countries for user %d, day %s: %w", userID, label, err)
-	}
-
-	if err := json.Unmarshal([]byte(citiesJSON), &stat.Cities); err != nil {
-		return model.DailyStat{}, fmt.Errorf("sqlite: decoding cities for user %d, day %s: %w", userID, label, err)
-	}
-
+	stat.Countries = countries
+	stat.Cities = cities
 	stat.UserID = userID
 	stat.Day = day
 

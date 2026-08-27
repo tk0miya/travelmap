@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"time"
 
@@ -37,10 +38,10 @@ func (r pointRepository) Create(ctx context.Context, points []model.Point) (int,
 				battery_status, battery, ssid, tracker_id, created_at, updated_at
 			 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			 ON CONFLICT (user_id, timestamp) DO NOTHING`,
-			p.UserID, p.Timestamp.Unix(), p.Latitude, p.Longitude,
+			p.UserID, unixTime(p.Timestamp), p.Latitude, p.Longitude,
 			p.Altitude, p.Velocity, p.Accuracy, p.VerticalAccuracy,
 			p.Course, p.CourseAccuracy, p.BatteryStatus, p.Battery,
-			p.SSID, p.TrackerID, now.Unix(), now.Unix(),
+			p.SSID, p.TrackerID, unixTime(now), unixTime(now),
 		)
 		if err != nil {
 			return inserted, fmt.Errorf("sqlite: inserting a point: %w", translate(err))
@@ -63,20 +64,15 @@ func (r pointRepository) UserIDs(ctx context.Context) ([]int64, error) {
 	if err != nil {
 		return nil, fmt.Errorf("sqlite: listing the users with points: %w", err)
 	}
-	defer rows.Close()
 
-	var userIDs []int64
-
-	for rows.Next() {
+	userIDs, err := collect(rows, func(rows *sql.Rows) (int64, error) {
 		var userID int64
-		if err := rows.Scan(&userID); err != nil {
-			return nil, fmt.Errorf("sqlite: listing the users with points: %w", err)
-		}
 
-		userIDs = append(userIDs, userID)
-	}
+		err := rows.Scan(&userID)
 
-	if err := rows.Err(); err != nil {
+		return userID, err
+	})
+	if err != nil {
 		return nil, fmt.Errorf("sqlite: listing the users with points: %w", err)
 	}
 
@@ -90,20 +86,15 @@ func (r pointRepository) Timestamps(ctx context.Context, userID int64) ([]time.T
 	if err != nil {
 		return nil, fmt.Errorf("sqlite: listing the timestamps for user %d: %w", userID, err)
 	}
-	defer rows.Close()
 
-	var timestamps []time.Time
+	timestamps, err := collect(rows, func(rows *sql.Rows) (time.Time, error) {
+		var ts unixTime
 
-	for rows.Next() {
-		var unix int64
-		if err := rows.Scan(&unix); err != nil {
-			return nil, fmt.Errorf("sqlite: listing the timestamps for user %d: %w", userID, err)
-		}
+		err := rows.Scan(&ts)
 
-		timestamps = append(timestamps, time.Unix(unix, 0).UTC())
-	}
-
-	if err := rows.Err(); err != nil {
+		return time.Time(ts), err
+	})
+	if err != nil {
 		return nil, fmt.Errorf("sqlite: listing the timestamps for user %d: %w", userID, err)
 	}
 
