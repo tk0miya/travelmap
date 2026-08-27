@@ -21,6 +21,11 @@ func serve(getenv func(string) string, stderr io.Writer) error {
 
 	logger := cfg.NewLogger(stderr)
 
+	loc, err := cfg.Location()
+	if err != nil {
+		return err
+	}
+
 	// SIGINT and SIGTERM are what a terminal and an init system send; both mean
 	// "stop", so both start the graceful shutdown rather than killing requests.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -47,6 +52,8 @@ func serve(getenv func(string) string, stderr io.Writer) error {
 		Store:            db,
 		DebugLogRequests: cfg.DebugLogRequests,
 		Timezone:         cfg.Timezone,
+		Location:         loc,
+		TrackBreak:       cfg.TrackBreak(),
 	})
 
 	return httpapi.Serve(ctx, cfg.Addr, handler, logger)

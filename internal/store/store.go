@@ -92,6 +92,17 @@ type PointRepository interface {
 	// because which day a timestamp falls on depends on TRAVELMAP_TIMEZONE,
 	// which this package does not know.
 	Timestamps(ctx context.Context, userID int64) ([]time.Time, error)
+
+	// NextTimestamp returns the smallest timestamp already stored for userID
+	// that is strictly greater than after, and false when there is none.
+	//
+	// A day's own daily_stats depends on more than that day's points:
+	// DailyStatsRepository.Rebuild's day D reads the single point
+	// immediately preceding D as context from outside D itself, so a point
+	// landing between the old predecessor and D can change D's output even
+	// though none of D's own points changed. NextTimestamp is how a caller
+	// tells whether inserting a point does that.
+	NextTimestamp(ctx context.Context, userID int64, after time.Time) (time.Time, bool, error)
 }
 
 // DailyStatsRepository stores the daily_stats table: one precomputed per-day

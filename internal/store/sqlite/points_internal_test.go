@@ -260,3 +260,69 @@ func TestPointsTimestamps(t *testing.T) {
 		t.Errorf("Timestamps differs (-want +got):\n%s", diff)
 	}
 }
+
+// TestPointsNextTimestamp pins the strictly-greater boundary and that a
+// result is scoped to the given user.
+func TestPointsNextTimestamp(t *testing.T) {
+	t.Parallel()
+
+	db := newTestDB(t)
+
+	user, err := db.Users().Create(t.Context(), testUser("next-timestamp@example.com"))
+	if err != nil {
+		t.Fatalf("creating the user: %v", err)
+	}
+
+	other, err := db.Users().Create(t.Context(), testUser("other-next-timestamp@example.com"))
+	if err != nil {
+		t.Fatalf("creating the other user: %v", err)
+	}
+
+	base := time.Date(2026, time.February, 3, 4, 5, 6, 0, time.UTC)
+	at, after := base, base.Add(time.Hour)
+
+	if _, err := db.Points().Create(t.Context(), []model.Point{
+		testPoint(user.ID, at),
+		testPoint(user.ID, after),
+		testPoint(other.ID, after.Add(time.Minute)),
+	}); err != nil {
+		t.Fatalf("inserting points: %v", err)
+	}
+
+	got, ok, err := db.Points().NextTimestamp(t.Context(), user.ID, at)
+	if err != nil {
+		t.Fatalf("NextTimestamp returned %v", err)
+	}
+
+	if !ok || !got.Equal(after) {
+		t.Errorf("NextTimestamp(%s) = (%v, %v), want (%v, true)", at, got, ok, after)
+	}
+}
+
+// TestPointsNextTimestampNone pins that the answer for a user with nothing
+// stored after the given time is false rather than the zero time.
+func TestPointsNextTimestampNone(t *testing.T) {
+	t.Parallel()
+
+	db := newTestDB(t)
+
+	user, err := db.Users().Create(t.Context(), testUser("next-timestamp-none@example.com"))
+	if err != nil {
+		t.Fatalf("creating the user: %v", err)
+	}
+
+	base := time.Date(2026, time.February, 3, 4, 5, 6, 0, time.UTC)
+
+	if _, err := db.Points().Create(t.Context(), []model.Point{testPoint(user.ID, base)}); err != nil {
+		t.Fatalf("inserting a point: %v", err)
+	}
+
+	_, ok, err := db.Points().NextTimestamp(t.Context(), user.ID, base)
+	if err != nil {
+		t.Fatalf("NextTimestamp returned %v", err)
+	}
+
+	if ok {
+		t.Error("NextTimestamp reported a next point, want none")
+	}
+}

@@ -1065,26 +1065,29 @@ the above pinned by tests.
 
 ### Step 9: Ingest layer and incremental update
 
-- [ ] **Route every path that changes points through a single `internal/ingest` layer**, and
+- [x] **Route every path that changes points through a single `internal/ingest` layer**, and
       move Step 7's handlers onto it. Scattered `daily_stats` updates are guaranteed to miss
       cases — Milestone E's updates and deletes, and Milestone G's imports, owntracks/traccar
       and reverse-geocoding worker all go through this layer
-- [ ] Update the affected days in the same transaction as the mutation, per "Data Model"
-- [ ] **Revisit `Recalculate`'s transaction scope.** It wraps every user's rebuild in one `Tx`
-      (Step 8), so on a database with several users it can hold SQLite's single write lock for
+- [x] Update the affected days in the same transaction as the mutation, per "Data Model"
+- [x] **Revisit `Recalculate`'s transaction scope.** It wrapped every user's rebuild in one `Tx`
+      (Step 8), so on a database with several users it could hold SQLite's single write lock for
       the whole run — long enough for a concurrent `POST /points` to exhaust the 5 s
       `busyTimeout` and answer 500, which is not the brief CLI/server overlap that timeout's
-      comment in `sqlite.go` assumes. `recalculateUser` is already a per-user boundary; whether
-      the transaction should be scoped there instead, and what that costs `Recalculate`'s
-      all-or-nothing atomicity, is this step's to decide alongside the incremental update's own
-      transaction scope
-- [ ] A test that the incremental update and `recalculate` agree. For the same set of points, the
-      `daily_stats` built up by per-ingest updates must equal the one produced by a full rebuild.
-      Cover: the day boundary; out-of-order and late-arriving batches; **points separated by
-      several days** (either side of a period with tracking stopped — also confirming segments
-      over `TRAVELMAP_TRACK_BREAK_MINUTES` are not counted); **a day whose points are all deleted
-      so the row is removed**; and **deleting or updating only some of a day's points so that
-      `countries` / `cities` shrink**
+      comment in `sqlite.go` assumes. **Decided: `recalculateUser` gets its own transaction**,
+      with `DeleteAll` in a leading transaction of its own. The cost is `Recalculate`'s
+      all-or-nothing atomicity: a run interrupted partway leaves some users rebuilt and others
+      not, and `daily_stats` can be observed empty for a user not yet reached. `Recalculate` is
+      idempotent, so re-running it is the recovery from either an interruption or the timeout
+      above, and that is a better trade than a single process holding the one write lock for
+      as long as the whole database takes to rebuild
+- [x] A test that the incremental update and `recalculate` agree. For the same set of points,
+      inserted across several `internal/ingest` batches, the `daily_stats` built up by per-ingest
+      updates must equal the one produced by a full rebuild. Cover: the day boundary; out-of-order
+      and late-arriving batches; and **points separated by several days** (either side of a period
+      with tracking stopped — also confirming segments over `TRAVELMAP_TRACK_BREAK_MINUTES` are
+      not counted). **Moved to Step 12**: the same agreement once a day's points can shrink or
+      disappear — no mutation but insert exists yet for that test to drive
 
 **Done when**: inserting points updates the corresponding `daily_stats` day, and running
 `travelmap recalculate` afterwards produces identical values.
@@ -1122,6 +1125,10 @@ Steps 10 and 11 are independent of each other and can run in parallel. Step 12 n
 - [ ] All three go through `internal/ingest`, so the affected days' `daily_stats` are
       recalculated in the same transaction. Never leave a state where points were deleted but
       `/stats` keeps reporting the old distance
+- [ ] **The agreement test Step 9 could not write yet**: the incremental update and `recalculate`
+      still agree once a mutation other than insert exists — **a day whose points are all deleted
+      so the row is removed**, and **deleting or updating only some of a day's points so that
+      `countries` / `cities` shrink**
 
 **Done when**: deleting a point is reflected in `/stats` immediately.
 
@@ -1568,3 +1575,11 @@ excluded from refresh.
   implies: the secret is server configuration, and identifying whose check-in arrived is
   `foursquare_user_id`'s job. Deriving a user from the secret would break the moment a second
   person connects.
+- **Revisit whether `internal/ingest` should be named `internal/usecase` (or `service`) instead.**
+  `usecase`/`service` are the more familiar names for this layer in most Go codebases; `ingest`
+  was picked because this milestone's whole job is literally ingesting device locations, which
+  does not generalise as an argument once `internal/checkin` (Milestone I) is the same shape of
+  layer over a different kind of write. Revisit once `internal/checkin` exists alongside
+  `internal/ingest`, so the comparison is between two real packages rather than a naming
+  preference argued in the abstract. A rename this late only costs an import-path edit — nothing
+  in the layering itself depends on the name — so there is no cost to waiting for the evidence.
