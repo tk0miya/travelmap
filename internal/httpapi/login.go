@@ -43,8 +43,7 @@ const authFailedMessage = "Invalid email or password"
 //
 // It is how a client that only has the account's password gets the credential
 // every other endpoint wants. There is no 202 with a challenge token, because
-// this server has no two-factor authentication to challenge with; see
-// "Endpoints Deliberately Excluded" in TODO.md.
+// this server has no two-factor authentication to challenge with.
 func (a *api) login(w http.ResponseWriter, r *http.Request) {
 	var req dto.LoginRequest
 

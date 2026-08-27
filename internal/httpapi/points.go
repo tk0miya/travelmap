@@ -14,8 +14,7 @@ import (
 // becomes points belonging to the authenticated user.
 //
 // It shares its body with [api.createOverlandBatch] and differs only in the
-// success status: 200 here, 201 there. See the POST /api/v1/points bullet
-// under "Per-endpoint" in TODO.md.
+// success status: 200 here, 201 there.
 func (a *api) createPoints(w http.ResponseWriter, r *http.Request) {
 	a.ingestLocations(w, r, http.StatusOK)
 }

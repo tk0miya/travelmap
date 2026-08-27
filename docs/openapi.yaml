@@ -3,17 +3,18 @@ info:
   title: travelmap API
   version: unreleased
   description: >
-    travelmap's HTTP API has two parts: a subset compatible with
-    [Dawarich](https://github.com/Freika/dawarich)'s own API, for any
-    client built for the Dawarich mobile app; and travelmap's own
-    extensions, for functionality Dawarich has no equivalent of.
+    The OpenAPI contract for travelmap's API — paths, schemas, headers,
+    and status codes for the endpoints actually implemented. Today
+    that is only the Dawarich-compatible subset, since travelmap's own
+    extensions don't exist yet. See `docs/api-notes.md` for what
+    travelmap's API is as a whole and the reasoning behind this
+    contract.
 
 
-    For the Dawarich-compatible part, upstream's own OpenAPI document
+    Upstream's own OpenAPI document
     (`https://raw.githubusercontent.com/Freika/dawarich/master/swagger/v1/swagger.yaml`)
-    is the compatibility source of truth; this document describes the
-    paths, schemas, headers, and status codes travelmap actually
-    implements from it.
+    is the compatibility source of truth for the Dawarich-compatible
+    part.
 
 servers:
   - url: /

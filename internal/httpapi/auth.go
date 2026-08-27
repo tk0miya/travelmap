@@ -103,7 +103,7 @@ func requireUser(next http.Handler) http.Handler {
 // Both places are read on every route. The upstream spec documents one or the
 // other per endpoint — the query parameter for points and stats, the header for
 // users/me — but clients do not follow that split: the community Android client
-// sends the header everywhere. See "Authentication" in TODO.md.
+// sends the header everywhere.
 func apiKeyFrom(r *http.Request) string {
 	if key := r.URL.Query().Get("api_key"); key != "" {
 		return key
