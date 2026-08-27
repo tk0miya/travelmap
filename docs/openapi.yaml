@@ -1,0 +1,613 @@
+openapi: 3.0.3
+info:
+  title: travelmap API
+  version: unreleased
+  description: >
+    travelmap's HTTP API has two parts: a subset compatible with
+    [Dawarich](https://github.com/Freika/dawarich)'s own API, for any
+    client built for the Dawarich mobile app; and travelmap's own
+    extensions, for functionality Dawarich has no equivalent of.
+
+
+    For the Dawarich-compatible part, upstream's own OpenAPI document
+    (`https://raw.githubusercontent.com/Freika/dawarich/master/swagger/v1/swagger.yaml`)
+    is the compatibility source of truth; this document describes the
+    paths, schemas, headers, and status codes travelmap actually
+    implements from it.
+
+servers:
+  - url: /
+
+security:
+  - ApiKeyQuery: []
+  - BearerAuth: []
+
+paths:
+  /api/v1/health:
+    get:
+      summary: Liveness and compatibility check
+      description: >
+        Takes no credentials, but is auth-aware: a request carrying a valid
+        key is answered with the authenticated form of X-Dawarich-Response.
+        This is what a client checks a server URL with before anything else.
+      operationId: health
+      security: []
+      responses:
+        "200":
+          $ref: "#/components/responses/HealthOK"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    head:
+      summary: Liveness and compatibility check (headers only)
+      description: >
+        Identical to GET, with no response body. Registered because
+        every GET route here also answers HEAD; see the note on
+        GET /api/v1/users/me.
+      operationId: healthHead
+      security: []
+      responses:
+        "200":
+          $ref: "#/components/responses/HealthOK"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /api/v1/auth/login:
+    post:
+      summary: Exchange an email and password for an API key
+      description: >
+        The only way a client that starts with just a password gets the
+        API key every other endpoint wants. Always answers 200 with the
+        key on success; this server has no two-factor authentication to
+        answer 202 with a challenge for.
+      operationId: login
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          $ref: "#/components/responses/LoginOK"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/LoginFailed"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /api/v1/users/me:
+    get:
+      summary: The account the request authenticated as
+      description: >
+        What a client calls to confirm that the API key it was configured
+        with belongs to somebody.
+      operationId: usersMe
+      responses:
+        "200":
+          $ref: "#/components/responses/UsersMeOK"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    head:
+      summary: The account the request authenticated as (headers only)
+      description: >
+        Clients probe a GET route with HEAD first and read the pagination
+        or presence signal off the headers before fetching the body,
+        so every GET route here also answers HEAD with the same status
+        and headers.
+      operationId: usersMeHead
+      responses:
+        "200":
+          $ref: "#/components/responses/UsersMeOK"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /api/v1/points:
+    post:
+      summary: Record a batch of GPS points
+      description: >
+        Takes the same GeoJSON batch as POST /api/v1/overland/batches and
+        differs only in the success status. A Feature with unusable
+        coordinates or an unparseable timestamp is dropped rather than
+        failing the whole batch. The response body is not part of the
+        compatibility contract with upstream (whose own body no client is
+        known to read); `created` is the count of points actually inserted
+        after deduplication.
+      operationId: createPoints
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LocationsRequest"
+      responses:
+        "200":
+          $ref: "#/components/responses/PointsCreated"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /api/v1/overland/batches:
+    post:
+      summary: Record a batch of GPS points (Overland app format)
+      description: >
+        Identical to POST /api/v1/points, aside from the 201 success
+        status and accepting the Overland iOS app's own timestamp layout
+        (no colon in the zone offset) in addition to RFC 3339.
+      operationId: createOverlandBatch
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LocationsRequest"
+      responses:
+        "201":
+          $ref: "#/components/responses/OverlandBatchCreated"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+components:
+  securitySchemes:
+    ApiKeyQuery:
+      type: apiKey
+      in: query
+      name: api_key
+      description: >
+        Accepted on every endpoint here, regardless of which one upstream's
+        own spec documents it for.
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: >
+        `Authorization: Bearer <api_key>`. Accepted on every endpoint here,
+        regardless of which one upstream's own spec documents it for.
+
+  headers:
+    DawarichResponse:
+      description: >
+        Whether the request authenticated: "Hey, I'm alive!" if not,
+        "Hey, I'm alive and authenticated!" if so. Set on every /api/v1
+        response, not only GET /api/v1/health.
+      schema:
+        type: string
+        enum:
+          - "Hey, I'm alive!"
+          - "Hey, I'm alive and authenticated!"
+    DawarichVersion:
+      description: >
+        The upstream Dawarich release this server claims compatibility
+        with. A compatibility claim, not this binary's own build version
+        (`travelmap --version`).
+      schema:
+        type: string
+        example: "1.12.2"
+
+  responses:
+    HealthOK:
+      description: The server is reachable.
+      headers:
+        X-Dawarich-Response:
+          $ref: "#/components/headers/DawarichResponse"
+        X-Dawarich-Version:
+          $ref: "#/components/headers/DawarichVersion"
+      content:
+        application/json; charset=utf-8:
+          schema:
+            $ref: "#/components/schemas/Health"
+          example:
+            status: ok
+
+    LoginOK:
+      description: The credentials were valid; here is the account's API key.
+      headers:
+        X-Dawarich-Response:
+          $ref: "#/components/headers/DawarichResponse"
+        X-Dawarich-Version:
+          $ref: "#/components/headers/DawarichVersion"
+      content:
+        application/json; charset=utf-8:
+          schema:
+            $ref: "#/components/schemas/Login"
+          example:
+            user_id: 1
+            email: alice@example.com
+            api_key: 0f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c4b5a69788796a5b4c3d2e1f0
+            status: active
+            plan: pro
+            subscription_source: none
+            active_until: "9999-12-31T23:59:59Z"
+
+    LoginFailed:
+      description: >
+        The credentials were refused — wrong password, unknown address, or
+        a malformed one. Every way of failing gets this same body; how long
+        it takes does not say which addresses have accounts.
+      headers:
+        X-Dawarich-Response:
+          $ref: "#/components/headers/DawarichResponse"
+        X-Dawarich-Version:
+          $ref: "#/components/headers/DawarichVersion"
+      content:
+        application/json; charset=utf-8:
+          schema:
+            $ref: "#/components/schemas/AuthError"
+          example:
+            error: auth_failed
+            message: Invalid email or password
+
+    UsersMeOK:
+      description: The account the request authenticated as.
+      headers:
+        X-Dawarich-Response:
+          $ref: "#/components/headers/DawarichResponse"
+        X-Dawarich-Version:
+          $ref: "#/components/headers/DawarichVersion"
+      content:
+        application/json; charset=utf-8:
+          schema:
+            $ref: "#/components/schemas/UserEnvelope"
+
+    PointsCreated:
+      description: The points were stored.
+      headers:
+        X-Dawarich-Response:
+          $ref: "#/components/headers/DawarichResponse"
+        X-Dawarich-Version:
+          $ref: "#/components/headers/DawarichVersion"
+      content:
+        application/json; charset=utf-8:
+          schema:
+            $ref: "#/components/schemas/LocationsCreated"
+          example:
+            created: 1
+
+    OverlandBatchCreated:
+      description: The points were stored.
+      headers:
+        X-Dawarich-Response:
+          $ref: "#/components/headers/DawarichResponse"
+        X-Dawarich-Version:
+          $ref: "#/components/headers/DawarichVersion"
+      content:
+        application/json; charset=utf-8:
+          schema:
+            $ref: "#/components/schemas/LocationsCreated"
+          example:
+            created: 1
+
+    BadRequest:
+      description: The request body could not be read as the shape this endpoint expects.
+      headers:
+        X-Dawarich-Response:
+          $ref: "#/components/headers/DawarichResponse"
+        X-Dawarich-Version:
+          $ref: "#/components/headers/DawarichVersion"
+      content:
+        application/json; charset=utf-8:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error: invalid request body
+
+    Unauthorized:
+      description: >
+        No request authenticated. The body is empty on purpose — upstream's
+        `head :unauthorized`, not an oversight — so a client parsing a 401
+        body gets nothing rather than something to trip over.
+      headers:
+        X-Dawarich-Response:
+          $ref: "#/components/headers/DawarichResponse"
+        X-Dawarich-Version:
+          $ref: "#/components/headers/DawarichVersion"
+
+    InternalServerError:
+      description: >
+        The server could not do what was asked, most commonly because its
+        database could not be read.
+      headers:
+        X-Dawarich-Response:
+          $ref: "#/components/headers/DawarichResponse"
+        X-Dawarich-Version:
+          $ref: "#/components/headers/DawarichVersion"
+      content:
+        application/json; charset=utf-8:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error: internal server error
+
+  schemas:
+    Error:
+      type: object
+      description: The body every failing request answers with, aside from the exceptions noted on specific responses.
+      required:
+        - error
+      properties:
+        error:
+          type: string
+
+    AuthError:
+      type: object
+      description: The body of a refused POST /api/v1/auth/login.
+      required:
+        - error
+        - message
+      properties:
+        error:
+          type: string
+        message:
+          type: string
+
+    Health:
+      type: object
+      required:
+        - status
+      properties:
+        status:
+          type: string
+
+    LoginRequest:
+      type: object
+      properties:
+        email:
+          type: string
+        password:
+          type: string
+
+    Login:
+      type: object
+      description: >
+        The last four fields describe an upstream Cloud subscription; this
+        server has no billing, so they are constants matching what a
+        self-hosted upstream instance reports.
+      required:
+        - user_id
+        - email
+        - api_key
+        - status
+        - plan
+        - subscription_source
+        - active_until
+      properties:
+        user_id:
+          type: integer
+          format: int64
+        email:
+          type: string
+        api_key:
+          type: string
+        status:
+          type: string
+        plan:
+          type: string
+        subscription_source:
+          type: string
+        active_until:
+          type: string
+          description: RFC 3339, no fractional seconds.
+
+    UserEnvelope:
+      type: object
+      required:
+        - user
+      properties:
+        user:
+          $ref: "#/components/schemas/User"
+
+    User:
+      type: object
+      description: Carries no id; a client that needs one has the user_id of POST /api/v1/auth/login.
+      required:
+        - email
+        - theme
+        - created_at
+        - updated_at
+        - settings
+      properties:
+        email:
+          type: string
+        theme:
+          type: string
+        created_at:
+          type: string
+          description: RFC 3339 with millisecond precision.
+        updated_at:
+          type: string
+          description: RFC 3339 with millisecond precision.
+        settings:
+          $ref: "#/components/schemas/UserSettings"
+
+    UserSettings:
+      type: object
+      description: >
+        A smaller set than GET /api/v1/settings answers with — the fields
+        upstream's user serializer sends, in its order. Nothing here is
+        stored yet; values are upstream's own defaults.
+      required:
+        - timezone
+        - maps
+        - fog_of_war_meters
+        - meters_between_routes
+        - preferred_map_layer
+        - speed_colored_routes
+        - points_rendering_mode
+        - minutes_between_routes
+        - time_threshold_minutes
+        - merge_threshold_minutes
+        - live_map_enabled
+        - route_opacity
+        - immich_url
+        - photoprism_url
+        - visits_suggestions_enabled
+        - speed_color_scale
+        - fog_of_war_threshold
+        - globe_projection
+      properties:
+        timezone:
+          type: string
+        maps:
+          $ref: "#/components/schemas/MapsPref"
+        fog_of_war_meters:
+          type: integer
+        meters_between_routes:
+          type: integer
+        preferred_map_layer:
+          type: string
+        speed_colored_routes:
+          type: boolean
+        points_rendering_mode:
+          type: string
+        minutes_between_routes:
+          type: integer
+        time_threshold_minutes:
+          type: integer
+        merge_threshold_minutes:
+          type: integer
+        live_map_enabled:
+          type: boolean
+        route_opacity:
+          type: number
+        immich_url:
+          type: string
+          nullable: true
+          description: Always null; Immich integration is a non-goal.
+        photoprism_url:
+          type: string
+          nullable: true
+          description: Always null; Photoprism integration is a non-goal.
+        visits_suggestions_enabled:
+          type: boolean
+        speed_color_scale:
+          type: string
+          nullable: true
+          description: Null unless the user picked a scale; upstream has no default for it.
+        fog_of_war_threshold:
+          type: integer
+        globe_projection:
+          type: boolean
+
+    MapsPref:
+      type: object
+      required:
+        - distance_unit
+      properties:
+        distance_unit:
+          type: string
+
+    LocationsRequest:
+      type: object
+      required:
+        - locations
+      properties:
+        locations:
+          type: array
+          items:
+            $ref: "#/components/schemas/Feature"
+
+    Feature:
+      type: object
+      description: One GeoJSON Feature carrying a point.
+      required:
+        - type
+        - geometry
+        - properties
+      properties:
+        type:
+          type: string
+          example: Feature
+        geometry:
+          $ref: "#/components/schemas/Geometry"
+        properties:
+          $ref: "#/components/schemas/PointProperties"
+
+    Geometry:
+      type: object
+      description: A GeoJSON Point, as [longitude, latitude]. A third coordinate (elevation), if sent, is ignored.
+      required:
+        - type
+        - coordinates
+      properties:
+        type:
+          type: string
+          example: Point
+        coordinates:
+          type: array
+          minItems: 2
+          items:
+            type: number
+
+    PointProperties:
+      type: object
+      description: >
+        Every field but timestamp is optional. A Feature with unusable
+        coordinates or an unparseable timestamp is dropped rather than
+        failing the whole batch. speed_accuracy and track_id are accepted
+        but not stored: upstream itself does not persist either to a
+        column.
+      properties:
+        timestamp:
+          type: string
+          description: >
+            RFC 3339, or the original Overland iOS app's layout (no colon
+            in the zone offset) — both are tried.
+        horizontal_accuracy:
+          type: number
+          nullable: true
+        vertical_accuracy:
+          type: number
+          nullable: true
+        altitude:
+          type: number
+          nullable: true
+        speed:
+          type: number
+          nullable: true
+        speed_accuracy:
+          type: number
+          nullable: true
+        course:
+          type: number
+          nullable: true
+        course_accuracy:
+          type: number
+          nullable: true
+        battery_state:
+          type: string
+          nullable: true
+        battery_level:
+          type: number
+          nullable: true
+        wifi:
+          type: string
+          nullable: true
+        track_id:
+          type: string
+          nullable: true
+        device_id:
+          type: string
+          nullable: true
+
+    LocationsCreated:
+      type: object
+      description: >
+        Not part of the compatibility contract with upstream (whose own
+        body no client is known to read). The count of points actually
+        inserted after deduplication.
+      required:
+        - created
+      properties:
+        created:
+          type: integer

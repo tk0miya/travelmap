@@ -168,7 +168,9 @@ needed to close the gap.
 
 ## Dawarich API Compatibility Notes
 
-Upstream quirks that must be checked before implementing.
+Upstream quirks that must be checked before implementing. For an endpoint already implemented,
+`docs/openapi.yaml` is the exact contract (paths, schemas, headers, status codes); what follows
+is the reasoning behind it, not a restatement of it.
 
 ### Authentication
 
@@ -181,12 +183,10 @@ Upstream quirks that must be checked before implementing.
 
 ### Per-endpoint
 
-- **`GET /api/v1/health`** — No authentication. The response headers `X-Dawarich-Response`
-  (`Hey, I'm alive!` when unauthenticated, `Hey, I'm alive and authenticated!` when
-  authenticated) and `X-Dawarich-Version` are **required**. Body is `{"status":"ok"}`.
-  Implemented in Step 3, on the **assumption** that the app's server-URL validation goes
-  through here (needs confirmation against a real device — but health is needed regardless, so
-  being wrong costs no rework).
+- **`GET /api/v1/health`** — Implemented in Step 3, on the **assumption** that the app's
+  server-URL validation goes through here (needs confirmation against a real device — but
+  health is needed regardless, so being wrong costs no rework). See `docs/openapi.yaml` for the
+  response body and the `X-Dawarich-Response` / `X-Dawarich-Version` headers.
   **Both headers belong on every `/api/v1` response, not just this one**: upstream sets them in
   a `before_action` on `ApiController`, so a client is free to read the version off any
   response. They are therefore middleware on the whole `/api/v1` group here (Step 3), and Step
@@ -200,51 +200,50 @@ Upstream quirks that must be checked before implementing.
   honest answer, since a server that cannot read its database is not one a client should be
   told is fine. One deliberate difference: a request carrying **no** key is not looked up at
   all here, where upstream queries for a user whose `api_key` is NULL.
-- **`POST /api/v1/auth/login`** — Body `{email, password}` → 200 with
-  `{user_id, email, api_key, status, plan, subscription_source, active_until}`. With 2FA
-  enabled it returns 202 plus a `challenge_token` (this project always returns 200).
-  The last four are upstream Cloud's billing fields and get no columns here (see "`users`"
-  above). Step 5 answers them with what a **self-hosted upstream instance** ends up reporting,
-  so that a client gating a feature on them sees what it would see there: `status` `active`,
-  `plan` `pro`, `subscription_source` `none`, and an `active_until` far enough out never to
-  have passed — upstream activates a self-hosted user with `active_until: 1000.years.from_now`,
-  and this server sends the constant `9999-12-31T23:59:59Z` because it has no subscription to
-  expire. Note that it carries **no milliseconds**, unlike the timestamps of `users/me` below:
+- **`POST /api/v1/auth/login`** — With 2FA enabled upstream returns 202 plus a
+  `challenge_token`; this project always returns 200. See `docs/openapi.yaml` for the request
+  and response shapes.
+  The last four response fields are upstream Cloud's billing fields and get no columns here
+  (see "`users`" above). Step 5 answers them with what a **self-hosted upstream instance** ends
+  up reporting, so that a client gating a feature on them sees what it would see there:
+  `status` `active`, `plan` `pro`, `subscription_source` `none`, and an `active_until` far
+  enough out never to have passed — upstream activates a self-hosted user with
+  `active_until: 1000.years.from_now`, and this server sends the constant
+  `9999-12-31T23:59:59Z` because it has no subscription to expire. Note that it carries **no
+  milliseconds**, unlike the timestamps of `users/me` below:
   upstream renders this one with an explicit `active_until&.iso8601` rather than handing a time
   to the JSON encoder, and the two really do differ.
   **A refused login is the one 401 with a body**: upstream's auth controllers render
-  `{"error": "auth_failed", "message": "Invalid email or password"}`, which is also the 401
+  `{"error": "auth_failed", "message": "..."}`, which is also the 401
   the spec documents for this endpoint. Every way of failing gets that same answer — wrong
   password, unknown address, an address that is not one, no password field at all — and an
   unknown address is answered only after a bcrypt comparison against a throwaway digest
   (`auth.CheckAbsentPassword`), so that how long the refusal takes does not say which addresses
   have accounts.
 - **`GET /api/v1/users/me`** — **The spec documents no response body for it** ("user found",
-  no schema), so the shape was read off upstream's `Api::UserSerializer` instead:
-  `{"user": {email, theme, created_at, updated_at, settings: {...}}}`. Three things follow.
+  no schema), so the shape was read off upstream's `Api::UserSerializer` instead; see
+  `docs/openapi.yaml` for the fields. Three things follow.
   The user object **carries no id** — a client that needs one has the `user_id` of
   `auth/login`. The `subscription` key beside `user` is Cloud-only (`unless self_hosted?`), so
   it is not sent. And `settings` is a **smaller set than `GET /api/v1/settings` answers with**:
-  the 18 keys the serializer picks (`maps` among them), in its order. Nothing stores them yet,
+  the keys the serializer picks (`maps` among them), in its order. Nothing stores them yet,
   so Step 5 answers upstream's own defaults (`Users::SafeSettings::DEFAULT_VALUES`); `immich_url`,
   `photoprism_url` and `speed_color_scale` are `null`, and the first two stay that way, being a
   non-goal.
   Timestamps are written **RFC 3339 with milliseconds** (`2026-02-03T04:05:06.000Z`), which is
   what upstream's JSON encoder produces (`ActiveSupport::JSON::Encoding.time_precision = 3`) —
   a client parsing with a fixed format string would fail on a value without them.
-- **`POST /api/v1/points`** / **`POST /api/v1/overland/batches`** — Both take
-  `{"locations": [GeoJSON Feature, ...]}`. Feature `properties` include `timestamp` (ISO 8601),
-  `horizontal_accuracy`, `vertical_accuracy`, `altitude`, `speed`, `speed_accuracy`, `course`,
-  `course_accuracy`, `battery_state`, `battery_level`, `wifi`, `track_id`, `device_id`.
-  **The success status codes differ**: 200 for points, 201 for overland.
+- **`POST /api/v1/points`** / **`POST /api/v1/overland/batches`** — See `docs/openapi.yaml` for
+  the request and response shapes; **the success status codes differ** (200 for points, 201 for
+  overland) and that is the only difference between the two.
   `speed_accuracy` and `track_id` are accepted but not stored: upstream itself does not persist
   either to a column, keeping them only in the raw device payload it archives — which this server
   does not have, having no use for it yet.
   **Neither response body is part of the compatibility contract.** Upstream answers
   `{"data": [...]}` and `{"result": "ok"}` respectively, but the community Android client checks
-  only the status code (`api_point_repository.dart`), so both answer `{"created": <n>}` here — the
-  count of points actually inserted after deduplication, which is the one thing worth reporting
-  before Step 10 gives points their own serialization.
+  only the status code (`api_point_repository.dart`), so both answer with the count of points
+  actually inserted after deduplication, which is the one thing worth reporting before Step 10
+  gives points their own serialization.
   A Feature missing usable coordinates or a parseable timestamp is dropped rather than failing the
   whole batch, matching upstream's own tolerance (`Points::Params#params_valid?`): a batch is a
   stream of device samples, and one bad sample should not cost the rest of it.
