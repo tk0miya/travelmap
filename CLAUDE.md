@@ -70,6 +70,16 @@ Eight rules keep them from drifting:
   reach a database that ran the version before the edit — only what sits outside every statement
   (a table's own leading comment, a standalone note) is free to edit after the fact, because no
   database depends on its exact text.
+- **Nothing under `docs/` names `TODO.md`, a step, a milestone, or a migration file.** `docs/`
+  describes the system as it stands today, for a reader who has no reason to open the
+  development plan; a pointer into it, or a mention of work not yet built, would stop making
+  sense the moment that plan moves on. State the fact or the rationale directly instead of
+  pointing at where it also lives.
+- **A code comment does not name a `Step N` or a `Milestone X` either.** Referencing `TODO.md`
+  itself from a code comment is fine — the file citing a decision is normal — but a step or
+  milestone label is the plan's own bookkeeping, and either gets renumbered, renamed or
+  reordered in a way the code that cites it never learns about. Name the package, behaviour or
+  table the comment actually depends on instead.
 
 Long-form rationale belongs in the commit message. Facts that later work depends on belong in
 `TODO.md`, because nobody reads a commit message they do not know exists.

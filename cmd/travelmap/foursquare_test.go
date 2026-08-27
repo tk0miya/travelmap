@@ -24,8 +24,9 @@ func withFoursquareUser(t *testing.T) (func(string) string, string) {
 	return env, email
 }
 
-// TestFoursquareConnectCommand is Step 17's other half: linking an account
-// and printing something an operator can confirm.
+// TestFoursquareConnectCommand covers the command's own completion
+// condition: linking an account and printing something an operator can
+// confirm.
 func TestFoursquareConnectCommand(t *testing.T) {
 	t.Parallel()
 

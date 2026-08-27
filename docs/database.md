@@ -79,24 +79,21 @@ and revisit if the numbers diverge.
 
 ## `checkins`
 
-Swarm (Foursquare) check-ins — travelmap's own extension, not a Dawarich concept; see
-"travelmap's own extensions" in TODO.md. Collected by the push webhook and the periodic fetch
-(Milestone I), both of which write through `internal/checkin`, never the table directly.
+Swarm (Foursquare) check-ins — travelmap's own extension, not a Dawarich concept. All writes go
+through `internal/checkin`, never the table directly, so that however many collection paths feed
+it, they agree on how a duplicate is recognised.
 
 ### Idempotency and repeat writes
 
-`foursquare_checkin_id` is unique, and every write is an upsert against it: push and the periodic
-fetch will both carry the same check-in, by design, so idempotency lives in that index rather
-than in a look-before-you-write in the caller.
+`foursquare_checkin_id` is unique, and every write is an upsert against it, so a check-in
+delivered more than once lands on the same row rather than being duplicated or needing a
+look-before-you-write in the caller.
 
 **A repeat write keeps `source` and `created_at`** — when the row first appeared and which path
 brought it are facts about history that a later write does not change — **and overwrites every
 other column**, `raw` included, with the newest rendering of the same check-in.
 
-`source` is `push` or `sync`, naming the path that first observed the check-in. The prose in
-TODO.md calls the second path the periodic fetch while the identifiers say `sync`
-(`TRAVELMAP_FOURSQUARE_SYNC_INTERVAL`, `synced_through`, `travelmap foursquare sync`); that split
-is deliberate, "fetch" being the clearer word for what it does and `sync` the shorter one to type.
+`source` is `push` or `sync`, naming which collection path first observed the check-in.
 
 ### `checked_in_at` vs. `created_at`
 
@@ -109,8 +106,10 @@ would make the interesting one unfindable.
 
 `country_code` (the payload's `cc`) is kept separately from `country` because the display text
 is localised and `cc` is not. `cc` is the only stable column, so `country`, `city`, `state`,
-`venue_name` and `category_name` are for display only and nothing keys off them. What decides
-the language is unknown — see "Localisation is left unset on both paths" in TODO.md.
+`venue_name` and `category_name` are for display only and nothing keys off them. Neither
+collection path asserts a locale, and what actually decides the language a check-in comes back
+in is unknown, so a repeat write can flip these display columns to a different language than the
+first write left them in.
 
 ### Venue data is denormalised
 
@@ -122,10 +121,10 @@ of distinct venues, which nothing does yet.
 
 Holds the check-in JSON as received. The payload carries much more than the columns above
 (`visibility`, `canonicalUrl`, `editableUntil`, `labeledLatLngs`, `formattedAddress`, the
-category icon set), and it is not this server's to re-request at will: the fetch path spends an
-hourly per-account budget, and `editableUntil` says a check-in Foursquare once returned can be
-edited afterwards. So when a later step wants one of those fields, deriving it from stored JSON
-beats re-fetching a payload that may no longer be the same one.
+category icon set), and re-requesting it from Foursquare is not free — it counts against the
+account's own rate limit, and `editableUntil` says a check-in Foursquare once returned can be
+edited afterwards. So deriving a needed field from the stored JSON beats fetching the same
+check-in again, which may no longer be the same payload.
 
 ### Does not touch `daily_stats`
 
@@ -135,17 +134,17 @@ A check-in is neither a point nor a segment, so it contributes to no `/stats` to
 ## `foursquare_accounts`
 
 One row per user, linking a travelmap account to a Swarm account. Created by `travelmap
-foursquare connect` (Step 17); nothing is collected for a user until this row exists.
+foursquare connect`; nothing is collected for a user until this row exists.
 
 `foursquare_user_id` is stored as **TEXT**: the payload sends it quoted (`"1709193"`). Its unique
-index is what lets an incoming push resolve to exactly one travelmap user — the webhook has no
-other way to know whose check-in it is.
+index is what lets an incoming push resolve to exactly one travelmap user — nothing else maps a
+Foursquare user id to the travelmap user it belongs to.
 
-`access_token` is stored as issued, for the reason in the "Third-party credentials" row under
-"Technical Decisions" in TODO.md.
+`access_token` is stored as issued rather than encrypted: the database file is already the one
+place secrets live, and an encryption key would only end up sitting right next to it.
 
 `synced_through` records the end of the last successful fetch window, and is `NULL` until the
-first one succeeds. **It is never the lower bound of a normal run** — that is always the lookback
-window, for the reason under "The periodic fetch takes a window, not a cursor" in TODO.md. Its
-two uses are reporting how current an account is, and recognising that an account has been
-offline longer than the window so a wider one-off fetch is needed to close the gap.
+first one succeeds. Each fetch computes its own window by looking back a fixed interval from
+now, rather than resuming from wherever `synced_through` left off, so this column's own purpose
+is only reporting how current an account is, and recognising when an account has gone long
+enough without a successful fetch that a wider one-off catch-up is needed to close the gap.

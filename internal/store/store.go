@@ -141,9 +141,9 @@ type DailyStatsRepository interface {
 // Dawarich concept.
 //
 // internal/checkin is the only caller: the push webhook and the periodic
-// fetch (Milestone I) both have to agree on how a duplicate is recognised and
-// on which fields a repeat write overwrites, and a second writer would settle
-// that twice.
+// fetch both have to agree on how a duplicate is recognised and on which
+// fields a repeat write overwrites, and a second writer would settle that
+// twice.
 type CheckinRepository interface {
 	// Upsert stores checkin, matched against an existing row by
 	// FoursquareCheckinID. On a repeat write, Source and CreatedAt keep the

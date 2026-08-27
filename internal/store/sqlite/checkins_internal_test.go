@@ -121,7 +121,7 @@ func TestCheckinUpsertStoresAbsentPropertiesAsNull(t *testing.T) {
 	}
 }
 
-// TestCheckinUpsertOnConflictKeepsSourceAndCreatedAt is Step 17's own
+// TestCheckinUpsertOnConflictKeepsSourceAndCreatedAt covers Upsert's own
 // completion condition: writing the same check-in twice must find one row,
 // carrying the second write's values everywhere except source and
 // created_at, which still name the first write.

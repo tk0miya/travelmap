@@ -84,19 +84,13 @@ CREATE TABLE checkins (
     -- 24 hex characters, the payload's checkin.id.
     foursquare_checkin_id TEXT NOT NULL,
 
-    -- The check-in's own time (checkin.createdAt), not this row's own
-    -- bookkeeping below.
+    -- The check-in's own time (checkin.createdAt), not created_at below.
     checked_in_at         INTEGER NOT NULL,
 
-    -- Minutes, checkin.timeZoneOffset. Nullable along with everything below
-    -- through shout: the documented sample payload is narrower than what
-    -- has been observed to arrive, so almost every field here may or may
-    -- not be sent.
+    -- Minutes, checkin.timeZoneOffset; nullable like every column through shout, since the documented payload is narrower than what has been observed to arrive.
     timezone_offset       INTEGER,
 
-    -- Nullable for a check-in made without one; the venueless shape has not
-    -- been observed, so every other venue-derived column below is nullable
-    -- for the same reason.
+    -- Nullable, like every venue-derived column below, for a check-in without a venue — a shape that has not itself been observed.
     venue_id              TEXT,
     venue_name            TEXT,
     latitude              REAL,
@@ -114,13 +108,10 @@ CREATE TABLE checkins (
     -- Absent as a key, not empty, in the observed push.
     shout                 TEXT,
 
-    -- 'push' or 'sync', naming the path that first observed the check-in. A
-    -- repeat write keeps this and created_at and refreshes everything else.
+    -- 'push' or 'sync'; a repeat write keeps this and created_at, refreshes everything else.
     source                TEXT NOT NULL,
 
-    -- The check-in JSON as received; the payload carries fields no column
-    -- here does, and re-requesting it later spends the fetch path's rate
-    -- limit for nothing.
+    -- The check-in JSON as received; not this server's to re-request at will.
     raw                   TEXT NOT NULL,
 
     created_at            INTEGER NOT NULL,
@@ -130,8 +121,7 @@ CREATE TABLE checkins (
 CREATE UNIQUE INDEX checkins_foursquare_checkin_id_key ON checkins (foursquare_checkin_id);
 
 CREATE INDEX checkins_user_id_checked_in_at_idx ON checkins (
-    -- Mirrors points(user_id, timestamp): app queries narrow by user and
-    -- time range first.
+    -- Mirrors points(user_id, timestamp): narrows by user and time range first.
     user_id, checked_in_at
 );
 
@@ -139,16 +129,13 @@ CREATE TABLE foursquare_accounts (
     -- One Swarm account per travelmap user.
     user_id            INTEGER PRIMARY KEY REFERENCES users (id),
 
-    -- TEXT: the payload sends it quoted ("1709193"). The unique index below
-    -- is what resolves an incoming push to exactly one travelmap user.
+    -- TEXT: the payload sends it quoted ("1709193"). Its unique index resolves a push to one user.
     foursquare_user_id TEXT NOT NULL,
 
-    -- Stored as issued: the database file is already the one place secrets
-    -- live, per "Third-party credentials" in TODO.md's Technical Decisions.
+    -- Stored as issued, per "Third-party credentials" in TODO.md's Technical Decisions.
     access_token       TEXT NOT NULL,
 
-    -- The end of the last successful fetch window. NULL until the first one
-    -- succeeds.
+    -- The end of the last successful fetch window; NULL until the first one succeeds.
     synced_through     INTEGER,
 
     created_at         INTEGER NOT NULL,
