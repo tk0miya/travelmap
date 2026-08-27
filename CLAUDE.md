@@ -17,15 +17,20 @@ any language; what lands in git does not.
 
 | File | Holds |
 | --- | --- |
-| `TODO.md` | The development plan: goal, technical decisions, step checklists, and upstream quirks for endpoints not yet implemented. **The step checklists are the single source of truth for what gets implemented.** Also the data model for a table not yet migrated, until the step that adds it |
+| `TODO.md` | The development plan: goal, step checklists, technical decisions not yet settled by an implemented step, and upstream quirks for endpoints not yet implemented. **The step checklists are the single source of truth for what gets implemented.** Also the data model for a table not yet migrated, until the step that adds it |
 | `CLAUDE.md` | This file — the conventions, so that no pull request has to re-argue them |
 | `README.md` | What the project is, and how to build, run and configure it. Written for someone approaching the project from outside, whether to run it or to start contributing |
+| `docs/architecture.md` | Technical decisions already implemented — what was chosen and why — and the libraries in use. A decision not yet implemented stays in `TODO.md`'s own "Technical Decisions" section until the step that implements it lands |
+| `docs/toolchain.md` | What explains the Go toolchain and its development tools beyond what `go.mod`, `Makefile` and `.golangci.yml` already show by themselves |
 | `docs/api-notes.md` | What explains the API: its two-part structure (Dawarich-compatible and travelmap's own), and — for the Dawarich-compatible part, endpoints already implemented only — upstream's quirks, the deliberate differences from it, and the client evidence behind each |
 | `docs/openapi.yaml` | The accompanying OpenAPI contract for the subset actually implemented here — paths, schemas, headers, status codes (upstream's own spec stays the compatibility source of truth for the Dawarich-compatible part) |
 | `docs/database.md` | What explains the database beyond `schema.sql` itself: invariants, algorithms, or table/column detail too long for a schema.sql comment (see "Testing") |
 | Package doc comments (`doc.go`) | What belongs in that package |
 
-Seven rules keep them from drifting:
+`TODO.md` is the plan for what is still ahead, not a record of what shipped, so it never
+accumulates finished work — everything else in this table is where a finished decision ends up.
+
+Eight rules keep them from drifting:
 
 - **A decision that changes is changed in `TODO.md` in the same pull request.** The plan
   records defaults as of planning; when implementation proves one wrong, the plan is updated,
@@ -33,9 +38,15 @@ Seven rules keep them from drifting:
 - **Tick the step's checkboxes in `TODO.md` in the pull request that completes them.** A step
   is done when its box is ticked, not when the code merges. Once a step is done and everything
   it decided has a permanent home (`schema.sql`/`docs/database.md`, `docs/api-notes.md`/
-  `docs/openapi.yaml`, this file, a package's `doc.go`), trim its `TODO.md` entry down to its
-  number and title — the checklist, the `Settles`/`Done when` lines and the narrative belong to
-  planning, not to the finished record, and git history already keeps them.
+  `docs/openapi.yaml`, `docs/architecture.md`, this file, a package's `doc.go`), **delete its
+  `TODO.md` entry entirely, heading included** — the checklist, the `Settles`/`Done when` lines,
+  the narrative and the step's own number and title all belong to planning, not to the finished
+  record, and git history already keeps them. A milestone whose every step is gone this way is
+  itself deleted, heading and all.
+- **A pull request that finishes a step also moves that step's now-settled rows out of
+  `TODO.md`'s "Technical Decisions" table into `docs/architecture.md`.** That table holds only
+  decisions for work not yet built; one for something already shipped belongs with the rest of
+  the settled rationale, not beside the plan.
 - **A pull request that changes a request/response shape, header or status code updates
   `docs/openapi.yaml` in the same pull request.** The contract is what a client actually sees;
   a stale copy of it is worse than no copy at all.
@@ -44,7 +55,7 @@ Seven rules keep them from drifting:
   implemented. Source code is written from the requirements and design these documents already
   settled, not the other way around, so a comment neither repeats what `docs/` already says nor
   cites `docs/`, `TODO.md` or a step number back at it: a past step's number stops resolving to
-  anything once that step is trimmed by the rule above, and a future step is a plan that can
+  anything once that step is deleted by the rule above, and a future step is a plan that can
   still change, which a comment has no business promising.
 - **A migration writes its own rationale as a comment, not as prose elsewhere.** A comment written
   inside a `CREATE TABLE`'s or a multi-column `CREATE INDEX`'s own parentheses also reaches a

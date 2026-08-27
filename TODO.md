@@ -52,20 +52,12 @@ re-fetched. A running Dawarich instance also serves the same document at `/api-d
 
 ## Technical Decisions
 
+Decisions for work not built yet. A decision already implemented is not here — it is in
+[`docs/architecture.md`](docs/architecture.md) — and a row below moves there once the step that
+implements it lands.
+
 | Item | Decision | Rationale |
 | --- | --- | --- |
-| Data store | SQLite (`modernc.org/sqlite`, no CGO) | Self-contained in a single static binary. No DB process, so the footprint is minimal. Chosen after benchmarking (commit 59d0e04) |
-| Store abstraction | Repository layer behind an interface, reached through a `store.Store` that also runs transactions | Leaves room to add a PostgreSQL implementation later. Handing repositories out through one object is what lets a point insert and its `daily_stats` rebuild share a transaction (Step 4) |
-| Migrations | `github.com/pressly/goose/v3` as a library, over numbered `.sql` files in an `embed.FS` | Measured in Step 4 by writing both against the same API: 86 lines of migrator and 107 of test with goose, against 213 and 137 hand-rolled, for one direct dependency and four indirect ones. Down migrations, Go-code migrations and an applied-at history come with it. The cost is having to read goose's bookkeeping rather than own it: **it creates and commits its version table, with a row for version 0, before the first migration runs**, so "the version table exists" is not "the schema exists" — a hand-rolled migrator bumping `user_version` inside the DDL's own transaction had no such state |
-| Connections | One connection (`SetMaxOpenConns(1)`), WAL, `synchronous=NORMAL`, `BEGIN IMMEDIATE`, `busy_timeout=5s` | SQLite has a single writer, so a larger pool converts concurrent writes into `SQLITE_BUSY` for every caller to retry; with one they queue in `database/sql`. The timeout is for the second process — a CLI command run while the server is serving (Step 4). Two races are left unhandled deliberately, both needing something the workflow does not do: several processes opening a **brand-new** database at the same moment, where converting the file to WAL answers `SQLITE_BUSY` and no timeout can wait it out; and two `travelmap migrate` processes at once, where goose has no lock for SQLite and the loser fails on the DDL instead of reporting nothing to do. The first run is one `travelmap migrate`, and retry logic for a race nobody reaches would cost more than it returns |
-| SQL | Hand-written in `internal/store/sqlite`, no generator | The queries are few and shaped by the API's own filters, and a generator would add a code-generation step to a checkout that today needs nothing installed but Go (Step 4) |
-| Schema | `STRICT` tables, times as integer Unix seconds | Without `STRICT`, type affinity stores a string in an `INTEGER` column and the mistake surfaces as a query that quietly stops matching. Times are integers because `points.timestamp` arrives as a Unix timestamp and is range-compared on every request (Step 4) |
-| Indexes | A single `points(user_id, timestamp)` | App queries always narrow by user and time range first. See "Data Model" |
-| Distance | Haversine in SQL for aggregation, `internal/geo` (Go) for one-off calculations | Pulling a whole-history aggregation into Go spends all its time transferring rows. See "Data Model" |
-| Statistics | `daily_stats` precomputed table, updated during ingest | Aggregating `points` on demand is too slow to serve a request. See "Data Model" |
-| HTTP | `net/http` + `github.com/go-chi/chi/v5` | Chosen with the future web UI in mind (see "Library Choices for the Web UI") |
-| Compatibility scope | Mobile-app subset | Everything except the non-goals above |
-| User management | Issued via CLI. `auth/login` implemented, `auth/register` optional behind an env var, no 2FA | Self-hosted assumption |
 | Background work | Goroutines + a job table in SQLite | Keeps a single process, with no Sidekiq/Redis equivalent |
 | Reverse geocoding | Off by default; optionally point at a Nominatim/Photon URL | Does not make an external service mandatory |
 | Swarm check-ins | Collected by webhook push, with a periodic API fetch as the backstop | Push is immediate but nothing documented makes it reliable: Foursquare publishes no retry, records a timed-out push as a failure, and reaches only a public HTTPS endpoint. What it does after a failure is not documented at all. Fetching alone would lag every check-in by up to a poll interval. **What each path does and does not see is only partly known** — whether a push fires for a check-in added after the fact, or for an edit to one already stored, is undocumented — which is itself a reason to run both (Milestone I) |
@@ -607,119 +599,12 @@ correct either way, so it blocks nothing, but it decides what `checked_in_at` me
 observing one retroactive check-in and record the answer here; the same observation settles whether
 a push fires for one.
 
-## Development Environment
+## Library Choices for the Web UI
 
-### Language and toolchain
+Not decided yet — Milestone H has not started. `docs/architecture.md` covers the one thing
+already settled (the router), for the reasoning that also applies here.
 
-**Use `go 1.26.6` in `go.mod`** (the current stable release; the floor is 1.25, required by
-`modernc.org/sqlite` v1.56.0).
-
-**The directive names a patch version, not just `1.26`.** `actions/setup-go` takes the version
-from `go-version-file: go.mod` and runs with `GOTOOLCHAIN=local`, so this line alone decides
-which toolchain CI builds with, and `GOTOOLCHAIN=auto` fetches the same one locally. Since
-`govulncheck` reports a standard-library advisory against the toolchain the code would be built
-with, a stdlib advisory is fixed by **raising this line** — and nothing does it automatically,
-because Dependabot's `gomod` ecosystem updates requirements and not the `go` directive. The
-`vulncheck` job going red with `Standard library` in the output is that signal.
-
-**Declare the development tools with `tool` directives in `go.mod`**, not as separately
-installed binaries:
-
-```
-tool (
-	github.com/golangci/golangci-lint/v2/cmd/golangci-lint
-	golang.org/x/vuln/cmd/govulncheck
-	mvdan.cc/gofumpt
-)
-```
-
-added with `go get -tool <path>@<version>` (one `-tool` per invocation) and run as
-`go tool golangci-lint run`.
-
-This matters for more than convenience. `golangci-lint` refuses to analyse a module whose `go`
-directive is newer than the Go version the linter binary was built with:
-
-```
-can't load config: the Go language version (go1.25) used to build golangci-lint
-is lower than the targeted Go version (1.26.0)
-```
-
-A pre-installed binary therefore caps the `go` directive at whatever it happens to be built
-with — in the development container, an old 2.5.0 that caps it at 1.25. **`go tool` removes the
-ceiling by construction**: the linter is rebuilt from source with the module's own toolchain, so
-it always matches. Versions are pinned in `go.mod`, and CI and local runs use the same build.
-
-Measured in the container: `go tool golangci-lint run` takes about 43 s the first time (it
-compiles the linter) and about 0.5 s afterwards. `gofumpt` runs in about 1 s. The installed Go
-does not have to match the directive — 1.24.7 with `GOTOOLCHAIN=auto` builds, tests with
-`-race` and vets a `go 1.26` module fine, fetching the toolchain once. So there is no
-environment prerequisite before starting, and no setup script to maintain.
-
-Three caveats:
-
-- **`go get -tool` pulls the tools' entire dependency trees into `go.mod` as `// indirect`** —
-  214 entries for the three above, measured in Step 1. If `go.mod` becomes unreadable because of
-  them, move the tools into a separate `tools/go.mod`.
-- **The tool modules themselves are recorded as `// indirect` too**, because no package in this
-  module imports them — `go mod tidy` restores the marker if it is removed by hand. Dependabot's
-  scheduled `gomod` updates cover direct dependencies only, so it never offers the tools, and the
-  one setting that would reach them, `allow: dependency-type: "all"`, reaches the 211 modules they
-  are built from as well. **`.github/workflows/go-tools.yml` does it instead**: a weekly
-  `go get -u tool` and `go mod tidy`, opened as a pull request carrying the `auto-merge` label, so
-  a golangci-lint release that finds something new turns `lint` red and waits for a human rather
-  than merging. The `tool` meta-pattern expands to the tools declared in `go.mod`, so no module
-  path is written in the workflow; `-u` stops at the latest minor or patch, and a new major, being
-  a different module path, is adopted by hand. `.github/dependabot.yml` therefore keeps the default
-  scope, which is also what makes a chi or SQLite-driver bump arrive as its own pull request.
-- **`govulncheck` cannot run in the development container**: the egress proxy blocks
-  `vuln.go.dev` (`Forbidden`). Treat it as a CI-only check.
-
-### Libraries
-
-Keep dependencies minimal.
-
-| Purpose | Package | Notes |
-| --- | --- | --- |
-| Routing | `github.com/go-chi/chi/v5` | Rationale in "Library Choices for the Web UI" |
-| SQLite driver | `modernc.org/sqlite` | Pure Go. No CGO. Requires Go 1.25+ |
-| Password hashing | `golang.org/x/crypto/bcrypt` | |
-| Migrations | `github.com/pressly/goose/v3` | Used as a library, not a CLI: the provider API takes the `embed.FS` and the `*sql.DB` this server already has, so the migrations stay inside the binary. Chosen in Step 4 after writing both — see the Migrations row under "Technical Decisions" for the measurement. `.sql` files carry goose's `-- +goose Up` annotation, and **a comment inside one cannot name an annotation**, because goose reads any comment that does as the annotation itself |
-| Test diffs | `github.com/google/go-cmp` | |
-| Configuration | No extra dependency (a thin hand-written env-var loader) | |
-| Logging | Standard `log/slog` | |
-
-### Library Choices for the Web UI
-
-Since a web UI is planned, make choices now that will not need to be redone then.
-**The only thing that must be decided now is the router**; UI libraries are not added until
-Milestone H.
-
-**Why chi rather than the standard `net/http.ServeMux`**
-
-Since Go 1.22 `ServeMux` supports methods and wildcards, so the standard library is enough for
-an API server on its own. But once a web UI is added there are **two authentication schemes**:
-
-- `/api/v1/*` — `api_key` query / Bearer token (mobile app)
-- `/*` — Cookie session + CSRF (browser)
-
-`ServeMux` has **no mechanism for attaching a different middleware chain per prefix**, so that
-would have to be hand-written. chi's `Route` / `Group` exist for exactly this, and since
-everything is a plain `http.Handler`, nothing breaks when more is added later. chi v5.3.1 has no
-`require` entries at all in its `go.mod`, so **it adds no dependencies** (verified).
-
-```go
-r := chi.NewRouter()
-r.Route("/api/v1", func(r chi.Router) {
-    r.Use(auth.APIKey)      // Bearer / api_key
-    ...
-})
-r.Group(func(r chi.Router) {
-    r.Use(session.Load, csrf.Protect)  // browser
-    r.Handle("/*", webui.Handler())
-})
-```
-
-**Candidates for Milestone H (not added now)**
+**Candidates for Milestone H**
 
 | Purpose | Candidate | Notes |
 | --- | --- | --- |
@@ -730,15 +615,14 @@ r.Group(func(r chi.Router) {
 | Map rendering | MapLibre GL JS or Leaflet | The one place JS is unavoidable. Vendor it into `embed.FS` rather than using a CDN, to keep a single binary |
 
 An SPA (React, etc.) can also keep the single-binary property by embedding the build output in
-`embed.FS`. The only trade-off there is needing a Node build chain, and **the router choice is
-the same either way**.
+`embed.FS`. The only trade-off there is needing a Node build chain, and the router choice is the
+same either way.
 
 **Open question: how the browser authenticates against `/api/v1`**
 
 Having decided not to add UI-only data endpoints, the browser will also call `/api/v1/points`
-and friends — but in the layout above `/api/v1` accepts only Bearer / `api_key`, with the
-session cookie on the `/*` side. To be decided when Milestone H starts. The current front-runner is
-**(a)**.
+and friends — but `/api/v1` accepts only Bearer / `api_key`, with the session cookie planned for
+everything else. To be decided when Milestone H starts. The current front-runner is **(a)**.
 
 - **(a) The `/api/v1` middleware also accepts the session cookie** — lets the UI simply fetch.
   Accepting cookies means `/api/v1` needs CSRF protection too, but Go 1.25's
@@ -748,38 +632,9 @@ session cookie on the `/*` side. To be decided when Milestone H starts. The curr
 - (c) Hand the api_key to the UI at login and call with Bearer — not recommended, since XSS
   would leak the API key.
 
-### Development tools
+## Distribution
 
-- `golangci-lint` — keep its standard set (errcheck, govet, ineffassign, staticcheck, unused) and
-  add revive, gosec, bodyclose, sqlclosecheck in `.golangci.yml`. Starting from the standard set
-  rather than listing every linter means new entries golangci-lint promotes into it arrive on
-  their own.
-- `gofumpt` — formatting
-- `govulncheck` — vulnerability scanning
-- `go test ./... -race -cover -shuffle=on` (`-shuffle=on` catches tests that only pass in the
-  order they are written)
-- `go mod tidy -diff` in `make lint`, so a `go.mod` / `go.sum` left untidy fails CI instead of
-  turning up inside someone else's diff
-
-### Makefile
-
-Provide `build` / `test` / `lint` / `fmt` / `check` / `run` / `migrate` targets, where `check` is
-`lint` plus `test` — the set that can run locally, which the pre-commit hook runs.
-A `docker` target comes with the packaging work in Milestone G.
-
-### CI
-
-Add `.github/workflows/go.yml` with `build` / `test` / `lint` / `govulncheck` jobs.
-
-**Follow the conventions of the existing workflows** (see
-`.github/workflows/workflow-lint.yml`); they are listed in [CLAUDE.md](CLAUDE.md).
-
-Also add the `gomod` ecosystem to `.github/dependabot.yml`, on the same weekly / `Asia/Tokyo` /
-7-day-cooldown schedule as the existing `github-actions` entry, and
-`.github/workflows/go-tools.yml` for the development tools Dependabot's scope does not reach (both
-are explained in "Language and toolchain").
-
-### Distribution
+Not built yet — packaging belongs to Milestone G, not the foundation.
 
 A `CGO_ENABLED=0` binary has no runtime dependencies, so there is nothing for a container to
 isolate — a `distroless/static` image is the binary plus a CA bundle. The reason to ship one is
@@ -787,8 +642,6 @@ the audience, not the technology: upstream Dawarich is distributed as docker-com
 has to run continuously somewhere (NAS, VPS, home server), and NAS platforms such as Synology,
 unRAID and TrueNAS are container-first. A systemd unit serves the same purpose on a plain host,
 so document both and treat neither as the foundation.
-
-This is packaging, not infrastructure. It belongs in Milestone G, not the foundation.
 
 - Multi-stage `Dockerfile`: build with `CGO_ENABLED=0 go build -ldflags="-s -w"` and place the
   binary on `gcr.io/distroless/static`. **Add `-X main.version=<release>` to those ldflags**:
@@ -798,12 +651,8 @@ This is packaging, not infrastructure. It belongs in Milestone G, not the founda
   file's ownership: the container runs as a non-root user, so a bind-mounted directory has to be
   writable by that UID
 - An example systemd unit for hosts not running containers
-
-### Layering and testing approach
-
-Both are conventions rather than plan, so they live in [CLAUDE.md](CLAUDE.md): which package
-may import which, and the testing approach down to golden files being the compatibility
-contract. What belongs in a package is its own `doc.go`.
+- A `docker` Makefile target for building the image, alongside `build` / `test` / `lint` / `fmt` /
+  `check` / `run` / `migrate`
 
 ## Development Steps
 
@@ -823,23 +672,7 @@ condition that can be verified by running something.
 
 ---
 
-## Milestone A — Foundation
-
-No application behaviour yet. Three small PRs, each settling conventions.
-
-### Step 1: Toolchain and CI
-
-### Step 2: Project conventions
-
-### Step 3: Server skeleton and `GET /api/v1/health`
-
----
-
 ## Milestone B — The app connects
-
-### Step 4: Store foundation and users
-
-### Step 5: Authentication
 
 ### Step 6: Request logging for endpoint discovery
 
@@ -897,27 +730,9 @@ app needs and the community client does not, and it is the input to Milestone F'
 
 ---
 
-## Milestone C — Locations are recorded
-
-### Step 7: Points ingest
-
----
-
-## Milestone D — Aggregation
-
-Two PRs. The dense-logic part of the project; splitting it is what makes the second PR's
-consistency test meaningful, because the first PR provides the reference implementation to
-compare against.
-
-### Step 8: `daily_stats` and full rebuild
-
-### Step 9: Ingest layer and incremental update
-
----
-
 ## Milestone E — Browsing
 
-Steps 10 and 11 are independent of each other and can run in parallel. Step 12 needs Step 9.
+Steps 10 and 11 are independent of each other and can run in parallel.
 
 ### Step 10: `GET /api/v1/points`
 
@@ -946,8 +761,8 @@ Steps 10 and 11 are independent of each other and can run in parallel. Step 12 n
 - [ ] All three go through `internal/ingest`, so the affected days' `daily_stats` are
       recalculated in the same transaction. Never leave a state where points were deleted but
       `/stats` keeps reporting the old distance
-- [ ] **The agreement test Step 9 could not write yet**: the incremental update and `recalculate`
-      still agree once a mutation other than insert exists — **a day whose points are all deleted
+- [ ] **Extend the incremental-update/`recalculate` agreement test to mutations other than
+      insert**: the incremental update and `recalculate` still agree — **a day whose points are all deleted
       so the row is removed**, and **deleting or updating only some of a day's points so that
       `countries` / `cities` shrink**
 
@@ -963,8 +778,7 @@ Steps 10 and 11 are independent of each other and can run in parallel. Step 12 n
 
 Steps 13, 14 and 16 are independent and can run in parallel. Step 15 needs 13 and 14.
 
-Step 16 in fact only needs authentication (Step 5), so it can be pulled forward at any time —
-useful as filler work while Milestone D is under review.
+Step 16 in fact only needs authentication, so it can be pulled forward at any time.
 
 ### Step 13: Tracks
 
@@ -993,7 +807,7 @@ useful as filler work while Milestone D is under review.
 - [ ] `GET/PATCH /api/v1/settings`. Note that the settings block inside
       `GET /api/v1/users/me` is a **different, smaller set** than this endpoint answers with
       (see its bullet under "Per-endpoint"); both are fed from whatever this step stores, and
-      the Step 5 constants in `internal/httpapi` go away with it
+      the hard-coded settings defaults in `internal/httpapi` go away with it
 
 **Milestone done when**: the app's timeline and track screens render without breaking, and
 settings changed in the app survive a reinstall.
@@ -1006,7 +820,7 @@ All independent of each other; take them in whatever order the need arises.
 
 - [ ] `POST /api/v1/imports`, `GET /api/v1/imports`, `GET /api/v1/imports/{id}`
       (GPX / GeoJSON / Google Takeout / upstream Dawarich export).
-      **Imports go through the `internal/ingest` layer from Step 9**
+      **Imports go through the `internal/ingest` layer**
 - [ ] Reverse geocoding (Nominatim / Photon, rate-limited worker). It runs asynchronously after
       points are inserted, so **on completion update `countries` / `cities` /
       `reverse_geocoded_points` in `daily_stats` for the affected days** (without this the
@@ -1056,8 +870,8 @@ Collect Swarm (Foursquare) check-ins, so that the explicitly recorded landmark s
 the automatically recorded GPS trace. The first feature that is travelmap's own rather than
 upstream's — read "travelmap's own extensions" before adding a route here.
 
-Independent of Milestones C through H: it touches neither `points` nor `daily_stats`. What it
-does need is the store foundation (Step 4) and the authenticated router (Steps 3 and 5) — Step
+Independent of the points/stats pipeline: it touches neither `points` nor `daily_stats`. What it
+does need is the store foundation and the authenticated router, both already in place — Step
 18 hangs a route off the same router, Step 20 reuses the `api_key` credential, and Step 17
 extends the same test store. So it can be taken at any time after Milestone B, like Step 16.
 
@@ -1359,18 +1173,18 @@ excluded from refresh.
 - **If social login is mandatory, Milestone B may not be completable.** The spec has
   `POST /api/v1/auth/apple` (body `{id_token, nonce}`) and `POST /api/v1/auth/google`. If the
   iOS app forces Sign in with Apple, `POST /api/v1/auth/login` alone will not get to a
-  successful connection. **Still open after Step 5**: that step built email-and-password login
-  and the API-key middleware, but answering this needs a real device, so it is the first thing
-  to read out of Step 6's request log. If it turns out to be required, add verification of
+  successful connection. **Still open**: email-and-password login and the API-key middleware are
+  built, but answering this needs a real device, so it is the first thing to read out of Step 6's
+  request log. If it turns out to be required, add verification of
   `id_token` against Apple's public keys and association with an existing user (whether to
   auto-create users on a self-hosted instance is a separate decision).
 - The app checks a minimum server version. The community Android client reads
   `x-dawarich-version` and refuses to run against a server below its floor; the official app is
   assumed to do something similar, so confirm the accepted value against a real device.
-  Step 3 reports **`1.12.2`**, upstream's `.app_version` on `master` as of 2026-08-18. It is a
-  compatibility claim, not this server's own version — `travelmap --version` reports the build
-  — so it is raised when this server is verified against a newer upstream, not on every
-  release of ours.
+  The health endpoint reports **`1.12.2`**, upstream's `.app_version` on `master` as of
+  2026-08-18. It is a compatibility claim, not this server's own version — `travelmap --version`
+  reports the build — so it is raised when this server is verified against a newer upstream, not
+  on every release of ours.
 - **Milestone I depends on a beta API with one supplier.** Foursquare v2 is not on a published
   retirement schedule: what was retired on 15 May 2026 was legacy **v3**, and the pricing change
   of 1 June 2026 explicitly keeps the checkins, lists, tastes, tips and users endpoints free — an
