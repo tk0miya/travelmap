@@ -164,10 +164,10 @@ func TestCreatePointsRequiresAuthentication(t *testing.T) {
 	}
 }
 
-// TestCreatePointsUpdatesDailyStats pins that ingest is what POST /api/v1/points
-// now goes through (Step 9): the point it stores also produces a daily_stats
-// row for the day it falls on, in the same request, rather than daily_stats
-// staying stale until a `travelmap recalculate`.
+// TestCreatePointsUpdatesDailyStats pins that POST /api/v1/points goes
+// through ingest: the point it stores also produces a daily_stats row for the
+// day it falls on, in the same request, rather than daily_stats staying stale
+// until a `travelmap recalculate`.
 func TestCreatePointsUpdatesDailyStats(t *testing.T) {
 	t.Parallel()
 

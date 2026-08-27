@@ -14,8 +14,8 @@ import (
 )
 
 // point builds a minimal, valid point: the coordinates below are arbitrary,
-// since none of these tests assert on distance — [store.DailyStatsRepository]
-// itself is what Step 8 pins that against.
+// since none of these tests assert on distance — that is pinned separately,
+// by tests directly against [store.DailyStatsRepository].
 func point(userID int64, ts time.Time) model.Point {
 	return model.Point{UserID: userID, Timestamp: ts, Latitude: 1, Longitude: 2}
 }
@@ -224,9 +224,9 @@ func TestCreatePointsReportsFailures(t *testing.T) {
 	}
 }
 
-// TestCreatePointsAgreesWithRecalculate is the agreement test TODO.md's Step
-// 9 calls for: against a real database, the daily_stats CreatePoints builds
-// up incrementally, batch by batch, must equal what Recalculate produces from
+// TestCreatePointsAgreesWithRecalculate is the agreement test TODO.md calls
+// for: against a real database, the daily_stats CreatePoints builds up
+// incrementally, batch by batch, must equal what Recalculate produces from
 // scratch over the same final points.
 //
 // The batches are deliberately out of order and split across days, including
