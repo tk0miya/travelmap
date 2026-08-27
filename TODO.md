@@ -1697,3 +1697,11 @@ excluded from refresh.
   implies: the secret is server configuration, and identifying whose check-in arrived is
   `foursquare_user_id`'s job. Deriving a user from the secret would break the moment a second
   person connects.
+- **Revisit whether `internal/ingest` should be named `internal/usecase` (or `service`) instead.**
+  `usecase`/`service` are the more familiar names for this layer in most Go codebases; `ingest`
+  was picked because this milestone's whole job is literally ingesting device locations, which
+  does not generalise as an argument once `internal/checkin` (Milestone I) is the same shape of
+  layer over a different kind of write. Revisit once `internal/checkin` exists alongside
+  `internal/ingest`, so the comparison is between two real packages rather than a naming
+  preference argued in the abstract. A rename this late only costs an import-path edit — nothing
+  in the layering itself depends on the name — so there is no cost to waiting for the evidence.
