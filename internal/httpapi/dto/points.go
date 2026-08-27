@@ -21,9 +21,7 @@ type Geometry struct {
 	Coordinates []float64 `json:"coordinates"`
 }
 
-// PointProperties is the `properties` object of a [Feature]. See the
-// POST /api/v1/points bullet under "Per-endpoint" in TODO.md for where this
-// field list comes from.
+// PointProperties is the `properties` object of a [Feature].
 //
 // Every field but Timestamp is a pointer, so that a property the device did
 // not send round-trips as "not reported" rather than as the zero value of its
@@ -47,8 +45,7 @@ type PointProperties struct {
 }
 
 // LocationsCreated is the body of a successful POST /api/v1/points or
-// POST /api/v1/overland/batches. See the POST /api/v1/points bullet under
-// "Per-endpoint" in TODO.md for why this is not upstream's own response body.
+// POST /api/v1/overland/batches. It is not upstream's own response body.
 type LocationsCreated struct {
 	Created int `json:"created"`
 }

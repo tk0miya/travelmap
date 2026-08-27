@@ -10,7 +10,7 @@ import (
 
 // contentTypeJSON is sent with every response, including the error ones. The
 // charset is upstream's, and it is load-bearing: a Dart client decodes a body
-// with no charset as latin1. See "Responses carry Content-Type" in TODO.md.
+// with no charset as latin1.
 const contentTypeJSON = "application/json; charset=utf-8"
 
 // encodeFailedBody is the last-resort body for a response whose payload could

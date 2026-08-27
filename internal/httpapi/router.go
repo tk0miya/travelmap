@@ -4,11 +4,16 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
 	"github.com/tk0miya/travelmap/internal/store"
 )
+
+// defaultTrackBreak is what [Options.TrackBreak] defaults to when left zero,
+// matching config's own TRAVELMAP_TRACK_BREAK_MINUTES default.
+const defaultTrackBreak = 30 * time.Minute
 
 // Options carries what the HTTP surface needs from its caller. Later steps add
 // the ingest layer here; cmd/travelmap is the only place that fills it in.
@@ -31,15 +36,30 @@ type Options struct {
 	// refused an invalid one at startup. Left empty, it defaults to "UTC",
 	// which is what every test in this package that does not set it gets.
 	Timezone string
+
+	// Location is Timezone resolved — [config.Config.Location] — which is
+	// what internal/ingest actually cuts a point's day on. Kept apart from
+	// Timezone because that field is a display string and this is the value
+	// date arithmetic needs; a caller sets both from the same configured
+	// zone. Left nil, it defaults to time.UTC, matching Timezone's own
+	// default.
+	Location *time.Location
+
+	// TrackBreak is TRAVELMAP_TRACK_BREAK_MINUTES as a [time.Duration] —
+	// [config.Config.TrackBreak] — passed to internal/ingest for the same
+	// reason as Location. Left zero, it defaults to [defaultTrackBreak].
+	TrackBreak time.Duration
 }
 
 // api holds the dependencies shared by the handlers. Handlers are methods on
 // it rather than free functions, so a new dependency is added in one place
 // instead of being threaded through every signature.
 type api struct {
-	logger   *slog.Logger
-	store    store.Store
-	timezone string
+	logger     *slog.Logger
+	store      store.Store
+	timezone   string
+	loc        *time.Location
+	trackBreak time.Duration
 }
 
 // New builds the server's HTTP handler.
@@ -49,7 +69,23 @@ func New(opts Options) http.Handler {
 		timezone = defaultTimezone
 	}
 
-	a := &api{logger: opts.Logger, store: opts.Store, timezone: timezone}
+	loc := opts.Location
+	if loc == nil {
+		loc = time.UTC
+	}
+
+	trackBreak := opts.TrackBreak
+	if trackBreak == 0 {
+		trackBreak = defaultTrackBreak
+	}
+
+	a := &api{
+		logger:     opts.Logger,
+		store:      opts.Store,
+		timezone:   timezone,
+		loc:        loc,
+		trackBreak: trackBreak,
+	}
 
 	r := chi.NewRouter()
 
@@ -101,8 +137,8 @@ func New(opts Options) http.Handler {
 // chi answers 405 to the HEAD of a route declared with Get, where upstream
 // answers it like any GET; a client that probes with HEAD reads the 405 as
 // "nothing to fetch". Registering both here means no later handler has to
-// remember it. See "GET /api/v1/points must answer HTTP HEAD" in TODO.md.
-// net/http discards the body of a HEAD response, so h needs no branch.
+// remember it. net/http discards the body of a HEAD response, so h needs no
+// branch.
 func get(r chi.Router, pattern string, h http.HandlerFunc) {
 	r.Get(pattern, h)
 	r.Head(pattern, h)

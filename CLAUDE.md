@@ -17,29 +17,35 @@ any language; what lands in git does not.
 
 | File | Holds |
 | --- | --- |
-| `TODO.md` | The development plan: goal, technical decisions, API compatibility notes, and the step checklists. **The step checklists are the single source of truth for what gets implemented.** Also the data model for a table not yet migrated, until the step that adds it |
+| `TODO.md` | The development plan: goal, technical decisions, step checklists, and upstream quirks for endpoints not yet implemented. **The step checklists are the single source of truth for what gets implemented.** Also the data model for a table not yet migrated, until the step that adds it |
 | `CLAUDE.md` | This file — the conventions, so that no pull request has to re-argue them |
 | `README.md` | What the project is, and how to build, run and configure it. Written for someone approaching the project from outside, whether to run it or to start contributing |
-| `api/openapi.yaml` | OpenAPI describing the subset actually implemented here, for reference (upstream's own spec stays the compatibility source of truth) |
+| `docs/api-notes.md` | What explains the API: its two-part structure (Dawarich-compatible and travelmap's own), and — for the Dawarich-compatible part, endpoints already implemented only — upstream's quirks, the deliberate differences from it, and the client evidence behind each |
+| `docs/openapi.yaml` | The accompanying OpenAPI contract for the subset actually implemented here — paths, schemas, headers, status codes (upstream's own spec stays the compatibility source of truth for the Dawarich-compatible part) |
 | `docs/database.md` | What explains the database beyond `schema.sql` itself: invariants, algorithms, or table/column detail too long for a schema.sql comment (see "Testing") |
 | Package doc comments (`doc.go`) | What belongs in that package |
 
-Five rules keep them from drifting:
+Seven rules keep them from drifting:
 
 - **A decision that changes is changed in `TODO.md` in the same pull request.** The plan
   records defaults as of planning; when implementation proves one wrong, the plan is updated,
   not silently ignored.
 - **Tick the step's checkboxes in `TODO.md` in the pull request that completes them.** A step
   is done when its box is ticked, not when the code merges. Once a step is done and everything
-  it decided has a permanent home (`schema.sql`/`docs/database.md`, `api/openapi.yaml`, this
-  file, a package's `doc.go`), trim its `TODO.md` entry down to its number and title — the
-  checklist, the `Settles`/`Done when` lines and the narrative belong to planning, not to the
-  finished record, and git history already keeps them.
-- **Code never names a `TODO.md` step.** A comment explains why the code in front of the reader
-  is shaped the way it is, in terms of the invariant or constraint that shapes it — not by
-  pointing at "Step N". A past step's number stops resolving to anything once that step is
-  trimmed by the rule above, and a future step is a plan that can still change, which a comment
-  has no business promising.
+  it decided has a permanent home (`schema.sql`/`docs/database.md`, `docs/api-notes.md`/
+  `docs/openapi.yaml`, this file, a package's `doc.go`), trim its `TODO.md` entry down to its
+  number and title — the checklist, the `Settles`/`Done when` lines and the narrative belong to
+  planning, not to the finished record, and git history already keeps them.
+- **A pull request that changes a request/response shape, header or status code updates
+  `docs/openapi.yaml` in the same pull request.** The contract is what a client actually sees;
+  a stale copy of it is worse than no copy at all.
+- **A pull request that finishes an endpoint moves its design notes from `TODO.md` to
+  `docs/api-notes.md`.** `docs/api-notes.md` and `docs/openapi.yaml` describe only what is
+  implemented. Source code is written from the requirements and design these documents already
+  settled, not the other way around, so a comment neither repeats what `docs/` already says nor
+  cites `docs/`, `TODO.md` or a step number back at it: a past step's number stops resolving to
+  anything once that step is trimmed by the rule above, and a future step is a plan that can
+  still change, which a comment has no business promising.
 - **A migration writes its own rationale as a comment, not as prose elsewhere.** A comment written
   inside a `CREATE TABLE`'s or a multi-column `CREATE INDEX`'s own parentheses also reaches a
   reader through `schema.sql` (see "Testing"); `docs/database.md`'s own opening explains why. One

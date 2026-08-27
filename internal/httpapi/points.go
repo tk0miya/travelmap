@@ -1,21 +1,19 @@
 package httpapi
 
 import (
-	"context"
 	"net/http"
 	"time"
 
 	"github.com/tk0miya/travelmap/internal/httpapi/dto"
+	"github.com/tk0miya/travelmap/internal/ingest"
 	"github.com/tk0miya/travelmap/internal/model"
-	"github.com/tk0miya/travelmap/internal/store"
 )
 
 // createPoints answers POST /api/v1/points: a GeoJSON batch from the app
 // becomes points belonging to the authenticated user.
 //
 // It shares its body with [api.createOverlandBatch] and differs only in the
-// success status: 200 here, 201 there. See the POST /api/v1/points bullet
-// under "Per-endpoint" in TODO.md.
+// success status: 200 here, 201 there.
 func (a *api) createPoints(w http.ResponseWriter, r *http.Request) {
 	a.ingestLocations(w, r, http.StatusOK)
 }
@@ -27,10 +25,8 @@ func (a *api) createOverlandBatch(w http.ResponseWriter, r *http.Request) {
 }
 
 // ingestLocations decodes a GeoJSON locations batch, stores the points it
-// carries for the authenticated user, and answers with success on ok.
-//
-// It writes through [store.Store.Points] directly rather than through
-// internal/ingest: there is no daily_stats yet for a mutation to keep in sync.
+// carries for the authenticated user through [ingest.CreatePoints], and
+// answers with success on ok.
 func (a *api) ingestLocations(w http.ResponseWriter, r *http.Request, success int) {
 	user, ok := userFrom(r.Context())
 	if !ok {
@@ -58,14 +54,7 @@ func (a *api) ingestLocations(w http.ResponseWriter, r *http.Request, success in
 
 	points := parseLocations(req, user.ID)
 
-	var created int
-
-	err := a.store.Tx(r.Context(), func(ctx context.Context, tx store.Store) error {
-		var err error
-		created, err = tx.Points().Create(ctx, points)
-
-		return err
-	})
+	created, err := ingest.CreatePoints(r.Context(), a.store, points, a.loc, a.trackBreak)
 	if err != nil {
 		a.logger.Error("storing points failed",
 			"path", r.URL.Path,

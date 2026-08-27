@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
@@ -99,6 +100,31 @@ func (r pointRepository) Timestamps(ctx context.Context, userID int64) ([]time.T
 	}
 
 	return timestamps, nil
+}
+
+// NextTimestamp implements [store.PointRepository].
+//
+// ORDER BY ... LIMIT 1 rather than MIN(timestamp): a MIN() over no matching
+// rows still returns one row, holding NULL, so telling "no next point" apart
+// from "the next point is at time zero" would need a nullable scan; this way
+// the empty case is the ordinary sql.ErrNoRows every other lookup here uses.
+func (r pointRepository) NextTimestamp(ctx context.Context, userID int64, after time.Time) (time.Time, bool, error) {
+	var ts unixTime
+
+	err := r.q.QueryRowContext(ctx,
+		`SELECT timestamp FROM points WHERE user_id = ? AND timestamp > ? ORDER BY timestamp LIMIT 1`,
+		userID, unixTime(after),
+	).Scan(&ts)
+
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return time.Time{}, false, nil
+	case err != nil:
+		return time.Time{}, false, fmt.Errorf("sqlite: finding the next point for user %d after %s: %w",
+			userID, after, err)
+	default:
+		return time.Time(ts), true, nil
+	}
 }
 
 // The interface this type exists to satisfy. See the equivalent assertion on

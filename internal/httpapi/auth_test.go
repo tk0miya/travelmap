@@ -108,7 +108,7 @@ func TestUsersMe(t *testing.T) {
 	}{
 		// The spec documents this endpoint as header-only, but clients send
 		// the query parameter to endpoints documented the other way round, so
-		// both are accepted everywhere. See "Authentication" in TODO.md.
+		// both are accepted everywhere.
 		"the api_key query parameter": {path: "/api/v1/users/me?api_key=" + testAPIKey},
 		"an Authorization header":     {path: "/api/v1/users/me", opts: []requestOption{bearer(testAPIKey)}},
 		// RFC 9110 makes the scheme case-insensitive, and a client that spells

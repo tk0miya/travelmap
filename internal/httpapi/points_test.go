@@ -3,6 +3,7 @@ package httpapi_test
 import (
 	"net/http"
 	"testing"
+	"time"
 )
 
 // validLocationsBody is one GeoJSON Feature carrying every property this
@@ -44,7 +45,7 @@ func TestCreatePoints(t *testing.T) {
 }
 
 // TestCreateOverlandBatch covers the endpoint's other name: the same body,
-// answered with 201 instead of 200. See "Per-endpoint" in TODO.md.
+// answered with 201 instead of 200.
 func TestCreateOverlandBatch(t *testing.T) {
 	t.Parallel()
 
@@ -160,6 +161,33 @@ func TestCreatePointsRequiresAuthentication(t *testing.T) {
 
 	if len(resp.body) != 0 {
 		t.Errorf("body = %q, want it empty on a 401", resp.body)
+	}
+}
+
+// TestCreatePointsUpdatesDailyStats pins that POST /api/v1/points goes
+// through ingest: the point it stores also produces a daily_stats row for the
+// day it falls on, in the same request, rather than daily_stats staying stale
+// until a `travelmap recalculate`.
+func TestCreatePointsUpdatesDailyStats(t *testing.T) {
+	t.Parallel()
+
+	st := newTestStore(t)
+	srv := newTestServerWith(t, st)
+
+	resp := do(t, srv, http.MethodPost, "/api/v1/points?api_key="+testAPIKey, withBody(validLocationsBody))
+	if resp.status != http.StatusOK {
+		t.Fatalf("status = %d, want %d", resp.status, http.StatusOK)
+	}
+
+	day := time.Date(2021, time.June, 1, 0, 0, 0, 0, time.UTC)
+
+	stat, err := st.DailyStats().Get(t.Context(), testUser(t).ID, day)
+	if err != nil {
+		t.Fatalf("getting daily_stats for %s: %v", day, err)
+	}
+
+	if stat.Points != 1 {
+		t.Errorf("daily_stats.points = %d, want 1", stat.Points)
 	}
 }
 
