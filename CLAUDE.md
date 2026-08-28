@@ -17,9 +17,10 @@ any language; what lands in git does not.
 
 | File | Holds |
 | --- | --- |
-| `TODO.md` | The development plan: goal, step checklists, technical decisions not yet settled by an implemented step, and upstream quirks for endpoints not yet implemented. **The step checklists are the single source of truth for what gets implemented.** Also the data model for a table not yet migrated, until the step that adds it |
+| `TODO.md` | The development plan: step checklists, technical decisions not yet settled by an implemented step, and upstream quirks for endpoints not yet implemented. **The step checklists are the single source of truth for what gets implemented.** Also the data model for a table not yet migrated, until the step that adds it |
 | `CLAUDE.md` | This file — the conventions, so that no pull request has to re-argue them |
-| `README.md` | What the project is, and how to build, run and configure it. Written for someone approaching the project from outside, whether to run it or to start contributing |
+| `README.md` | How to build, run and configure the project. Written for someone approaching it from outside to run it |
+| `docs/README.md` | The entry point to `docs/`: what travelmap is and its purpose, its non-goals, and which document below covers which part of the requirements and design |
 | `docs/architecture.md` | Technical decisions already implemented — what was chosen and why. A decision not yet implemented stays in `TODO.md`'s own "Technical Decisions" section until the step that implements it lands |
 | `docs/toolchain.md` | What explains the Go toolchain and its development tools beyond what `go.mod`, `Makefile` and `.golangci.yml` already show by themselves |
 | `docs/api-notes.md` | What explains the API: its two-part structure (Dawarich-compatible and travelmap's own), and — for the Dawarich-compatible part, endpoints already implemented only — upstream's quirks, the deliberate differences from it, and the client evidence behind each |

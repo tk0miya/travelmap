@@ -1,54 +1,9 @@
 # travelmap — Development Plan for a Dawarich-Compatible API Server
 
-## Goal
-
-Implement a [Dawarich](https://github.com/Freika/dawarich)-compatible web API server in Go.
-
-Upstream Dawarich is a multi-container stack of Rails + PostgreSQL/PostGIS + Sidekiq + Redis,
-which is a large runtime footprint for personal use. This project aims for a lightweight
-compatible server that runs as **a single statically linked binary plus one SQLite file**.
-
-**Final goal**: point the Dawarich iPhone app at this server and be able to record and
-browse location history.
-
-After that, we plan to **build our own web UI** (Milestone H). It will not be a port of the
-upstream browser screens; it will be built on top of this server's API. The API comes first,
-and the policy is to **reuse the existing `/api/v1` rather than adding UI-only data
-endpoints** (browser-specific routes such as login and sessions are added in Milestone H).
-
-### travelmap's own extensions
-
-Not everything this server stores has to come from upstream. Swarm (Foursquare) check-in
-collection is the first feature that is travelmap's own (Milestone I): explicitly recorded
-landmark data, collected to enrich the automatically recorded GPS trace.
-
-Such a feature gets **its own tables and its own routes at the top level, never a path under
-`/api/v1`**. Dawarich has no version negotiation, so clients read a 404 under `/api/v1` as
-"feature unsupported" (see "An endpoint this server does not implement answers 404" in
-`docs/api-notes.md`); inventing paths in that namespace would make that signal meaningless.
-Keeping the compatibility surface exactly upstream's is what keeps the 404 rule true.
-
-### Non-goals
-
-The following are out of scope for this project.
-
-- Immich / Photoprism integration and photo-related APIs
-- Billing and subscription APIs
-- Family sharing (Families)
-- H3 hex maps / fog of war
-- Areas, Places, Notes, Tags, Digests, Insights — upstream's own concepts. travelmap's
-  `checkins` (Milestone I) is not one of them; see "travelmap's own extensions"
-
-## Reference Specification
-
-The Dawarich OpenAPI document is the single source of truth for compatibility.
-
-- Source: `https://raw.githubusercontent.com/Freika/dawarich/master/swagger/v1/swagger.yaml`
-- Fetched: 2026-08-17
-- Fingerprint: 5680 lines / `sha256:a16411a389e0130d9e0b04b54cfc80726c234b8a017cc76d9d921bfc91adc89a`
-
-Upstream changes continuously, so update the fingerprint above whenever the spec is
-re-fetched. A running Dawarich instance also serves the same document at `/api-docs`.
+What travelmap is, its purpose, and the parts of its design already settled are in
+[docs/README.md](docs/README.md). How to build, run and configure it is in
+[README.md](README.md). This file is the plan for what is still ahead: what gets built, in what
+order, and why.
 
 ## Technical Decisions
 
@@ -84,7 +39,7 @@ migration and whatever else into `docs/database.md`.
 ### `checkins`
 
 Swarm check-ins, collected by the two paths in Milestone I. Not a Dawarich concept — see
-"travelmap's own extensions".
+"Keeping the two parts apart" in `docs/api-notes.md`.
 
 Columns: `user_id`, `foursquare_checkin_id`, `checked_in_at`, `timezone_offset`, `venue_id`,
 `venue_name`, `latitude`, `longitude`, `country_code`, `city`, `state`, `country`,
@@ -226,9 +181,9 @@ Two sources close the gap, in this order:
 implemented.** Keeping a separate list would mean double bookkeeping that drifts out of date,
 so this section records only the exclusions and why.
 
-Apart from anything falling under the "Non-goals" categories (Areas, Places, Notes, Tags,
-Digests, Insights, Families, Immich, Photos, Maps/hexagons, …), any endpoint in the spec that
-is not listed below should appear in the development steps.
+Apart from anything falling under the non-goal categories in `docs/README.md` (Areas, Places,
+Notes, Tags, Digests, Insights, Families, Immich, Photos, Maps/hexagons, …), any endpoint in the
+spec that is not listed below should appear in the development steps.
 
 - `GET /api/v1/points/{id}` and `GET /api/v1/visits/{id}` **do not exist in the spec** (both
   have only `patch` and `delete`). If device logs show them being called, add them on the basis
@@ -620,9 +575,11 @@ same either way.
 
 **Open question: how the browser authenticates against `/api/v1`**
 
-Having decided not to add UI-only data endpoints, the browser will also call `/api/v1/points`
-and friends — but `/api/v1` accepts only Bearer / `api_key`, with the session cookie planned for
-everything else. To be decided when Milestone H starts. The current front-runner is **(a)**.
+**The policy is to reuse the existing `/api/v1` rather than add UI-only data endpoints**
+(browser-specific routes such as login and sessions are added in this milestone instead), so the
+browser will also call `/api/v1/points` and friends — but `/api/v1` accepts only Bearer /
+`api_key`, with the session cookie planned for everything else. To be decided when Milestone H
+starts. The current front-runner is **(a)**.
 
 - **(a) The `/api/v1` middleware also accepts the session cookie** — lets the UI simply fetch.
   Accepting cookies means `/api/v1` needs CSRF protection too, but Go 1.25's
@@ -868,7 +825,8 @@ still one binary plus one SQLite file.
 
 Collect Swarm (Foursquare) check-ins, so that the explicitly recorded landmark sits alongside
 the automatically recorded GPS trace. The first feature that is travelmap's own rather than
-upstream's — read "travelmap's own extensions" before adding a route here.
+upstream's — read "Keeping the two parts apart" in `docs/api-notes.md` before adding a route
+here.
 
 Independent of the points/stats pipeline: it touches neither `points` nor `daily_stats`. What it
 does need is the store foundation and the authenticated router, both already in place — Step

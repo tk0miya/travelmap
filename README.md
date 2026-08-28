@@ -12,7 +12,7 @@ your location history. A web UI of our own comes after the API.
 
 What it deliberately does not cover: photo-service integration, billing, family sharing, hex
 maps / fog of war, and areas, places, notes, tags, digests and insights. See "Non-goals" in
-[TODO.md](TODO.md).
+[docs/README.md](docs/README.md).
 
 ## Build and run
 
@@ -131,6 +131,8 @@ Unformatted code fails `lint` rather than a target of its own, so `make fmt` bef
 
 [CLAUDE.md](CLAUDE.md) holds the project conventions: English as the project language, the
 layering rules, the testing approach and the commit style. [TODO.md](TODO.md) holds the
-development plan — one step there is one pull request. [docs/architecture.md](docs/architecture.md)
-explains the technical decisions already implemented, and [docs/toolchain.md](docs/toolchain.md)
-the Go toolchain setup beyond what `go.mod` and this section already show.
+development plan — one step there is one pull request. [docs/README.md](docs/README.md) is the
+entry point to the requirements and design documentation, including
+[docs/architecture.md](docs/architecture.md) for the technical decisions already implemented and
+[docs/toolchain.md](docs/toolchain.md) for the Go toolchain setup beyond what `go.mod` and this
+section already show.
