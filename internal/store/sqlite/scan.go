@@ -9,9 +9,9 @@ import (
 )
 
 // unixTime scans and stores a [time.Time] as the integer Unix seconds every
-// timestamp column in this schema holds, per "Schema" in TODO.md, so a
-// repository writes and reads a Go time directly rather than converting by
-// hand on both sides of every column.
+// timestamp column in this schema holds, so a repository writes and reads a
+// Go time directly rather than converting by hand on both sides of every
+// column.
 type unixTime time.Time
 
 // Scan implements [sql.Scanner].
