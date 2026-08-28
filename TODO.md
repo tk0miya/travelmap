@@ -1,4 +1,4 @@
-# travelmap — Development Plan for a Dawarich-Compatible API Server
+# travelmap — Development Plan
 
 What travelmap is, its purpose, and the parts of its design already settled are in
 [docs/README.md](docs/README.md). How to build, run and configure it is in

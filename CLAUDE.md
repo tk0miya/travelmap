@@ -1,7 +1,9 @@
 # Project conventions
 
-travelmap is a Dawarich-compatible location-history API server in Go, built to run as a single
-binary plus one SQLite file.
+travelmap turns a trip into a map: it tracks a journey from multiple sources and records and
+displays it as a timeline. Today it does that through a Dawarich-compatible location-history API
+and Swarm (Foursquare) check-in collection, in Go, built to run as a single binary plus one
+SQLite file.
 
 This file holds the conventions every change follows. The development plan itself — what gets
 built, in what order, and why — lives in [TODO.md](TODO.md).

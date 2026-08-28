@@ -1,4 +1,4 @@
-// Command travelmap is the Dawarich-compatible API server.
+// Command travelmap runs the travelmap server.
 //
 // This package is wiring only: it reads the configuration, picks the concrete
 // implementations and hands them to the packages that own the behaviour.
@@ -12,7 +12,9 @@ import (
 	"os"
 )
 
-const usage = `travelmap is a Dawarich-compatible location-history API server.
+const usage = `travelmap tracks a journey from multiple sources and records it as a timeline.
+It currently does that via a Dawarich-compatible location-history API and Swarm check-in
+collection.
 
 Usage:
   travelmap <command> [flags]
