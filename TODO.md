@@ -53,8 +53,9 @@ re-fetched. A running Dawarich instance also serves the same document at `/api-d
 ## Technical Decisions
 
 Decisions for work not built yet. A decision already implemented is not here — it is in
-[`docs/architecture.md`](docs/architecture.md) — and a row below moves there once the step that
-implements it lands.
+[`docs/architecture.md`](docs/architecture.md) or [`docs/database.md`](docs/database.md),
+whichever already owns that ground — and a row below moves there once the step that implements
+it lands.
 
 | Item | Decision | Rationale |
 | --- | --- | --- |

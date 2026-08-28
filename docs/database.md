@@ -83,6 +83,13 @@ Swarm (Foursquare) check-ins — travelmap's own extension, not a Dawarich conce
 through `internal/checkin`, never the table directly, so that however many collection paths feed
 it, they agree on how a duplicate is recognised.
 
+### Not upstream's `visits` / `places`
+
+Upstream's `visits` are detected from GPS dwell and then confirmed by the user (`status` is
+`suggested`/`confirmed`/`declined`, and its detector regenerates the suggested ones wholesale),
+and `places.source` is only `manual` or `photon`. A Swarm check-in is neither: putting it there
+would need a third `source` and would break what `status` means.
+
 ### Idempotency and repeat writes
 
 `foursquare_checkin_id` is unique, and every write is an upsert against it, so a check-in
@@ -133,8 +140,9 @@ A check-in is neither a point nor a segment, so it contributes to no `/stats` to
 
 ## `foursquare_accounts`
 
-One row per user, linking a travelmap account to a Swarm account. Created by `travelmap
-foursquare connect`; nothing is collected for a user until this row exists.
+A row per user rather than an env var, since resolving an incoming webhook to a travelmap user
+needs a lookup an env var cannot provide (see below). Created by `travelmap foursquare connect`;
+nothing is collected for a user until this row exists.
 
 `foursquare_user_id` is stored as **TEXT**: the payload sends it quoted (`"1709193"`). Its unique
 index is what lets an incoming push resolve to exactly one travelmap user — nothing else maps a
