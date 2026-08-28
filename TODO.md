@@ -614,7 +614,7 @@ so this is how the remaining endpoint list gets confirmed.
       real device traffic, which carries live credentials
 - [ ] Record the endpoints a real device actually hits in this file, and diff them against the
       list the community Android client uses (see "About the iOS app")
-- [ ] **Never log a request body.** `POST /api/v1/auth/login` already carries a password in its
+- [x] **Never log a request body.** `POST /api/v1/auth/login` already carries a password in its
       own body, so this is not a hypothetical: a logger written as "log the body unless told
       otherwise" leaks one on the first login it sees. Later routes then inherit the default
       instead of each having to remember — Step 18 adds one whose body carries a shared secret
