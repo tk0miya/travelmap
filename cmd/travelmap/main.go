@@ -19,10 +19,11 @@ Usage:
   travelmap --version
 
 Commands:
-  serve         Run the HTTP server
-  migrate       Bring the database schema up to date
-  user create   Issue a user and its API key
-  recalculate   Rebuild daily_stats from points
+  serve                Run the HTTP server
+  migrate              Bring the database schema up to date
+  user create          Issue a user and its API key
+  recalculate          Rebuild daily_stats from points
+  foursquare connect   Link a travelmap account to a Swarm account
 `
 
 // errUsage asks main for the exit status a misuse gets, which is not the same
@@ -96,6 +97,8 @@ func run(args []string, getenv func(string) string, stdin io.Reader, stdout, std
 		return migrate(getenv, stdout)
 	case "user":
 		return user(cmdArgs, getenv, stdin, stdout, stderr)
+	case "foursquare":
+		return foursquare(cmdArgs, getenv, stdin, stdout, stderr)
 	case "recalculate":
 		if err := noArguments(fs, "recalculate", cmdArgs); err != nil {
 			return err

@@ -53,16 +53,15 @@ re-fetched. A running Dawarich instance also serves the same document at `/api-d
 ## Technical Decisions
 
 Decisions for work not built yet. A decision already implemented is not here — it is in
-[`docs/architecture.md`](docs/architecture.md) — and a row below moves there once the step that
-implements it lands.
+[`docs/architecture.md`](docs/architecture.md) or [`docs/database.md`](docs/database.md),
+whichever already owns that ground — and a row below moves there once the step that implements
+it lands.
 
 | Item | Decision | Rationale |
 | --- | --- | --- |
 | Background work | Goroutines + a job table in SQLite | Keeps a single process, with no Sidekiq/Redis equivalent |
 | Reverse geocoding | Off by default; optionally point at a Nominatim/Photon URL | Does not make an external service mandatory |
 | Swarm check-ins | Collected by webhook push, with a periodic API fetch as the backstop | Push is immediate but nothing documented makes it reliable: Foursquare publishes no retry, records a timed-out push as a failure, and reaches only a public HTTPS endpoint. What it does after a failure is not documented at all. Fetching alone would lag every check-in by up to a poll interval. **What each path does and does not see is only partly known** — whether a push fires for a check-in added after the fact, or for an edit to one already stored, is undocumented — which is itself a reason to run both (Milestone I) |
-| Check-in storage | Its own `checkins` table, not upstream's `visits` / `places` | Upstream's `visits` are detected from GPS dwell and then confirmed by the user (`status` is `suggested`/`confirmed`/`declined`, and its detector regenerates the suggested ones wholesale), and `places.source` is only `manual` or `photon`. A Swarm check-in is neither: putting it there would need a third `source` and would break what `status` means. See "Data Model" |
-| Third-party credentials | A `foursquare_accounts` row per user; the access token stored as issued | Same premise as `users.api_key`: the database file is already the one place secrets live, and an encryption key would have to sit next to it. A row rather than an env var because the webhook has to map a Foursquare user id to a travelmap user, which an env var cannot do |
 | Foursquare API version | v2 (`/v2/users/self/checkins`), with `v=` pinned as a constant and `m=swarm` | v2 is what returns Swarm check-ins, and it is current rather than abandoned: it is documented today as the "Personalization APIs", and the pricing change of 1 June 2026 names the checkins and users endpoints as remaining free while putting the venues endpoints behind paid tiers. `v=` is a date Foursquare uses to freeze response shape, so it is a constant raised deliberately after checking behaviour, never "today". `m` asks for the Swarm perspective rather than the Foursquare one; what it changes on this endpoint is untested, and its documented "required" status is contradicted by working clients — see "Fetching check-ins" |
 | Scheduling | A ticker goroutine plus a fixed lookback window, and **no job table** | The periodic fetch is one cron-like task with no queue of items, so the job table in the "Background work" row above would be scaffolding with nothing in it. Step 13's track splitting is the first genuine per-item consumer; the decision stands, its first use just is not here |
 
@@ -71,92 +70,11 @@ change it — after updating this file.
 
 ## Data Model
 
-Columns and indexes for the tables already migrated (`users`, `points`, `daily_stats`) are in
-`internal/store/sqlite/schema.sql`, kept current by `TestSchema`; the rationale for how a column
-or index is shaped is a comment in the migration that adds it. Behaviour that spans tables or
-does not attach to a single column — invariants, algorithms, config effects — is in
-`docs/database.md`.
-
-`checkins` and `foursquare_accounts` (Milestone I) have no migration yet, so this section still
-specifies their columns, until the step that adds them moves the column-level rationale into that
-migration and whatever else into `docs/database.md`.
-
-### `checkins`
-
-Swarm check-ins, collected by the two paths in Milestone I. Not a Dawarich concept — see
-"travelmap's own extensions".
-
-Columns: `user_id`, `foursquare_checkin_id`, `checked_in_at`, `timezone_offset`, `venue_id`,
-`venue_name`, `latitude`, `longitude`, `country_code`, `city`, `state`, `country`,
-`category_id`, `category_name`, `shout`, `source`, `raw`, `created_at`, `updated_at`.
-A unique index on `foursquare_checkin_id`, and one index on `(user_id, checked_in_at)`.
-
-`source` is `push` or `sync`, naming the path that first observed the check-in. **A repeat write
-keeps `source` and `created_at` and refreshes everything else**, `raw` and the derived columns
-included: when the row appeared and which path brought it are facts about history that a later
-write does not change, while every other column is only the newest rendering of the same
-check-in. The prose here calls that second path the periodic fetch while the identifiers say
-`sync` (`TRAVELMAP_FOURSQUARE_SYNC_INTERVAL`, `synced_through`, `travelmap foursquare sync`);
-that split is deliberate, "fetch" being the clearer word for what it does and `sync` the shorter
-one to type.
-
-The check-in's own time is `checked_in_at`, **not `created_at`**, which stays the row's own
-bookkeeping as in every other table. The payload calls both of them `createdAt` — the check-in
-has one and so does the venue inside it — so reusing the name here would make the interesting
-one unfindable.
-
-**The unique index on `foursquare_checkin_id` is where idempotency lives.** Push and the
-periodic fetch will both carry the same check-in, by design, so every write is an upsert against
-that index rather than a look-before-you-write in the caller.
-
-`country_code` (the payload's `cc`) is kept separately from `country` because **the display text
-is localised and `cc` is not**. In an observed push, `cc` was `JP` while `country` and the category
-name came back as Japanese. **What decides that language is unknown** — for `country` the app's
-own locale and v2's fallback to the venue country's language predict the same thing, so the
-observation does not choose between them; "Localisation is left unset on both paths" weighs what
-the category name adds. Either way `cc` is the only stable column, so `country`, `city`, `state`,
-`venue_name` and `category_name` are for display and nothing keys off them.
-
-`raw` holds the check-in JSON as received. The payload carries much more than these columns
-(`visibility`, `canonicalUrl`, `editableUntil`, `labeledLatLngs`, `formattedAddress`, the
-category icon set), and it is not this server's to re-request at will: the fetch path spends an
-hourly per-account budget, and `editableUntil` says a check-in Foursquare once returned can be
-edited afterwards. So when a later step wants one of those fields, deriving it from stored JSON
-beats re-fetching a payload that may no longer be the same one.
-
-`venue_id` and `venue_name` are nullable, for a check-in made without one. **The venueless shape
-has not been observed** — the captured push had a venue — so confirm where its coordinates sit
-before relying on it; Step 18's fixture covers only the shape actually seen. The documentation
-will not settle it either. The schema on `reference/get-checkin-details` describes `venue` without
-saying whether it can be absent, and that schema is demonstrably incomplete — it omits `shout`,
-`visibility` and `editableUntil`, which the observed push carries — so its silence is not evidence
-either way. Only an observation decides this one. Venue data is denormalised onto the check-in
-rather than given its own table; split it out if and when something needs a list of distinct
-venues, which nothing does yet.
-
-**`checkins` does not touch `daily_stats`.** A check-in is neither a point nor a segment, so it
-contributes to no `/stats` total, and `internal/ingest`'s invariant is untouched by this
-milestone.
-
-### `foursquare_accounts`
-
-One row per user, linking a travelmap account to a Swarm account.
-
-Columns: `user_id` (primary key, referencing `users`), `foursquare_user_id`, `access_token`,
-`synced_through`, `created_at`, `updated_at`. Unique index on `foursquare_user_id`.
-
-`foursquare_user_id` is **TEXT**: the payload sends it quoted (`"1709193"`). Its unique index is
-what makes an incoming push resolve to exactly one travelmap user — the webhook has no other way
-to know whose check-in it is.
-
-`access_token` is stored as issued, for the reason in the "Third-party credentials" row under
-"Technical Decisions".
-
-`synced_through` records the end of the last successful fetch window. **It is never the lower
-bound of a normal run** — that is always the lookback window, for the reason under "The periodic
-fetch takes a window, not a cursor". Its two uses are reporting how current an account is, and
-recognising that an account has been offline longer than the window so a wider one-off fetch is
-needed to close the gap.
+Columns and indexes for the tables already migrated (`users`, `points`, `daily_stats`, `checkins`,
+`foursquare_accounts`) are in `internal/store/sqlite/schema.sql`, kept current by `TestSchema`;
+the rationale for how a column or index is shaped is a comment in the migration that adds it.
+Behaviour that spans tables or does not attach to a single column — invariants, algorithms,
+config effects — is in `docs/database.md`.
 
 ## Dawarich API Compatibility Notes
 
@@ -317,13 +235,22 @@ Three form parameters, each a JSON string except `secret`. So this route parses 
 - `checkin.venue`: `id`, `name`, `location` (`address`, `lat`, `lng`, `labeledLatLngs`,
   `postalCode`, `cc`, `city`, `state`, `country`, `formattedAddress`), `categories` (`id`,
   `name`, `pluralName`, `shortName`, `icon`, `categoryCode`, `mapIcon`, `primary`), `timeZone`
+- `checkins.venue_id` and `.venue_name` are nullable for a check-in made without one, per
+  "checkins" in docs/database.md, but **the venueless shape has not been observed** — the
+  captured push had a venue — so confirm where its coordinates sit before relying on it; Step
+  18's fixture covers only the shape actually seen. The documentation will not settle it either.
+  The schema on `reference/get-checkin-details` describes `venue` without saying whether it can
+  be absent, and that schema is demonstrably incomplete — it omits `shout`, `visibility` and
+  `editableUntil`, which the observed push carries — so its silence is not evidence either way.
+  Only an observation decides this one
 - `shout` was **absent as a key** in the observed push, which carried no comment — so treat it
   as optional rather than as an empty string
 - `checkin.user.id` is a quoted string, and is the join key onto `foursquare_accounts`. The
   separate `user` parameter repeats it with extra profile fields; **read the key off
   `checkin.user.id`**, which keeps the identity inside the object being stored
 - The display text is **localised**, and what decides the language is unknown — see "Localisation
-  is left unset on both paths" and the `checkins` note in "Data Model"
+  is left unset on both paths" and "checkins" in docs/database.md. In an observed push, `cc` was
+  `JP` while `country` and the category name came back as Japanese
 - `editableUntil` says a check-in stays editable long after it is made, which is why the write
   path is an upsert and not an insert-if-absent
 
@@ -563,7 +490,7 @@ the push has no locale to match it against anyway.
 compare those five columns. If they agree, this section is settled and says so. **If they differ,
 the fix is not a locale setting** — no setting can track whatever the push does — but removing
 those columns from what a repeat write refreshes, leaving the first writer's rendering in place.
-`cc` is stable under either outcome, per the `checkins` note in "Data Model".
+`cc` is stable under either outcome, per "checkins" in docs/database.md.
 
 ### The periodic fetch takes a window, not a cursor
 
@@ -587,8 +514,8 @@ So **re-fetch a fixed window on every run** and let the unique index on
   `afterTimestamp`. A run's first request carries no `beforeTimestamp`; the rest carry the cursor
   defined under "Page with `beforeTimestamp`, not `offset`", which is where that rule lives
 - `foursquare_accounts.synced_through` advances on success; what it is and is not used for is
-  under `foursquare_accounts` in "Data Model"
-- Which columns a repeat write keeps and which it refreshes is under `checkins` there too
+  under "foursquare_accounts" in docs/database.md
+- Which columns a repeat write keeps and which it refreshes is under "checkins" there too
 
 **Open, and the documentation does not close it**: whether a retroactive check-in's `createdAt` is
 the visit time or the time it was created. The reference describes `createdAt` only as a "UNIX
@@ -872,11 +799,11 @@ upstream's — read "travelmap's own extensions" before adding a route here.
 
 Independent of the points/stats pipeline: it touches neither `points` nor `daily_stats`. What it
 does need is the store foundation and the authenticated router, both already in place — Step
-18 hangs a route off the same router, Step 20 reuses the `api_key` credential, and Step 17
-extends the same test store. So it can be taken at any time after Milestone B, like Step 16.
+18 hangs a route off the same router, and Step 20 reuses the `api_key` credential. So it can be
+taken at any time after Milestone B, like Step 16.
 
 External behaviour these steps rely on is in "Foursquare / Swarm Integration Notes"; the two
-tables are in "Data Model".
+tables are in `internal/store/sqlite/schema.sql` and docs/database.md, per "Data Model".
 
 There are seven `TRAVELMAP_FOURSQUARE_*` settings, and no step adds all of them: the push secret
 belongs to Step 18, the lookback and the API URL to Step 19, the three OAuth settings to Step 20,
@@ -893,14 +820,14 @@ Whichever of Steps 18 and 19 lands first opens a check-in section under the READ
 "Configuration" — either one collects check-ins on its own, so neither can claim to be the step
 that starts the feature, and the later one adds to what the earlier one wrote. That section
 carries the one fact no single setting does: **nothing is collected until an account is linked**,
-which until Step 20 exists means `travelmap foursquare connect` from Step 17. Without it a reader
-can set every variable, run `foursquare sync`, and be told nothing about why the result is empty.
+which until Step 20 exists means `travelmap foursquare connect`. Without it a reader can set
+every variable, run `foursquare sync`, and be told nothing about why the result is empty.
 Step 20 adds its browser flow to the same sentence when it lands, which is its own README item.
 
-Step 17 comes first, and everything else hangs off it. Steps 18 and 19 are then parallel; Step 21
-follows Step 19, and Step 20 needs nothing but Step 17, so it can be taken at any point or left
-until last. Step 17's CLI command exists precisely so that the collecting steps can be finished
-and run for real before the OAuth flow is written. Until it is, the access token comes out of the
+Steps 18 and 19 are parallel; Step 21 follows Step 19, and Step 20 can be taken at any point or
+left until last, needing nothing this milestone has not already shipped.
+`travelmap foursquare connect` exists precisely so the collecting steps can be finished and run
+for real before the OAuth flow is written. Until it is, the access token comes out of the
 Foursquare application's own console, which issues one for the account that owns the application;
 that is the whole of what Step 20 later automates.
 
@@ -909,29 +836,6 @@ page-walk succeeded is one decision; how that client copes with a rate limit, an
 code, or a check-in whose language disagrees between paths is another, confirmed empirically
 rather than designed alongside the first. That second half is Step 22 — it follows both 18 and
 19, and nothing in this milestone waits on it in turn.
-
-### Step 17: Check-in storage and the Foursquare account link
-
-No HTTP and no outbound calls. Separated so the schema and the single write path are reviewed
-without a webhook in the same diff.
-
-- [ ] Migration (the next free number) creating `checkins` and `foursquare_accounts` per
-      "Data Model"
-- [ ] `model.Checkin` and `model.FoursquareAccount`
-- [ ] `store.CheckinRepository` and `store.FoursquareAccountRepository`, handed out by
-      `store.Store` alongside `Users()`, with SQLite implementations following `users.go`
-      (shared column list, `scanX(row)`, `translate(err)`)
-- [ ] `internal/checkin`: **the single path through which check-ins are written**, upserting on
-      `foursquare_checkin_id`
-- [ ] `travelmap foursquare connect --email <email> --foursquare-user-id <id>`, reading the
-      token from standard input like `user create` does, so the token stays out of `ps` output
-
-**Settles**: the `checkins` schema, that a third-party credential is a row rather than an env
-var, and that both collection paths converge on one writer.
-
-**Done when**: `travelmap foursquare connect` stores a row, and a store test writing the same
-check-in twice finds one row carrying the second write's values everywhere except `source` and
-`created_at`, which still name the first path and the first write.
 
 ### Step 18: The push webhook
 
@@ -1080,8 +984,8 @@ Milestone H exists.
 only way `start` can name a user is the `api_key` query parameter. That is consistent — every
 endpoint here accepts it — but **it puts the API key in browser history and in the `Referer` of
 the redirect**. Replace it with session authentication when Milestone H lands. If that is not
-acceptable, hold this step until Milestone H and keep using Step 17's `foursquare connect` in
-the meantime; the rest of the milestone does not depend on it.
+acceptable, hold this step until Milestone H and keep using `foursquare connect` in the
+meantime; the rest of the milestone does not depend on it.
 
 ### Step 21: The periodic fetch worker
 

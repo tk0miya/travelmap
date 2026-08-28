@@ -40,6 +40,12 @@ type Store interface {
 	// DailyStats returns the daily_stats repository.
 	DailyStats() DailyStatsRepository
 
+	// Checkins returns the check-in repository.
+	Checkins() CheckinRepository
+
+	// FoursquareAccounts returns the Foursquare account repository.
+	FoursquareAccounts() FoursquareAccountRepository
+
 	// Tx runs fn inside a transaction, committing when it returns nil and
 	// rolling back when it returns an error, which Tx then returns.
 	//
@@ -129,4 +135,35 @@ type DailyStatsRepository interface {
 	// points at all — the state Rebuild represents by deleting the row
 	// rather than storing one at zero.
 	Get(ctx context.Context, userID int64, day time.Time) (model.DailyStat, error)
+}
+
+// CheckinRepository stores Swarm check-ins — travelmap's own extension, not a
+// Dawarich concept.
+//
+// internal/checkin is the only caller: the push webhook and the periodic
+// fetch both have to agree on how a duplicate is recognised and on which
+// fields a repeat write overwrites, and a second writer would settle that
+// twice.
+type CheckinRepository interface {
+	// Upsert stores checkin, matched against an existing row by
+	// FoursquareCheckinID. On a repeat write, Source and CreatedAt keep the
+	// first write's values; every other field, Raw included, is overwritten
+	// with checkin's. It returns the row as stored, with ID, CreatedAt and
+	// UpdatedAt filled in.
+	Upsert(ctx context.Context, checkin model.Checkin) (model.Checkin, error)
+}
+
+// FoursquareAccountRepository stores the link between a travelmap account and
+// a Swarm account: the row `travelmap foursquare connect` creates.
+type FoursquareAccountRepository interface {
+	// Create stores account and returns it as stored, with CreatedAt and
+	// UpdatedAt filled in. It returns [ErrConflict] if the user already has
+	// an account linked, or if the Foursquare user id is already linked to
+	// another one.
+	Create(ctx context.Context, account model.FoursquareAccount) (model.FoursquareAccount, error)
+
+	// ByFoursquareUserID finds the account linked to foursquareUserID, and
+	// returns [ErrNotFound] if there is none — how an incoming push resolves
+	// checkin.user.id to a travelmap user.
+	ByFoursquareUserID(ctx context.Context, foursquareUserID string) (model.FoursquareAccount, error)
 }
