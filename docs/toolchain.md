@@ -40,11 +40,10 @@ with. **`go tool` removes the ceiling by construction**: the linter is rebuilt f
 the module's own toolchain, so it always matches. Versions are pinned in `go.mod`, and CI and
 local runs use the same build.
 
-Measured in the development container: `go tool golangci-lint run` takes about 43 s the first
-time (it compiles the linter) and about 0.5 s afterwards. `gofumpt` runs in about 1 s. The
-installed Go does not have to match the directive — 1.24.7 with `GOTOOLCHAIN=auto` builds, tests
-with `-race` and vets a `go 1.26` module fine, fetching the toolchain once. So there is no
-environment prerequisite before starting, and no setup script to maintain.
+The installed Go does not have to match the directive: `GOTOOLCHAIN=auto` fetches the pinned
+toolchain once and builds, tests with `-race` and vets the module fine regardless of what is
+preinstalled. So there is no environment prerequisite before starting, and no setup script to
+maintain.
 
 Three caveats:
 

@@ -132,6 +132,5 @@ Unformatted code fails `lint` rather than a target of its own, so `make fmt` bef
 [CLAUDE.md](CLAUDE.md) holds the project conventions: English as the project language, the
 layering rules, the testing approach and the commit style. [TODO.md](TODO.md) holds the
 development plan — one step there is one pull request. [docs/architecture.md](docs/architecture.md)
-explains the technical decisions already implemented and the libraries in use, and
-[docs/toolchain.md](docs/toolchain.md) the Go toolchain setup beyond what `go.mod` and this
-section already show.
+explains the technical decisions already implemented, and [docs/toolchain.md](docs/toolchain.md)
+the Go toolchain setup beyond what `go.mod` and this section already show.
