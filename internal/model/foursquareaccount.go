@@ -15,8 +15,7 @@ type FoursquareAccount struct {
 	FoursquareUserID string
 
 	// AccessToken is stored as issued: the database file is already the one
-	// place secrets live, per "Third-party credentials" in TODO.md's
-	// Technical Decisions.
+	// place secrets live.
 	AccessToken string
 
 	// SyncedThrough is the end of the last successful fetch window, and nil

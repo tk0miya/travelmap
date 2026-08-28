@@ -132,7 +132,7 @@ CREATE TABLE foursquare_accounts (
     -- TEXT: the payload sends it quoted ("1709193"). Its unique index resolves a push to one user.
     foursquare_user_id TEXT NOT NULL,
 
-    -- Stored as issued, per "Third-party credentials" in TODO.md's Technical Decisions.
+    -- Stored as issued, not encrypted: the database file is already where secrets live.
     access_token       TEXT NOT NULL,
 
     -- The end of the last successful fetch window; NULL until the first one succeeds.

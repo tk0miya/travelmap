@@ -61,8 +61,6 @@ implements it lands.
 | Background work | Goroutines + a job table in SQLite | Keeps a single process, with no Sidekiq/Redis equivalent |
 | Reverse geocoding | Off by default; optionally point at a Nominatim/Photon URL | Does not make an external service mandatory |
 | Swarm check-ins | Collected by webhook push, with a periodic API fetch as the backstop | Push is immediate but nothing documented makes it reliable: Foursquare publishes no retry, records a timed-out push as a failure, and reaches only a public HTTPS endpoint. What it does after a failure is not documented at all. Fetching alone would lag every check-in by up to a poll interval. **What each path does and does not see is only partly known** — whether a push fires for a check-in added after the fact, or for an edit to one already stored, is undocumented — which is itself a reason to run both (Milestone I) |
-| Check-in storage | Its own `checkins` table, not upstream's `visits` / `places` | Upstream's `visits` are detected from GPS dwell and then confirmed by the user (`status` is `suggested`/`confirmed`/`declined`, and its detector regenerates the suggested ones wholesale), and `places.source` is only `manual` or `photon`. A Swarm check-in is neither: putting it there would need a third `source` and would break what `status` means. See "Data Model" |
-| Third-party credentials | A `foursquare_accounts` row per user; the access token stored as issued | Same premise as `users.api_key`: the database file is already the one place secrets live, and an encryption key would have to sit next to it. A row rather than an env var because the webhook has to map a Foursquare user id to a travelmap user, which an env var cannot do |
 | Foursquare API version | v2 (`/v2/users/self/checkins`), with `v=` pinned as a constant and `m=swarm` | v2 is what returns Swarm check-ins, and it is current rather than abandoned: it is documented today as the "Personalization APIs", and the pricing change of 1 June 2026 names the checkins and users endpoints as remaining free while putting the venues endpoints behind paid tiers. `v=` is a date Foursquare uses to freeze response shape, so it is a constant raised deliberately after checking behaviour, never "today". `m` asks for the Swarm perspective rather than the Foursquare one; what it changes on this endpoint is untested, and its documented "required" status is contradicted by working clients — see "Fetching check-ins" |
 | Scheduling | A ticker goroutine plus a fixed lookback window, and **no job table** | The periodic fetch is one cron-like task with no queue of items, so the job table in the "Background work" row above would be scaffolding with nothing in it. Step 13's track splitting is the first genuine per-item consumer; the decision stands, its first use just is not here |
 
@@ -800,8 +798,8 @@ upstream's — read "travelmap's own extensions" before adding a route here.
 
 Independent of the points/stats pipeline: it touches neither `points` nor `daily_stats`. What it
 does need is the store foundation and the authenticated router, both already in place — Step
-18 hangs a route off the same router, Step 20 reuses the `api_key` credential, and Step 17
-extends the same test store. So it can be taken at any time after Milestone B, like Step 16.
+18 hangs a route off the same router, and Step 20 reuses the `api_key` credential. So it can be
+taken at any time after Milestone B, like Step 16.
 
 External behaviour these steps rely on is in "Foursquare / Swarm Integration Notes"; the two
 tables are in `internal/store/sqlite/schema.sql` and docs/database.md, per "Data Model".
@@ -821,14 +819,14 @@ Whichever of Steps 18 and 19 lands first opens a check-in section under the READ
 "Configuration" — either one collects check-ins on its own, so neither can claim to be the step
 that starts the feature, and the later one adds to what the earlier one wrote. That section
 carries the one fact no single setting does: **nothing is collected until an account is linked**,
-which until Step 20 exists means `travelmap foursquare connect` from Step 17. Without it a reader
-can set every variable, run `foursquare sync`, and be told nothing about why the result is empty.
+which until Step 20 exists means `travelmap foursquare connect`. Without it a reader can set
+every variable, run `foursquare sync`, and be told nothing about why the result is empty.
 Step 20 adds its browser flow to the same sentence when it lands, which is its own README item.
 
-Step 17 comes first, and everything else hangs off it. Steps 18 and 19 are then parallel; Step 21
-follows Step 19, and Step 20 needs nothing but Step 17, so it can be taken at any point or left
-until last. Step 17's CLI command exists precisely so that the collecting steps can be finished
-and run for real before the OAuth flow is written. Until it is, the access token comes out of the
+Steps 18 and 19 are parallel; Step 21 follows Step 19, and Step 20 can be taken at any point or
+left until last, needing nothing this milestone has not already shipped.
+`travelmap foursquare connect` exists precisely so the collecting steps can be finished and run
+for real before the OAuth flow is written. Until it is, the access token comes out of the
 Foursquare application's own console, which issues one for the account that owns the application;
 that is the whole of what Step 20 later automates.
 
@@ -837,8 +835,6 @@ page-walk succeeded is one decision; how that client copes with a rate limit, an
 code, or a check-in whose language disagrees between paths is another, confirmed empirically
 rather than designed alongside the first. That second half is Step 22 — it follows both 18 and
 19, and nothing in this milestone waits on it in turn.
-
-### Step 17: Check-in storage and the Foursquare account link
 
 ### Step 18: The push webhook
 
@@ -987,8 +983,8 @@ Milestone H exists.
 only way `start` can name a user is the `api_key` query parameter. That is consistent — every
 endpoint here accepts it — but **it puts the API key in browser history and in the `Referer` of
 the redirect**. Replace it with session authentication when Milestone H lands. If that is not
-acceptable, hold this step until Milestone H and keep using Step 17's `foursquare connect` in
-the meantime; the rest of the milestone does not depend on it.
+acceptable, hold this step until Milestone H and keep using `foursquare connect` in the
+meantime; the rest of the milestone does not depend on it.
 
 ### Step 21: The periodic fetch worker
 

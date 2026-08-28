@@ -18,6 +18,8 @@ ground is already covered by a schema.sql/migration comment, a package's own com
 | SQL | Hand-written in `internal/store/sqlite`, no generator | The queries are few and shaped by the API's own filters, and a generator would add a code-generation step to a checkout that today needs nothing installed but Go |
 | HTTP | `net/http` + `github.com/go-chi/chi/v5` | Chosen with the future web UI in mind — see "Router" below |
 | User management | Issued via CLI. `auth/login` implemented, `auth/register` optional behind an env var, no 2FA | Self-hosted assumption |
+| Check-in storage | Its own `checkins` table, not upstream's `visits` / `places` | Upstream's `visits` are detected from GPS dwell and then confirmed by the user (`status` is `suggested`/`confirmed`/`declined`, and its detector regenerates the suggested ones wholesale), and `places.source` is only `manual` or `photon`. A Swarm check-in is neither: putting it there would need a third `source` and would break what `status` means |
+| Third-party credentials | A `foursquare_accounts` row per user, resolving a Foursquare user id to a travelmap user | A row rather than an env var because the webhook has to map a Foursquare user id to a travelmap user, which an env var cannot do. How the access token itself is stored is in `docs/database.md` |
 
 Schema-shape decisions (`STRICT` tables, Unix-second timestamps, indexes, the distance and
 statistics precomputation) are in `internal/store/sqlite/schema.sql`'s own comments and
