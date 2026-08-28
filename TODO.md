@@ -1,54 +1,9 @@
-# travelmap — Development Plan for a Dawarich-Compatible API Server
+# travelmap — Development Plan
 
-## Goal
-
-Implement a [Dawarich](https://github.com/Freika/dawarich)-compatible web API server in Go.
-
-Upstream Dawarich is a multi-container stack of Rails + PostgreSQL/PostGIS + Sidekiq + Redis,
-which is a large runtime footprint for personal use. This project aims for a lightweight
-compatible server that runs as **a single statically linked binary plus one SQLite file**.
-
-**Final goal**: point the Dawarich iPhone app at this server and be able to record and
-browse location history.
-
-After that, we plan to **build our own web UI** (Milestone H). It will not be a port of the
-upstream browser screens; it will be built on top of this server's API. The API comes first,
-and the policy is to **reuse the existing `/api/v1` rather than adding UI-only data
-endpoints** (browser-specific routes such as login and sessions are added in Milestone H).
-
-### travelmap's own extensions
-
-Not everything this server stores has to come from upstream. Swarm (Foursquare) check-in
-collection is the first feature that is travelmap's own (Milestone I): explicitly recorded
-landmark data, collected to enrich the automatically recorded GPS trace.
-
-Such a feature gets **its own tables and its own routes at the top level, never a path under
-`/api/v1`**. Dawarich has no version negotiation, so clients read a 404 under `/api/v1` as
-"feature unsupported" (see "An endpoint this server does not implement answers 404" in
-`docs/api-notes.md`); inventing paths in that namespace would make that signal meaningless.
-Keeping the compatibility surface exactly upstream's is what keeps the 404 rule true.
-
-### Non-goals
-
-The following are out of scope for this project.
-
-- Immich / Photoprism integration and photo-related APIs
-- Billing and subscription APIs
-- Family sharing (Families)
-- H3 hex maps / fog of war
-- Areas, Places, Notes, Tags, Digests, Insights — upstream's own concepts. travelmap's
-  `checkins` (Milestone I) is not one of them; see "travelmap's own extensions"
-
-## Reference Specification
-
-The Dawarich OpenAPI document is the single source of truth for compatibility.
-
-- Source: `https://raw.githubusercontent.com/Freika/dawarich/master/swagger/v1/swagger.yaml`
-- Fetched: 2026-08-17
-- Fingerprint: 5680 lines / `sha256:a16411a389e0130d9e0b04b54cfc80726c234b8a017cc76d9d921bfc91adc89a`
-
-Upstream changes continuously, so update the fingerprint above whenever the spec is
-re-fetched. A running Dawarich instance also serves the same document at `/api-docs`.
+What travelmap is, its purpose, and the parts of its design already settled are in
+[docs/README.md](docs/README.md). How to build, run and configure it is in
+[README.md](README.md). This file is the plan for what is still ahead: what gets built, in what
+order, and why.
 
 ## Technical Decisions
 
@@ -141,12 +96,9 @@ Two sources close the gap, in this order:
 ## Endpoints Deliberately Excluded
 
 **The checklists under "Development Steps" are the single source of truth for what gets
-implemented.** Keeping a separate list would mean double bookkeeping that drifts out of date,
-so this section records only the exclusions and why.
-
-Apart from anything falling under the "Non-goals" categories (Areas, Places, Notes, Tags,
-Digests, Insights, Families, Immich, Photos, Maps/hexagons, …), any endpoint in the spec that
-is not listed below should appear in the development steps.
+implemented.** Keeping a separate list would mean double bookkeeping that drifts out of date, so
+this section records only the spec endpoints whose absence needs explaining — not the ones
+[docs/README.md](docs/README.md)'s Non-goals already rule out; no future step reconsiders those.
 
 - `GET /api/v1/points/{id}` and `GET /api/v1/visits/{id}` **do not exist in the spec** (both
   have only `patch` and `delete`). If device logs show them being called, add them on the basis
@@ -154,31 +106,17 @@ is not listed below should appear in the development steps.
 - `POST /api/v1/visits`, `PATCH/DELETE /api/v1/visits/{id}`, `POST /api/v1/visits/merge`,
   `POST /api/v1/visits/bulk_update` — Visit editing. Out of scope for now, since the goal is
   browsing only.
-- `GET /api/v1/plan`, `POST /api/v1/subscriptions/callback` — Billing/subscription (non-goal).
-- `POST /api/v1/users/exist` — Internal endpoint for upstream Cloud's Subscription Manager
-  (non-goal).
-- `GET /api/v1/demo_data`, `POST /api/v1/demo_data`, `DELETE /api/v1/demo_data` — Upstream
-  Cloud demo data (non-goal).
 - `POST /api/v1/points/reapply_anomaly_filter` and
   `GET /api/v1/settings/transportation_recalculation_status` — Anomaly filtering and transport
   mode inference. **Neither feature is implemented at all**, so there is nothing to trigger or
   report progress on (tracks return `null` for `dominant_mode`).
-- `POST /api/v1/recalculations` — Rebuilding `daily_stats` is needed, but it is **done via the
-  CLI (`travelmap recalculate`) and not exposed as an API**. On a self-hosted instance a rebuild
-  is only needed after an import, on inconsistency, or when `TRAVELMAP_TIMEZONE` or
-  `TRAVELMAP_TRACK_BREAK_MINUTES` changes — all of which the operator can run locally. Revisit
-  if triggering it from the app turns out to be necessary.
+- `GET /api/v1/demo_data`, `POST /api/v1/demo_data`, `DELETE /api/v1/demo_data` — Upstream
+  Cloud demo data, irrelevant to a self-hosted instance. Not one of `docs/README.md`'s declared
+  Non-goals, so recorded here rather than assumed obvious.
 - `GET /api/v1/countries/borders` — GeoJSON country border polygons (serving several MB of
   static data). Border rendering is expected to be handled by the map tiles, so it will not be
   served even by the Milestone H web UI. Revisit once the web UI's rendering approach is settled.
   Only `countries/visited_cities` is covered, in Milestone G.
-- `GET /api/v1/locations`, `GET /api/v1/locations/suggestions`, `GET /api/v1/residency` — Place
-  search and stay analysis. Out of scope as part of the Places family (non-goal).
-- `POST /api/v1/auth/otp_challenge`, `GET/POST/DELETE /api/v1/users/me/two_factor`,
-  `POST /api/v1/users/me/two_factor/setup`, `POST /api/v1/users/me/two_factor/confirm`,
-  `GET /api/v1/users/me/two_factor/backup_codes` — 2FA. Not supported, given the self-hosted
-  assumption (`POST /api/v1/auth/login` never returns 202; it always returns 200 with an
-  `api_key`).
 - `POST /api/v1/auth/apple`, `POST /api/v1/auth/google` — Social login. **A risk that could
   block Milestone B from completing**; see "Risks and Open Questions".
 
@@ -547,9 +485,11 @@ same either way.
 
 **Open question: how the browser authenticates against `/api/v1`**
 
-Having decided not to add UI-only data endpoints, the browser will also call `/api/v1/points`
-and friends — but `/api/v1` accepts only Bearer / `api_key`, with the session cookie planned for
-everything else. To be decided when Milestone H starts. The current front-runner is **(a)**.
+**The policy is to reuse the existing `/api/v1` rather than add UI-only data endpoints**
+(browser-specific routes such as login and sessions are added in this milestone instead), so the
+browser will also call `/api/v1/points` and friends — but `/api/v1` accepts only Bearer /
+`api_key`, with the session cookie planned for everything else. To be decided when Milestone H
+starts. The current front-runner is **(a)**.
 
 - **(a) The `/api/v1` middleware also accepts the session cookie** — lets the UI simply fetch.
   Accepting cookies means `/api/v1` needs CSRF protection too, but Go 1.25's
@@ -795,7 +735,8 @@ still one binary plus one SQLite file.
 
 Collect Swarm (Foursquare) check-ins, so that the explicitly recorded landmark sits alongside
 the automatically recorded GPS trace. The first feature that is travelmap's own rather than
-upstream's — read "travelmap's own extensions" before adding a route here.
+upstream's — read "Keeping the two parts apart" in `docs/api-notes.md` before adding a route
+here.
 
 Independent of the points/stats pipeline: it touches neither `points` nor `daily_stats`. What it
 does need is the store foundation and the authenticated router, both already in place — Step

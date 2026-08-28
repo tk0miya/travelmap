@@ -1,18 +1,20 @@
 # travelmap
 
-A [Dawarich](https://github.com/Freika/dawarich)-compatible location-history API server, in Go.
+travelmap turns a trip into a map: it tracks a journey from multiple sources and records and
+displays it as a timeline, in Go.
 
-Upstream Dawarich is a multi-container stack — Rails, PostgreSQL/PostGIS, Sidekiq and Redis —
-which is a lot of runtime for a personal location log. travelmap aims to serve the same API
-from **a single statically linked binary plus one SQLite file**, so that it can run on a NAS,
-a small VPS or a home server without a container orchestrator behind it.
-
-The target is the Dawarich iPhone app: point it at a travelmap server and record and browse
-your location history. A web UI of our own comes after the API.
+Today it collects that data through a
+[Dawarich](https://github.com/Freika/dawarich)-compatible location-history API — point the
+Dawarich iPhone app at a travelmap server to record and browse your location history — and Swarm
+(Foursquare) check-in collection. Upstream Dawarich is a multi-container stack (Rails,
+PostgreSQL/PostGIS, Sidekiq, Redis), which is a lot of runtime for a personal location log, so
+travelmap serves the same API from **a single statically linked binary plus one SQLite file**,
+able to run on a NAS, a small VPS or a home server without a container orchestrator behind it. A
+web UI of our own comes after the API.
 
 What it deliberately does not cover: photo-service integration, billing, family sharing, hex
 maps / fog of war, and areas, places, notes, tags, digests and insights. See "Non-goals" in
-[TODO.md](TODO.md).
+[docs/README.md](docs/README.md).
 
 ## Build and run
 
@@ -131,6 +133,8 @@ Unformatted code fails `lint` rather than a target of its own, so `make fmt` bef
 
 [CLAUDE.md](CLAUDE.md) holds the project conventions: English as the project language, the
 layering rules, the testing approach and the commit style. [TODO.md](TODO.md) holds the
-development plan — one step there is one pull request. [docs/architecture.md](docs/architecture.md)
-explains the technical decisions already implemented, and [docs/toolchain.md](docs/toolchain.md)
-the Go toolchain setup beyond what `go.mod` and this section already show.
+development plan — one step there is one pull request. [docs/README.md](docs/README.md) is the
+entry point to the requirements and design documentation, including
+[docs/architecture.md](docs/architecture.md) for the technical decisions already implemented and
+[docs/toolchain.md](docs/toolchain.md) for the Go toolchain setup beyond what `go.mod` and this
+section already show.

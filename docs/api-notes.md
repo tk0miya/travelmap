@@ -9,10 +9,29 @@ headers, status codes for the endpoints actually implemented. Read it first; wha
 is whatever does not fit there: upstream's quirks, why travelmap's behaviour deliberately
 differs, and the client evidence behind each choice.
 
+## Keeping the two parts apart
+
+Not everything travelmap stores has to come from upstream. Swarm (Foursquare) check-in
+collection is the first feature that is travelmap's own: explicitly recorded landmark data,
+collected to enrich the automatically recorded GPS trace.
+
+Such a feature gets **its own tables and its own routes at the top level, never a path under
+`/api/v1`**. Dawarich has no version negotiation, so clients read a 404 under `/api/v1` as
+"feature unsupported" (see "An endpoint this server does not implement answers 404" below);
+inventing paths in that namespace would make that signal meaningless. Keeping the compatibility
+surface exactly upstream's is what keeps the 404 rule true.
+
 ## Dawarich compatibility
 
 For this part, upstream's own OpenAPI document is the compatibility source of truth, and
 `docs/openapi.yaml` is travelmap's contract against it.
+
+- Source: `https://raw.githubusercontent.com/Freika/dawarich/master/swagger/v1/swagger.yaml`
+- Fetched: 2026-08-17
+- Fingerprint: 5680 lines / `sha256:a16411a389e0130d9e0b04b54cfc80726c234b8a017cc76d9d921bfc91adc89a`
+
+Upstream changes continuously, so update the fingerprint above whenever the spec is re-fetched.
+A running Dawarich instance also serves the same document at `/api-docs`.
 
 ### Authentication
 

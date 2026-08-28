@@ -1,7 +1,9 @@
 # Project conventions
 
-travelmap is a Dawarich-compatible location-history API server in Go, built to run as a single
-binary plus one SQLite file.
+travelmap turns a trip into a map: it tracks a journey from multiple sources and records and
+displays it as a timeline. Today it does that through a Dawarich-compatible location-history API
+and Swarm (Foursquare) check-in collection, in Go, built to run as a single binary plus one
+SQLite file.
 
 This file holds the conventions every change follows. The development plan itself — what gets
 built, in what order, and why — lives in [TODO.md](TODO.md).
@@ -17,9 +19,10 @@ any language; what lands in git does not.
 
 | File | Holds |
 | --- | --- |
-| `TODO.md` | The development plan: goal, step checklists, technical decisions not yet settled by an implemented step, and upstream quirks for endpoints not yet implemented. **The step checklists are the single source of truth for what gets implemented.** Also the data model for a table not yet migrated, until the step that adds it |
+| `TODO.md` | The development plan: step checklists, technical decisions not yet settled by an implemented step, and upstream quirks for endpoints not yet implemented. **The step checklists are the single source of truth for what gets implemented.** Also the data model for a table not yet migrated, until the step that adds it |
 | `CLAUDE.md` | This file — the conventions, so that no pull request has to re-argue them |
-| `README.md` | What the project is, and how to build, run and configure it. Written for someone approaching the project from outside, whether to run it or to start contributing |
+| `README.md` | How to build, run and configure the project. Written for someone approaching it from outside to run it |
+| `docs/README.md` | The entry point to `docs/`: what travelmap is and its purpose, its non-goals, and which document below covers which part of the requirements and design |
 | `docs/architecture.md` | Technical decisions already implemented that span the system — what was chosen and why. A decision not yet implemented stays in `TODO.md`'s own "Technical Decisions" section until the step that implements it lands, then moves here or to `docs/database.md`, whichever already owns that ground |
 | `docs/toolchain.md` | What explains the Go toolchain and its development tools beyond what `go.mod`, `Makefile` and `.golangci.yml` already show by themselves |
 | `docs/api-notes.md` | What explains the API: its two-part structure (Dawarich-compatible and travelmap's own), and — for the Dawarich-compatible part, endpoints already implemented only — upstream's quirks, the deliberate differences from it, and the client evidence behind each |
