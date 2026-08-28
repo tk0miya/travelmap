@@ -178,12 +178,9 @@ Two sources close the gap, in this order:
 ## Endpoints Deliberately Excluded
 
 **The checklists under "Development Steps" are the single source of truth for what gets
-implemented.** Keeping a separate list would mean double bookkeeping that drifts out of date,
-so this section records only the exclusions and why.
-
-Apart from anything falling under the non-goal categories in `docs/README.md` (Areas, Places,
-Notes, Tags, Digests, Insights, Families, Immich, Photos, Maps/hexagons, …), any endpoint in the
-spec that is not listed below should appear in the development steps.
+implemented.** Keeping a separate list would mean double bookkeeping that drifts out of date, so
+this section records only the spec endpoints whose absence needs explaining — not the ones
+[docs/README.md](docs/README.md)'s Non-goals already rule out; no future step reconsiders those.
 
 - `GET /api/v1/points/{id}` and `GET /api/v1/visits/{id}` **do not exist in the spec** (both
   have only `patch` and `delete`). If device logs show them being called, add them on the basis
@@ -191,31 +188,17 @@ spec that is not listed below should appear in the development steps.
 - `POST /api/v1/visits`, `PATCH/DELETE /api/v1/visits/{id}`, `POST /api/v1/visits/merge`,
   `POST /api/v1/visits/bulk_update` — Visit editing. Out of scope for now, since the goal is
   browsing only.
-- `GET /api/v1/plan`, `POST /api/v1/subscriptions/callback` — Billing/subscription (non-goal).
-- `POST /api/v1/users/exist` — Internal endpoint for upstream Cloud's Subscription Manager
-  (non-goal).
-- `GET /api/v1/demo_data`, `POST /api/v1/demo_data`, `DELETE /api/v1/demo_data` — Upstream
-  Cloud demo data (non-goal).
 - `POST /api/v1/points/reapply_anomaly_filter` and
   `GET /api/v1/settings/transportation_recalculation_status` — Anomaly filtering and transport
   mode inference. **Neither feature is implemented at all**, so there is nothing to trigger or
   report progress on (tracks return `null` for `dominant_mode`).
-- `POST /api/v1/recalculations` — Rebuilding `daily_stats` is needed, but it is **done via the
-  CLI (`travelmap recalculate`) and not exposed as an API**. On a self-hosted instance a rebuild
-  is only needed after an import, on inconsistency, or when `TRAVELMAP_TIMEZONE` or
-  `TRAVELMAP_TRACK_BREAK_MINUTES` changes — all of which the operator can run locally. Revisit
-  if triggering it from the app turns out to be necessary.
+- `GET /api/v1/demo_data`, `POST /api/v1/demo_data`, `DELETE /api/v1/demo_data` — Upstream
+  Cloud demo data, irrelevant to a self-hosted instance. Not one of `docs/README.md`'s declared
+  Non-goals, so recorded here rather than assumed obvious.
 - `GET /api/v1/countries/borders` — GeoJSON country border polygons (serving several MB of
   static data). Border rendering is expected to be handled by the map tiles, so it will not be
   served even by the Milestone H web UI. Revisit once the web UI's rendering approach is settled.
   Only `countries/visited_cities` is covered, in Milestone G.
-- `GET /api/v1/locations`, `GET /api/v1/locations/suggestions`, `GET /api/v1/residency` — Place
-  search and stay analysis. Out of scope as part of the Places family (non-goal).
-- `POST /api/v1/auth/otp_challenge`, `GET/POST/DELETE /api/v1/users/me/two_factor`,
-  `POST /api/v1/users/me/two_factor/setup`, `POST /api/v1/users/me/two_factor/confirm`,
-  `GET /api/v1/users/me/two_factor/backup_codes` — 2FA. Not supported, given the self-hosted
-  assumption (`POST /api/v1/auth/login` never returns 202; it always returns 200 with an
-  `api_key`).
 - `POST /api/v1/auth/apple`, `POST /api/v1/auth/google` — Social login. **A risk that could
   block Milestone B from completing**; see "Risks and Open Questions".
 
