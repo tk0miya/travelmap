@@ -3,9 +3,6 @@
 Why travelmap is built the way it is: the technical decisions already implemented, the
 third-party libraries chosen, and why chi is the router even before a web UI exists to need it.
 
-A decision for something not built yet is still in [TODO.md](../TODO.md)'s own "Technical
-Decisions" section, and moves here once the step that implements it lands.
-
 ## Technical decisions
 
 | Item | Decision | Rationale |
@@ -20,7 +17,6 @@ Decisions" section, and moves here once the step that implements it lands.
 | Distance | Haversine in SQL for aggregation, `internal/geo` (Go) for one-off calculations | Pulling a whole-history aggregation into Go spends all its time transferring rows. See [`docs/database.md`](database.md) |
 | Statistics | `daily_stats` precomputed table, updated during ingest | Aggregating `points` on demand is too slow to serve a request. See [`docs/database.md`](database.md) |
 | HTTP | `net/http` + `github.com/go-chi/chi/v5` | Chosen with the future web UI in mind — see "Router" below |
-| Compatibility scope | Mobile-app subset | Everything except the non-goals in [TODO.md](../TODO.md)'s "Goal" section |
 | User management | Issued via CLI. `auth/login` implemented, `auth/register` optional behind an env var, no 2FA | Self-hosted assumption |
 
 ## Libraries
@@ -36,9 +32,6 @@ Keep dependencies minimal.
 | Test diffs | `github.com/google/go-cmp` | |
 | Configuration | No extra dependency (a thin hand-written env-var loader) | |
 | Logging | Standard `log/slog` | |
-
-Candidates for a future web UI — not added yet — are in [TODO.md](../TODO.md)'s "Library Choices
-for the Web UI".
 
 ## Router
 
@@ -65,6 +58,3 @@ r.Group(func(r chi.Router) {
     r.Handle("/*", webui.Handler())
 })
 ```
-
-Everything the web UI itself needs beyond the router — sessions, CSRF, templates, map rendering —
-is still an open choice; see "Library Choices for the Web UI" in [TODO.md](../TODO.md).

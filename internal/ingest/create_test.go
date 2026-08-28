@@ -224,10 +224,10 @@ func TestCreatePointsReportsFailures(t *testing.T) {
 	}
 }
 
-// TestCreatePointsAgreesWithRecalculate is the agreement test TODO.md calls
-// for: against a real database, the daily_stats CreatePoints builds up
-// incrementally, batch by batch, must equal what Recalculate produces from
-// scratch over the same final points.
+// TestCreatePointsAgreesWithRecalculate confirms that, against a real
+// database, the daily_stats CreatePoints builds up incrementally, batch by
+// batch, equals what Recalculate produces from scratch over the same final
+// points.
 //
 // The batches are deliberately out of order and split across days, including
 // one that arrives late and lands right before a day an earlier batch already
