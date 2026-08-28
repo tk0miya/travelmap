@@ -118,6 +118,26 @@ func TestRequestLogCarriesNoCredentials(t *testing.T) {
 	}
 }
 
+// TestRequestLogNeverCarriesTheBody pins the other credential channel: a
+// request body. POST /api/v1/auth/login carries a password in its body, which
+// is exactly the shape a logger written as "log the body unless told
+// otherwise" would leak on the first login it sees.
+func TestRequestLogNeverCarriesTheBody(t *testing.T) {
+	t.Parallel()
+
+	srv, logs := newLoggedTestServer(t, true)
+
+	resp := do(t, srv, http.MethodPost, "/api/v1/auth/login",
+		withBody(`{"email":"`+testEmail+`","password":"`+testPassword+`"}`))
+	if resp.status != http.StatusOK {
+		t.Fatalf("status = %d, want %d", resp.status, http.StatusOK)
+	}
+
+	if got := logs.String(); strings.Contains(got, testPassword) {
+		t.Errorf("the password reached the log: %q", got)
+	}
+}
+
 // TestRequestLogIsOffByDefault pins that a server nobody configured logs no
 // request lines: this is a capture facility, not an access log, and it prints
 // the headers of every request to prove it.
