@@ -23,7 +23,7 @@ any language; what lands in git does not.
 | `CLAUDE.md` | This file — the conventions, so that no pull request has to re-argue them |
 | `README.md` | How to build, run and configure the project. Written for someone approaching it from outside to run it |
 | `docs/README.md` | The entry point to `docs/`: what travelmap is and its purpose, its non-goals, and which document below covers which part of the requirements and design |
-| `docs/architecture.md` | Technical decisions already implemented — what was chosen and why. A decision not yet implemented stays in `TODO.md`'s own "Technical Decisions" section until the step that implements it lands |
+| `docs/architecture.md` | Technical decisions already implemented that span the system — what was chosen and why. A decision not yet implemented stays in `TODO.md`'s own "Technical Decisions" section until the step that implements it lands, then moves here or to `docs/database.md`, whichever already owns that ground |
 | `docs/toolchain.md` | What explains the Go toolchain and its development tools beyond what `go.mod`, `Makefile` and `.golangci.yml` already show by themselves |
 | `docs/api-notes.md` | What explains the API: its two-part structure (Dawarich-compatible and travelmap's own), and — for the Dawarich-compatible part, endpoints already implemented only — upstream's quirks, the deliberate differences from it, and the client evidence behind each |
 | `docs/openapi.yaml` | The accompanying OpenAPI contract for the subset actually implemented here — paths, schemas, headers, status codes (upstream's own spec stays the compatibility source of truth for the Dawarich-compatible part) |
@@ -47,9 +47,11 @@ Eight rules keep them from drifting:
   record, and git history already keeps them. A milestone whose every step is gone this way is
   itself deleted, heading and all.
 - **A pull request that finishes a step also moves that step's now-settled rows out of
-  `TODO.md`'s "Technical Decisions" table into `docs/architecture.md`.** That table holds only
-  decisions for work not yet built; one for something already shipped belongs with the rest of
-  the settled rationale, not beside the plan.
+  `TODO.md`'s "Technical Decisions" table into whichever document already owns that ground** —
+  `docs/architecture.md` for a decision that spans the system, `docs/database.md` for one scoped
+  to a single table or column's design. That table holds only decisions for work not yet built;
+  one for something already shipped belongs with the rest of the settled rationale, not beside
+  the plan.
 - **A pull request that changes a request/response shape, header or status code updates
   `docs/openapi.yaml` in the same pull request.** The contract is what a client actually sees;
   a stale copy of it is worse than no copy at all.

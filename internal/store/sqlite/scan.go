@@ -61,6 +61,63 @@ func (s jsonStrings) Value() (driver.Value, error) {
 	return string(b), nil
 }
 
+// nullString converts a nullable TEXT column, read as [sql.NullString], into
+// the *string form an optional model field holds.
+func nullString(v sql.NullString) *string {
+	if !v.Valid {
+		return nil
+	}
+
+	return &v.String
+}
+
+// nullFloat64 is [nullString] for a nullable REAL column.
+func nullFloat64(v sql.NullFloat64) *float64 {
+	if !v.Valid {
+		return nil
+	}
+
+	return &v.Float64
+}
+
+// nullInt is [nullString] for a nullable INTEGER column read as a Go int
+// rather than the driver's own int64 — checkins.timezone_offset, a number of
+// minutes, is never wider than that.
+func nullInt(v sql.NullInt64) *int {
+	if !v.Valid {
+		return nil
+	}
+
+	i := int(v.Int64)
+
+	return &i
+}
+
+// nullUnixTime converts a nullable Unix-seconds column, read as
+// [sql.NullInt64], into the *time.Time form an optional timestamp field
+// holds.
+func nullUnixTime(v sql.NullInt64) *time.Time {
+	if !v.Valid {
+		return nil
+	}
+
+	t := time.Unix(v.Int64, 0).UTC()
+
+	return &t
+}
+
+// nullUnixTimeValue converts an optional [time.Time] into the argument a
+// nullable Unix-seconds column takes: nil when t is nil, so the column stores
+// NULL, or the [unixTime] every other timestamp column in this schema is
+// written as.
+func nullUnixTimeValue(t *time.Time) any {
+	if t == nil {
+		return nil
+	}
+
+	return unixTime(*t)
+}
+
 // collect runs the rows.Next/Scan/Err loop every multi-row query in this
 // package shares: it closes rows, calls scan once per row, and reports
 // whichever of scan's or [sql.Rows.Err]'s error comes first.
