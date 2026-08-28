@@ -606,46 +606,13 @@ condition that can be verified by running something.
 Small, but its output is a planning input for everything after: the iOS app is closed source,
 so this is how the remaining endpoint list gets confirmed.
 
-- [x] Request-logging middleware behind `TRAVELMAP_DEBUG_LOG_REQUESTS=1`, logging unmatched
-      routes too. Everything not yet implemented keeps returning 404 (see
-      "An endpoint this server does not implement answers 404" in `docs/api-notes.md`), which is
-      both the correct answer and what makes the log a complete list of what the app wants
-- [x] **Redact `api_key` and `Authorization` before logging.** The whole point is to capture
-      real device traffic, which carries live credentials
 - [ ] Record the endpoints a real device actually hits in this file, and diff them against the
       list the community Android client uses (see "About the iOS app")
-- [x] **Never log a request body.** `POST /api/v1/auth/login` already carries a password in its
-      own body, so this is not a hypothetical: a logger written as "log the body unless told
-      otherwise" leaks one on the first login it sees. Later routes then inherit the default
-      instead of each having to remember — Step 18 adds one whose body carries a shared secret
-
-**Settles**: what may and may not appear in logs — bodies as well as the credentials that arrive
-in a header or the query string.
-
-The middleware is the router's first, and chi runs its middleware chain before it matches a
-route — which is what puts the requests that matched no route in the log, and what makes a line
-report the status the client was actually answered with: the 404 for an unknown route, the 500
-the recovery writes for a panic. It logs at Info rather than Debug, because
-`TRAVELMAP_DEBUG_LOG_REQUESTS` is meant to be the only switch — and for the same reason turning
-it on holds `TRAVELMAP_LOG_LEVEL` down to Info, so that a level set higher cannot swallow the
-capture without saying so.
-
-Redaction is by name, not by value, and errs towards redacting: a name containing any of the
-words in `sensitiveWords` in `internal/httpapi/requestlog.go` — which is where the list lives,
-so that adding one is a single-file change — plus `Cookie`, whose name says nothing about what
-it carries. Parameters and headers are judged by the same rule because the client is closed
-source: it may carry a credential under a name nobody here predicted, and a name that cannot be
-predicted cannot be enumerated. Only values are replaced — which parameters and headers the
-client sends is the finding, so the names stay. Every other header is logged in full, because
-a shortlist of the interesting ones could only be written by someone who already knew what the
-app does. **Request bodies are never logged at any level**:
-`POST /api/v1/auth/login` carries a password in its body, and a body cannot be redacted
-without parsing it as whatever the endpoint takes.
 
 **Done when**: connecting the app produces a log of every route it calls, with no credentials in
-it. **Not yet done**: the middleware and its redaction are implemented and tested, but no device
-has been pointed at this server, so the capture below is empty. The rest of the plan runs on the
-community Android client's endpoint list until it is filled in.
+it. **Not yet done**: no device has been pointed at this server yet, so the capture below is
+empty. The rest of the plan runs on the community Android client's endpoint list until it is
+filled in.
 
 #### Endpoints a real device hits
 
@@ -862,8 +829,8 @@ rather than designed alongside the first. That second half is Step 22 — it fol
       go-cmp — the wire shape, not `model.Checkin`, since `internal/checkin` owns that
       conversion (see CLAUDE.md's layering rules). This fixture is the compatibility contract
       for this route, the role golden files play for responses
-- [ ] Confirm the request logger leaves this route's body alone — Step 6's "Never log a
-      request body" already decides it, and this is the route that would hurt most
+- [ ] Confirm the request logger leaves this route's body alone — Step 6's request logger
+      already never logs a body, and this is the route that would hurt most
 
 **Settles**: where a non-Dawarich route lives and how it authenticates, and that a body carrying
 a credential is never logged.
