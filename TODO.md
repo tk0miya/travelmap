@@ -19,6 +19,10 @@ it lands.
 | Swarm check-ins | Collected by webhook push, with a periodic API fetch as the backstop | Push is immediate but nothing documented makes it reliable: Foursquare publishes no retry, records a timed-out push as a failure, and reaches only a public HTTPS endpoint. What it does after a failure is not documented at all. Fetching alone would lag every check-in by up to a poll interval. **What each path does and does not see is only partly known** — whether a push fires for a check-in added after the fact, or for an edit to one already stored, is undocumented — which is itself a reason to run both (Milestone I) |
 | Foursquare API version | v2 (`/v2/users/self/checkins`), with `v=` pinned as a constant and `m=swarm` | v2 is what returns Swarm check-ins, and it is current rather than abandoned: it is documented today as the "Personalization APIs", and the pricing change of 1 June 2026 names the checkins and users endpoints as remaining free while putting the venues endpoints behind paid tiers. `v=` is a date Foursquare uses to freeze response shape, so it is a constant raised deliberately after checking behaviour, never "today". `m` asks for the Swarm perspective rather than the Foursquare one; what it changes on this endpoint is untested, and its documented "required" status is contradicted by working clients — see "Fetching check-ins" |
 | Scheduling | A ticker goroutine plus a fixed lookback window, and **no job table** | The periodic fetch is one cron-like task with no queue of items, so the job table in the "Background work" row above would be scaffolding with nothing in it. Step 13's track splitting is the first genuine per-item consumer; the decision stands, its first use just is not here |
+| Browser sessions | `github.com/alexedwards/scs/v2` over a `sessions` table of this project's own | scs brings no dependencies of its own: its `go.mod` has no `require` entries at all, the same property chi was checked for. Its bundled `sqlite3store` is **not** usable — that module requires the CGO `github.com/mattn/go-sqlite3` — so the store is written here against `internal/store` instead. Chosen over a JWT, which has no defensible default for its signing key (one generated at startup logs every user out on restart, so it becomes a required setting) and which cannot be revoked, leaving `POST /logout` able only to clear the cookie while the token stays valid until it expires. That is not a cost saved but a part of the feature missing |
+| Browser CSRF | Standard `net/http.CrossOriginProtection`, on the browser routes only | Present in the toolchain `go.mod` already names (`go 1.26.6`), and its `Handler` is a plain `func(http.Handler) http.Handler`, so this costs no dependency, which is what needed confirming before it could be chosen. `/api/v1` keeps Bearer / `api_key` only and needs none |
+| HTML rendering | `html/template`, parsed once at startup, with the templates and the CSS in an `embed.FS` | Keeps deployment a single binary, and adds neither a code-generation step nor a Node build chain to a checkout that today needs nothing installed but Go |
+| Sign-up | `GET/POST /signup`, open to anyone: no environment variable, no invite code, no first-user-only rule | A gate is one more setting to get wrong before the first login works, on a server whose first account is the operator's own. What open sign-up means for an instance reachable from the internet is recorded under "Risks and Open Questions" rather than answered here with a default nobody asked for |
 
 These are the defaults as of planning. If any turns out to be wrong during implementation,
 change it — after updating this file.
@@ -30,6 +34,46 @@ Columns and indexes for the tables already migrated (`users`, `points`, `daily_s
 the rationale for how a column or index is shaped is a comment in the migration that adds it.
 Behaviour that spans tables or does not attach to a single column — invariants, algorithms,
 config effects — is in `docs/database.md`.
+
+### `sessions`
+
+Not migrated yet — Step 23 adds it, and this is where its shape lives until then. **Everything
+after this paragraph is written as the migration's own text**: the prose becomes `sessions`'
+leading comment and the SQL becomes the statements, so Step 23 copies rather than rewrites, and
+this entry goes when it does.
+
+It holds the browser sessions `scs` hands out, which are a different credential from
+`users.api_key`: a session expires, `POST /logout` destroys it, and one account may hold several
+at once while the API key is one per user and never expires.
+
+```sql
+CREATE TABLE sessions (
+    -- What scs keys a session by.
+    token  TEXT PRIMARY KEY,
+
+    -- scs's gob-encoded session data.
+    data   BLOB NOT NULL,
+
+    -- Unix seconds, UTC, per users.created_at. Its index serves the sweep, not reads.
+    expiry INTEGER NOT NULL
+) STRICT;
+
+CREATE INDEX sessions_expiry_idx ON sessions (expiry);
+```
+
+**What lands in `token` is a digest, not the token the browser holds** — `scs` is configured with
+`HashTokenInStore`, so a copy of the database file hands out no live session. That is Step 25's
+setting rather than this table's, which is why the column's own comment does not claim it: a
+comment inside a statement cannot be edited once the migration is merged, and this one would go
+false the day that setting changed. The leading comment can be edited, so it is where the claim
+belongs, alongside the paragraph below.
+
+**There is no `user_id` column, and the absence is the design.** `scs` writes this row and knows
+nothing about one, so the user id lives inside `data` where only `scs` can read it. The cost is
+that "log out every session of this user" is not a query — it would have to iterate through
+`scs.IterableStore` and decode each row — and nothing needs it yet, there being no password change
+to invalidate sessions after. Adding the column would mean writing the row twice, once by `scs` and
+once by this server, with no writer owning it.
 
 ## Dawarich API Compatibility Notes
 
@@ -328,16 +372,15 @@ a push fires for one.
 
 ## Library Choices for the Web UI
 
-Not decided yet — Milestone H has not started. `docs/architecture.md` covers the one thing
-already settled (the router), for the reasoning that also applies here.
+Sessions, CSRF and HTML rendering are **settled** — each has a row under "Technical Decisions"
+above, carrying the measurement that settled it, and Steps 23 to 26 implement them. What is left
+undecided is what the remaining screens need. `docs/architecture.md` covers the one thing already
+implemented (the router), for the reasoning that also applies here.
 
-**Candidates for Milestone H**
+**Still open, for Milestone H's remaining screens**
 
 | Purpose | Candidate | Notes |
 | --- | --- | --- |
-| Sessions | `github.com/alexedwards/scs/v2` | Has a SQLite store; better maintained than `gorilla/sessions` |
-| CSRF | Standard `net/http.CrossOriginProtection` | **Landed in the standard library in Go 1.25** (`Sec-Fetch-Site` based). Confirm on starting whether an external dependency can be avoided |
-| Templates | `github.com/a-h/templ` or standard `html/template` | templ is type-safe but adds a code-generation step |
 | Page updates | htmx | Avoids pulling in a Node build chain |
 | Map rendering | MapLibre GL JS or Leaflet | The one place JS is unavoidable. Vendor it into `embed.FS` rather than using a CDN, to keep a single binary |
 
@@ -350,8 +393,8 @@ same either way.
 **The policy is to reuse the existing `/api/v1` rather than add UI-only data endpoints**
 (browser-specific routes such as login and sessions are added in this milestone instead), so the
 browser will also call `/api/v1/points` and friends — but `/api/v1` accepts only Bearer /
-`api_key`, with the session cookie planned for everything else. To be decided when Milestone H
-starts. The current front-runner is **(a)**.
+`api_key`, with the session cookie planned for everything else. The current front-runner is
+**(a)**.
 
 - **(a) The `/api/v1` middleware also accepts the session cookie** — lets the UI simply fetch.
   Accepting cookies means `/api/v1` needs CSRF protection too, but Go 1.25's
@@ -360,6 +403,12 @@ starts. The current front-runner is **(a)**.
   changes "reuse the API" from reusing the HTTP API to reusing the implementation.
 - (c) Hand the api_key to the UI at login and call with Bearer — not recommended, since XSS
   would leak the API key.
+
+**Steps 23 to 31 do not settle this and do not need to**: none of them adds a data endpoint, so
+`/api/v1` is left exactly as it is and keeps needing no CSRF protection. It is the first screen
+that reads a point — the map — that has to answer it. Step 25's session middleware is what makes
+(a) cheap when that day comes: accepting the cookie there is one more branch in `authenticate`,
+and `CrossOriginProtection` can then be moved from the browser group up to the whole server.
 
 ## Distribution
 
@@ -398,6 +447,11 @@ can run in parallel. Parallelism is noted where it applies.
 
 Milestones group the steps and state a user-visible outcome. Individual steps have a completion
 condition that can be verified by running something.
+
+**A step's number says when it was planned, not when to take it.** Milestone H's Steps 23 to 31
+were planned after Milestone I's 18 to 22 and so carry higher numbers while appearing earlier in
+this file, and one of them (Step 30) depends on a step in the other milestone. What order to take
+them in is what each milestone's own ordering note says, never the numbers.
 
 ---
 
@@ -510,7 +564,10 @@ All independent of each other; take them in whatever order the need arises.
       points are inserted, so **on completion update `countries` / `cities` /
       `reverse_geocoded_points` in `daily_stats` for the affected days** (without this the
       corresponding `/stats` values stay 0 — see "Data Model")
-- [ ] `POST /api/v1/auth/register` (enabled by an env var)
+- [ ] `POST /api/v1/auth/register`, **open like the browser sign-up Step 29 adds**, not behind
+      an environment variable. Two registration routes whose defaults disagree is exactly the
+      drift this file's rules exist to stop, and there is no reading under which the API is the
+      cautious one: a bot reaches a JSON endpoint more easily than a form
 - [ ] `POST /api/v1/owntracks/points`, `POST /api/v1/traccar/points`
 - [ ] `GET /api/v1/countries/visited_cities`
 - [ ] `Dockerfile`, `docker-compose.yml`, and an example systemd unit (see "Distribution")
@@ -531,18 +588,340 @@ All independent of each other; take them in whatever order the need arises.
 
 ## Milestone H — Web UI
 
-Start once the API has settled. Library candidates and rationale are in
-"Library Choices for the Web UI".
+Start once the API has settled. What the screens still need a library for is in "Library Choices
+for the Web UI"; sessions, CSRF and HTML rendering are already settled under "Technical Decisions".
 
-- [ ] Cookie sessions + CSRF. How the browser authenticates against `/api/v1` follows the
-      conclusion of "Open question: how the browser authenticates against `/api/v1`"
-      (front-runner is (a))
-- [ ] A login screen that accepts an account created with `travelmap user create`
+Steps 23 to 31 are the browser's way in: a session, a login screen, a sign-up screen, and the
+Swarm link, which a browser is the only sensible place to start from. **They add no data
+endpoint**, which is what leaves "Open question: how the browser authenticates against `/api/v1`"
+for the map screen to answer rather than this half.
+
+The map, statistics and settings screens keep their bullet form below. They are not planned yet,
+and writing a checklist for a screen whose rendering approach is undecided would be inventing the
+plan rather than recording it.
+
+### Ordering
+
+```
+Step 23 (store) ─┐
+                 ├─→ Step 25 (session middleware) ─→ Step 26 (login) ─┐
+Step 24 (HTML)  ─┘                                                    ├─→ Step 29 (sign-up)
+Step 28 (auth.Register) ──────────────────────────────────────────────┘
+
+Step 23 ─→ Step 27 (the session sweep), which nothing else waits on
+
+Step 26 + Milestone I's Step 20 ─→ Step 30 (Swarm over a session) ─→ Step 31 (the Swarm page)
+```
+
+**Steps 23, 24 and 28 are independent of each other and can run in parallel.** Step 27 can be
+taken any time after Step 23. The shortest path to logging in from a browser is 23, 24, 25, 26;
+everything else hangs off that.
+
+### Step 23: The `sessions` table and its repository
+
+The store layer only — no HTTP, no `scs`. What a reviewer reads here is SQL and one repository.
+
+- [ ] Migration `0006_sessions.sql` per "Data Model", then regenerate the schema snapshot with
+      `go test ./internal/store/sqlite/... -update`
+- [ ] **"Data Model"'s prose around the table is the migration's leading comment**, copied in the
+      words already written there: what a session is and how it differs from an API key, what lands
+      in `token`, and why there is no `user_id` column. None of the three can live inside a
+      statement — one is about the table as a whole, one about an absence, one about a setting
+      Step 25 makes that a merged migration could not follow — and this entry is deleted when the
+      step is done
+- [ ] `store.SessionRepository` — `ByToken`, `Upsert`, `Delete`, `DeleteExpired` — reached through
+      a new `store.Store.Sessions()`. **The names are this package's, not `scs`'s**: `ByToken` is
+      the shape of `ByEmail` / `ByAPIKey` / `ByFoursquareUserID`, and `Upsert` is what
+      `CheckinRepository` already calls a write matched against an existing row. `scs` calls them
+      `Find` and `Commit`, and `Commit` in particular would collide with what `Store.Tx` does
+- [ ] `store.UserRepository.ByID`. A session names its user by id and **nothing today can look a
+      user up by one**: that interface has only `ByEmail` and `ByAPIKey`, because until now a
+      request arrived carrying one or the other. Its doc comment says so in as many words — "the
+      lookups are the two the API authenticates with" — so that comment is rewritten here, this
+      being the lookup that is not one of them
+- [ ] `ByToken` filters on `expiry` itself rather than trusting the sweep. Step 27's ticker is a
+      housekeeping job, so an expired session must already be no session between two of its runs —
+      otherwise the sweep's interval silently becomes part of how long a session lasts
+- [ ] Tests in `internal/store/sqlite` on a real temporary database, and whatever `storetest`
+      needs to break this table for the 500 paths later steps answer
+
+**Settles**: how a `scs` session is persisted — in particular that there is **no `user_id`
+column**, and the trade that comes with it, both argued under "Data Model".
+
+**Done when**: `make test` passes, `schema.sql` carries `sessions`, and `travelmap migrate`
+against a database created before this step applies it without error.
+
+### Step 24: HTML rendering and the browser route group
+
+Independent of Step 23; the two can run in parallel. No session yet.
+
+- [ ] A second top-level group beside `r.Route("/api/v1", …)`, serving one page at `GET /`.
+      **It needs no credential at this step** — it is the page that will later say who you are
+- [ ] `html/template` in an `embed.FS`: a base layout plus that page. **Parsed once at startup**,
+      so a template that does not compile stops the server rather than turning one route into a
+      500 nobody visits until later
+- [ ] A small stylesheet under `static/`, served from the same `embed.FS`. **Deployment stays one
+      binary plus one SQLite file**, which is what rules out reading templates off disk
+- [ ] `docs/api-notes.md`: that `docs/openapi.yaml` is the contract for the machine API, so an
+      HTML route is not added to it. Decided here rather than left to whoever adds the next page
+- [ ] The 404 for an unknown path keeps answering with the JSON error body. The 404 rule in
+      `docs/api-notes.md` is about `/api/v1` and is not in question here; whether a browser
+      deserves an HTML 404 is **deliberately not decided at this step**, there being no second
+      HTML page yet to make it a real choice
+- [ ] Tests through `httptest` against the real router: `GET /` answers 200 with
+      `text/html; charset=utf-8`, and the stylesheet is served
+
+**Settles**: where HTML routes, templates and static assets live, and that templates are parsed at
+startup rather than per request.
+
+**Done when**: `make run`, then `http://localhost:3000/` in a browser renders the page, and
+`make build` still produces a single file.
+
+### Step 25: The session middleware
+
+Follows Steps 23 and 24. This is the `scs` wiring on its own; the login form is Step 26, so what
+is verifiable here is a session planted by a test rather than one a person can create.
+
+- [ ] `github.com/alexedwards/scs/v2` as a direct dependency, and **not `scs/sqlite3store`**.
+      Why neither costs a dependency and why the bundled store is unusable is settled in the
+      "Browser sessions" row under "Technical Decisions"
+- [ ] An adapter in `internal/httpapi` implementing **`scs.CtxStore`** over
+      `store.SessionRepository`. The three methods of `scs.Store` it also has to carry delegate
+      with a background context; the point of the `Ctx` variants is that the request's own context
+      reaches the query, so a cancelled request does not leave one running
+- [ ] `HashTokenInStore` on. The store then holds a digest, so a copy of the database file — a
+      backup, a support tarball — hands out no live session
+- [ ] Cookie: `HttpOnly`, `SameSite=Lax`, `Path=/`, and `Secure` from
+      `TRAVELMAP_SESSION_COOKIE_SECURE`, **defaulting to on**. The two defaults fail differently
+      and that is what decides it: on, over plain HTTP, the login visibly bounces back to the
+      form; off, the session cookie crosses a plain-HTTP LAN and nothing reports it. Browsers
+      treat `http://localhost` as a secure context, so the safe default costs a developer nothing
+- [ ] `internal/config`: `TRAVELMAP_SESSION_LIFETIME` (default `720h`) and
+      `TRAVELMAP_SESSION_COOKIE_SECURE`. `TrackBreak` is minutes as an int today, so there is no
+      duration parsing in that package yet — **Step 21 says the same thing about its own interval**,
+      so whichever lands first adds it and the second reuses it
+- [ ] `scs`'s `LoadAndSave` on the browser group, and a middleware that resolves the session's
+      user id through `store.Users().ByID` and puts the user on the context **with the existing
+      `withUser`**. Handlers then read it with `userFrom` whichever chain they sit behind, and
+      `/api/v1` is not touched
+- [ ] Step 24's `GET /` names the account when a session carries one
+- [ ] README: both settings, and that a plain-HTTP LAN needs `TRAVELMAP_SESSION_COOKIE_SECURE=0`
+- [ ] Tests: a session holding a user id reaches `GET /` and the page names them; no session and
+      it does not; the row lands in `sessions` and the cookie carries `HttpOnly` and
+      `SameSite=Lax`; an expired session is no session
+
+**Settles**: how a browser carries an identity, the cookie's attributes and lifetime, and that
+both authentication schemes hand the handler its user the same way.
+
+**Done when**: `make test` passes, including a test that writes a session and then reaches `GET /`
+with that cookie and reads the account's name back.
+
+### Step 26: The login screen
+
+Follows Step 25. The first step a person can act on.
+
+- [ ] `GET /login` renders the form, `POST /login` submits it, `POST /logout` ends the session.
+      **Logout is a POST**, so an `<img>` on another page cannot end someone's session
+- [ ] `net/http.CrossOriginProtection` on the browser group, and **only** there: `/api/v1` is
+      Bearer / `api_key` only, so nothing it serves can be driven by a cross-origin form. Whether
+      CSRF costs a dependency is already settled under "Technical Decisions"; what this step
+      settles is where the protection is attached
+- [ ] `RenewToken` on a successful login, **before** the user id goes into the session. A session
+      token minted before the browser authenticated must not still be the one it holds afterwards
+- [ ] `POST /logout` calls `Destroy`, deleting the row. Clearing the cookie alone would leave a
+      session anyone holding the old token could still present
+- [ ] A refused login says what `POST /api/v1/auth/login` says and **takes as long**, through the
+      existing `auth.CheckAbsentPassword`. It re-renders the form and sets no cookie
+- [ ] README: `/login`, and that it accepts an account made with `travelmap user create`
+- [ ] Tests: a good login sets a cookie that then names the account on `GET /`; a wrong password
+      re-renders the form and sets none; after logout the old cookie is refused **and its row is
+      gone**; a `POST /login` carrying `Sec-Fetch-Site: cross-site` is refused; and the session
+      token differs before and after login, which is the only way to see `RenewToken` worked
+
+**Settles**: how a form reports a field error, where a successful post redirects to, and that CSRF
+protection is attached to the browser group rather than the whole server.
+
+**Done when**: an account made with `travelmap user create` logs in at
+`http://localhost:3000/login` and lands on a page naming it; the cookie still works after
+`travelmap serve` is restarted; `POST /logout` returns the browser to the form.
+
+### Step 27: The expired-session sweep
+
+Any time after Step 23; it does not wait for a login to exist. Small, but it answers the same
+question Step 21 answers for Milestone I — how a background worker in this server starts and
+stops — so whichever of the two lands first is the one that settles it, and the second follows it
+rather than deciding again.
+
+- [ ] A ticker calling `store.Sessions().DeleteExpired`, started from `cmd/travelmap/serve.go` —
+      the only place holding both the signal-cancelled context and the concrete store, which is
+      why Step 21's worker starts there too
+- [ ] It stops with the server, on the same cancelled context, so a sweep in flight is not left
+      writing into a closing database
+- [ ] The interval is a constant, **not a setting**, and the code says why: Step 23 makes `ByToken`
+      filter on `expiry`, so a late sweep leaves no session usable — only rows on disk. There is
+      nothing for an operator to tune that would change behaviour
+- [ ] Tests: an expired row is deleted and an unexpired one is not; a cancelled context stops the
+      ticker. **Not Step 21's "a restart loses no tick"** — that test exists because a fetch window
+      has to cover the time the process was down, and a sweep has no window to miss
+
+**Settles**: the lifecycle of a background worker in this server, **without a job table**, per the
+"Scheduling" row under "Technical Decisions" — **if it lands before Step 21**, which says the same
+of itself. Whichever is second follows the first rather than deciding again, and moves nothing.
+
+**Done when**: with one expired row in `sessions`, starting the server removes it on the next tick.
+
+### Step 28: `auth.Register`
+
+Nothing here blocks it, so it can be taken at any point; Step 29 is the one thing that waits on
+it. **Nothing observable changes** — it is a move between layers, and it is what stops Step 29
+from being a second way of creating an account.
+
+- [ ] `auth.Register(ctx, users, email, password)`: normalise, hash, issue an API key, create.
+      `internal/auth` gains `store` and `model` imports, which its tier allows
+- [ ] `travelmap user create` rewritten to call it. CLAUDE.md makes `cmd/travelmap` wiring only,
+      and a subcommand that grows business logic hands it to the package that owns the behaviour
+- [ ] `user create` keeps refusing a password bcrypt will not take **before it opens the
+      database**, by checking `auth.MinPasswordLength` and `MaxPasswordLength` itself. Those
+      constants are exported for exactly this, and their doc comment already says the caller
+      asking for a password is the one that has to state the bounds
+- [ ] `internal/auth/doc.go`: that this package now issues accounts as well as checking
+      credentials
+- [ ] Tests: `user create`'s existing tests pass unchanged, which is the whole claim of this step;
+      plus table-driven tests for `Register` itself — a malformed address, a duplicate answering
+      `store.ErrConflict`, and both password bounds
+
+**Settles**: that one code path creates every account, and that `internal/auth` owns it.
+
+**Done when**: `travelmap user create` still creates a user and prints its API key, and
+`make check` passes.
+
+### Step 29: The sign-up screen
+
+Follows Steps 26 and 28.
+
+- [ ] `GET /signup` and `POST /signup` on the browser group. **Open to anyone** — no environment
+      variable, no invite code, no first-user-only rule, per the "Sign-up" row under "Technical
+      Decisions"
+- [ ] The form re-renders with the reason against the field it belongs to: an address that is not
+      one, an address already taken (`store.ErrConflict`), a password outside the bounds.
+      **State the bounds in bytes**, because bcrypt's 72 is a byte limit and a Japanese password
+      reaches it at 24 characters — a form saying "72 characters" would be wrong for the users
+      most likely to hit it
+- [ ] A confirmation field, compared before anything is written
+- [ ] `RenewToken`, then sign the new account in, so sign-up does not end at a login form
+- [ ] The page it lands on shows the account's **API key**. Sign-up replaces
+      `travelmap user create`, whose entire output is that key, and without it someone who signed
+      up in a browser has no way to configure the phone app
+- [ ] Links between `GET /`, the login form and the sign-up form, so none of the three is
+      reachable only by typing its path
+- [ ] Two comments go false with this step and both say the same thing, so neither can be left:
+      **`0001_users.sql`'s leading comment on `users`** ("there is no sign-up flow and no columns
+      for one") and **`model.User`'s doc comment** ("A self-hosted instance issues its users from
+      the command line, so a User is created once and then only read"). Rewrite both: there is a
+      sign-up flow now, it still needs no column of its own, and the CLI is one path rather than
+      the path. The migration one sits outside every statement, which is what makes a merged
+      migration editable there
+- [ ] README: sign-up as how the first account is made, `travelmap user create` as the one for a
+      script or a unit file
+- [ ] `docs/architecture.md`: the "User management" row records that an account can now be made in
+      the browser and keeps the CLI as the other path, Step 28 leaving `travelmap user create`
+      working. It also drops "`auth/register` optional behind an env var", which describes
+      something not implemented and which Milestone G's own bullet does not say either
+- [ ] Tests: a sign-up against an empty database creates one user, leaves a working session, and
+      the API key the page shows authenticates `GET /api/v1/users/me`; a second sign-up with the
+      same address re-renders the form and writes nothing; a mismatched confirmation writes
+      nothing; the session token differs before and after
+
+**Settles**: that an account can be created without shell access, and that registration is open.
+
+**Done when**: a freshly migrated database with no users gets its first account entirely from a
+browser, and the API key that page shows authenticates `GET /api/v1/users/me`.
+
+### Step 30: Starting the Swarm flow from a browser session
+
+Follows Step 26, and Milestone I's **Step 20**, which builds the OAuth exchange itself. This step
+adds no new exchange — it changes what names the travelmap user on the way in and on the way back,
+and it is what Step 20's "A limitation to accept knowingly" promises.
+
+**If Step 20 was taken after Step 26**, as Milestone I's own ordering note suggests, it wrote the
+session version directly and there is no `api_key` leg to move or README line to delete. What is
+left of this step is then the callback checking the session and `state` against each other, and the
+tests for it — a much smaller change. Take that reading rather than looking for an `api_key` route
+that was never built.
+
+- [ ] Move `GET /foursquare/oauth/start` off `authenticate` / `requireUser` and onto the browser
+      group's session. **The API key stops travelling in a query string**: Step 20 accepts that
+      knowingly only because no session exists yet, and it puts the key in browser history and in
+      the `Referer` of the redirect to Foursquare. This step is the one that removes it
+- [ ] `GET /foursquare/oauth/callback` **also gets the session now**, which Step 20 could not
+      assume. The browser returns from Foursquare by a top-level GET navigation, and a
+      `SameSite=Lax` cookie is sent on exactly that — so the callback can require the session's
+      user and the user `state` names to be **the same user**, instead of resting on `state`
+      alone. Verify the cookie really does arrive before relying on it; if it does not, `state`
+      alone is still Step 20's design and nothing is lost
+- [ ] `state` keeps its single use and short expiry regardless. It is now a second factor rather
+      than the only one, and CSRF on the callback is what it still buys
+- [ ] Revisit the `dawarichHeaders` leak Step 20 has to solve: with `start` no longer reusing
+      `authenticate`, that route stops leaking a compatibility header. Record whether any caller
+      of that behaviour is left, so the workaround is removed rather than left in place unowned
+- [ ] README: the flow now starts from the browser while logged in. **Delete the `api_key` URL
+      Step 20 documented there** rather than leaving both — that URL is the exposure this step
+      exists to remove, and a README that still offers it keeps offering it. Step 20's own
+      "A limitation to accept knowingly" needs no deleting: CLAUDE.md has its whole entry go when
+      Step 20 is done, so by the time this step is reachable the paragraph is already gone
+- [ ] Tests: `start` without a session redirects to `/login` rather than 401; with one it
+      redirects to Foursquare with a `state` bound to that user; a callback whose `state` names a
+      different user than the session is refused; **no route in the flow accepts `api_key` any
+      more**
+
+**Settles**: that a browser-facing route outside `/api/v1` identifies its user by session, and
+that the same is true on the leg that comes back from a third party.
+
+**Done when**: with a browser logged in and no `api_key` anywhere in the URLs, the Swarm flow
+completes and writes the `foursquare_accounts` row. That the stored token then collects check-ins
+is `travelmap foursquare sync`'s to show, and Step 19 may not be built yet: Milestone I lets
+Step 20 be taken at any point, so this step cannot rest on it.
+
+### Step 31: The Swarm connection page
+
+Follows Step 30. The page that makes the link visible and repeatable, rather than a URL to type.
+
+- [ ] `store.FoursquareAccountRepository.ByUserID`. The repository has only `Create` and
+      `ByFoursquareUserID` today, because until now a push arriving from Foursquare was the only
+      thing that asked — **a page showing "connected as …" asks the other way round**
+- [ ] A page showing whether a Swarm account is linked, which one, and how current it is, with a
+      button starting Step 30's flow. The last of those reads
+      `foursquare_accounts.synced_through`, which is **the use "foursquare_accounts" in
+      docs/database.md reserves that column for** — reporting how current an account is, rather
+      than resuming a fetch from it. This step is that column's first reader
+- [ ] Disconnecting: a `Delete` on that repository behind a POST, so the flow can be run again
+      against a different Swarm account. **Say on the page what it does not do** — check-ins
+      already collected stay, because they are the user's history and not the link's
+- [ ] Whether a re-link should be a `Delete` plus `Create` or an upsert is decided here, since
+      this step is the first thing able to reach the same row twice
+- [ ] README: the page, next to the sentence Milestone I's README section already carries about
+      nothing being collected until an account is linked
+- [ ] Tests: the page reports not-linked on a fresh account and linked after the row exists;
+      disconnecting removes the row and leaves `checkins` untouched; one user cannot see or
+      disconnect another's link
+
+**Settles**: how a travelmap account's external links are presented and undone.
+
+**Done when**: the page shows a fresh account as not connected, the button completes the flow and
+the page then names the Swarm account, and disconnecting returns it to not connected while the
+check-ins already collected remain.
+
+### Still to plan
+
 - [ ] Map screen (render points / tracks for a selected time range), reusing the existing
-      `GET /api/v1/points` and `/tracks` without adding UI-only APIs
+      `GET /api/v1/points` and `/tracks` without adding UI-only APIs. **This is the step that has
+      to answer "Open question: how the browser authenticates against `/api/v1`"**, being the
+      first to read data from it
 - [ ] Statistics screen (using `daily_stats`)
 - [ ] Settings screen. An import screen only if Milestone G's `/api/v1/imports` was implemented
-- [ ] Embed static assets in `embed.FS` to preserve the single binary
+- [ ] Vendor the map library into `embed.FS` to preserve the single binary. Step 24 does this for
+      the templates and the stylesheet; what is left is the one dependency that has to be fetched
+      rather than written
 
 **Done when**: logging in from a browser shows the user's history on a map, and deployment is
 still one binary plus one SQLite file.
@@ -585,10 +964,13 @@ its own README item.
 
 Step 19 can be taken at any time now that the push webhook already collects check-ins on its own;
 Step 21 follows Step 19, and Step 20 can be taken at any point or left until last, needing nothing
-this milestone has not already shipped. `travelmap foursquare connect` exists precisely so the
-collecting steps can be finished and run for real before the OAuth flow is written. Until it is,
-the access token comes out of the Foursquare application's own console, which issues one for the
-account that owns the application; that is the whole of what Step 20 later automates.
+this milestone has not already shipped. **Milestone H's Steps 30 and 31 then finish it from the
+browser** — the session that replaces its `api_key` URL, and the page that shows and undoes the
+link — so taking Step 20 after Milestone H's Step 26 saves building the credential it already
+accepts as a limitation. `travelmap foursquare connect` exists precisely so the collecting steps
+can be finished and run for real before the OAuth flow is written. Until it is, the access token
+comes out of the Foursquare application's own console, which issues one for the account that owns
+the application; that is the whole of what Step 20 later automates.
 
 **Step 19 grew a second step rather than one long checklist.** Calling the endpoint and knowing a
 page-walk succeeded is one decision; how that client copes with a rate limit, an ambiguous error
@@ -706,12 +1088,14 @@ row count.
 **Settles**: how a browser-facing route outside `/api/v1` identifies a travelmap user before
 Milestone H exists.
 
-**A limitation to accept knowingly**: there are no browser sessions until Milestone H, so the
-only way `start` can name a user is the `api_key` query parameter. That is consistent — every
-endpoint here accepts it — but **it puts the API key in browser history and in the `Referer` of
-the redirect**. Replace it with session authentication when Milestone H lands. If that is not
-acceptable, hold this step until Milestone H and keep using `foursquare connect` in the
-meantime; the rest of the milestone does not depend on it.
+**A limitation to accept knowingly**: there are no browser sessions until Milestone H's Step 25,
+so the only way `start` can name a user is the `api_key` query parameter. That is consistent —
+every endpoint here accepts it — but **it puts the API key in browser history and in the `Referer`
+of the redirect**. **Milestone H's Step 30 is what removes it**, moving both legs of the flow onto
+the session. If the exposure is not acceptable meanwhile, **hold this step until Step 26** and keep
+using `travelmap foursquare connect` — taken after a browser can log in, this step writes the
+session version directly and there is no `api_key` leg to remove afterwards. The rest of the
+milestone does not depend on it either way.
 
 ### Step 21: The periodic fetch worker
 
@@ -719,7 +1103,8 @@ Follows Step 19, whose sync run this repeats on a timer; nothing in Step 20 is i
 Step 22's hardening is not required first either — see that step's note on why.
 
 - [ ] `internal/config`: `TRAVELMAP_FOURSQUARE_SYNC_INTERVAL` (default `1h`, `0` disabling the
-      fetch), which brings duration parsing into that package
+      fetch). That package parses no duration today — **Milestone H's Step 25 says the same of its
+      session lifetime**, so whichever lands first adds it and the second reuses it
 - [ ] `internal/checkin`: the worker — a ticker on that interval calling Step 19's sync run,
       nothing more. Started from `cmd/travelmap/serve.go`, the only place
       holding both the signal-cancelled context and the concrete store
@@ -732,7 +1117,8 @@ Step 22's hardening is not required first either — see that step's note on why
       what is tested here is that stopping and starting the worker loses no tick
 
 **Settles**: the lifecycle of a background worker in this server — **without introducing the job
-table**, per the "Scheduling" row under "Technical Decisions".
+table**, per the "Scheduling" row under "Technical Decisions". Milestone H's Step 27 says the same
+of its session sweep: whichever of the two lands first settles it, and the second follows it.
 
 **Done when**: with the server left running and **`TRAVELMAP_FOURSQUARE_PUSH_SECRET` unset**, so
 the webhook route is not registered at all, a check-in made in Swarm turns up in `checkins` on the
@@ -841,6 +1227,20 @@ excluded from refresh.
   implies: the secret is server configuration, and identifying whose check-in arrived is
   `foursquare_user_id`'s job. Deriving a user from the secret would break the moment a second
   person connects.
+- **Sign-up is open, so on a reachable instance anyone can create an account.** This is the
+  decision recorded under "Technical Decisions", not an oversight, and it is written down here
+  because three of its consequences are real on a self-hosted box rather than hypothetical. Every
+  account can write points into **the same SQLite file**, so somebody else's history is on the
+  operator's disk and inside their backups. `travelmap recalculate` walks every user with points,
+  so it gets slower with each account that is not the operator's. And `/signup` and `/login` each
+  spend one bcrypt hash per request, which is CPU an unauthenticated caller chooses to spend —
+  `POST /api/v1/auth/login` already has that property, but it is not currently advertised by a
+  form. **None of this bites on a LAN or behind a reverse proxy that authenticates first**, which
+  is how a personal instance is normally run; it bites on one published to the internet, which the
+  Swarm push webhook — already shipped — is a reason to do. If a gate is ever wanted, the cheapest
+  one is an environment variable read at route registration, exactly as `POST /webhooks/foursquare`
+  is registered only when `TRAVELMAP_FOURSQUARE_PUSH_SECRET` is set — which is why nothing in
+  Steps 23 to 31 has to be designed for it now.
 - **Revisit whether `internal/ingest` should be named `internal/usecase` (or `service`) instead.**
   `usecase`/`service` are the more familiar names for this layer in most Go codebases; `ingest`
   was picked because this milestone's whole job is literally ingesting device locations, which
