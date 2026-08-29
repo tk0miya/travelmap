@@ -2,12 +2,14 @@ package sqlite
 
 import (
 	"database/sql"
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/google/go-cmp/cmp"
 
 	"github.com/tk0miya/travelmap/internal/model"
+	"github.com/tk0miya/travelmap/internal/store"
 )
 
 // testPoint builds a point at timestamp with every optional field filled in,
@@ -490,5 +492,269 @@ func TestPointsListPaginates(t *testing.T) {
 	want := []time.Time{base.Add(time.Hour)}
 	if diff := cmp.Diff(want, pointTimestamps(points)); diff != "" {
 		t.Errorf("timestamps differ (-want +got):\n%s", diff)
+	}
+}
+
+// TestPointsUpdate pins that Update overwrites only latitude and longitude —
+// the timestamp PATCH /api/v1/points/{id} never touches stays put — and
+// returns the row as stored.
+func TestPointsUpdate(t *testing.T) {
+	t.Parallel()
+
+	db := newTestDB(t)
+
+	user, err := db.Users().Create(t.Context(), testUser("update@example.com"))
+	if err != nil {
+		t.Fatalf("creating the user: %v", err)
+	}
+
+	timestamp := time.Date(2026, time.February, 3, 4, 5, 6, 0, time.UTC)
+
+	if _, err := db.Points().Create(t.Context(), []model.Point{testPoint(user.ID, timestamp)}); err != nil {
+		t.Fatalf("inserting the point: %v", err)
+	}
+
+	points, _, err := db.Points().List(t.Context(), user.ID, nil, timestamp.Add(time.Second), true, 1, 10)
+	if err != nil {
+		t.Fatalf("List returned %v", err)
+	}
+
+	updated, err := db.Points().Update(t.Context(), user.ID, points[0].ID, 9.5, -10.5)
+	if err != nil {
+		t.Fatalf("Update returned %v", err)
+	}
+
+	if updated.Latitude != 9.5 || updated.Longitude != -10.5 {
+		t.Errorf("Latitude, Longitude = %v, %v, want 9.5, -10.5", updated.Latitude, updated.Longitude)
+	}
+
+	if !updated.Timestamp.Equal(timestamp) {
+		t.Errorf("Timestamp = %v, want unchanged at %v", updated.Timestamp, timestamp)
+	}
+}
+
+// TestPointsUpdateNotFound covers both ways a point is unreachable through
+// Update: an id nothing stored, and an id that exists but belongs to a
+// different user. PATCH /api/v1/points/{id} answers the same 404 either way.
+func TestPointsUpdateNotFound(t *testing.T) {
+	t.Parallel()
+
+	db := newTestDB(t)
+
+	owner, err := db.Users().Create(t.Context(), testUser("update-owner@example.com"))
+	if err != nil {
+		t.Fatalf("creating the owner: %v", err)
+	}
+
+	other, err := db.Users().Create(t.Context(), testUser("update-other@example.com"))
+	if err != nil {
+		t.Fatalf("creating the other user: %v", err)
+	}
+
+	timestamp := time.Date(2026, time.February, 3, 4, 5, 6, 0, time.UTC)
+
+	if _, err := db.Points().Create(t.Context(), []model.Point{testPoint(owner.ID, timestamp)}); err != nil {
+		t.Fatalf("inserting the point: %v", err)
+	}
+
+	points, _, err := db.Points().List(t.Context(), owner.ID, nil, timestamp.Add(time.Second), true, 1, 10)
+	if err != nil {
+		t.Fatalf("List returned %v", err)
+	}
+
+	if _, err := db.Points().Update(t.Context(), owner.ID, points[0].ID+1, 1, 1); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("Update on a nonexistent id returned %v, want ErrNotFound", err)
+	}
+
+	if _, err := db.Points().Update(t.Context(), other.ID, points[0].ID, 1, 1); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("Update on another user's point returned %v, want ErrNotFound", err)
+	}
+}
+
+// TestPointsDelete pins that Delete removes the row and reports the
+// timestamp it held — internal/ingest's input for finding which daily_stats
+// days a rebuild is owed.
+func TestPointsDelete(t *testing.T) {
+	t.Parallel()
+
+	db := newTestDB(t)
+
+	user, err := db.Users().Create(t.Context(), testUser("delete@example.com"))
+	if err != nil {
+		t.Fatalf("creating the user: %v", err)
+	}
+
+	timestamp := time.Date(2026, time.February, 3, 4, 5, 6, 0, time.UTC)
+
+	if _, err := db.Points().Create(t.Context(), []model.Point{testPoint(user.ID, timestamp)}); err != nil {
+		t.Fatalf("inserting the point: %v", err)
+	}
+
+	points, _, err := db.Points().List(t.Context(), user.ID, nil, timestamp.Add(time.Second), true, 1, 10)
+	if err != nil {
+		t.Fatalf("List returned %v", err)
+	}
+
+	got, err := db.Points().Delete(t.Context(), user.ID, points[0].ID)
+	if err != nil {
+		t.Fatalf("Delete returned %v", err)
+	}
+
+	if !got.Equal(timestamp) {
+		t.Errorf("Delete returned timestamp %v, want %v", got, timestamp)
+	}
+
+	remaining, _, err := db.Points().List(t.Context(), user.ID, nil, timestamp.Add(time.Second), true, 1, 10)
+	if err != nil {
+		t.Fatalf("List returned %v", err)
+	}
+
+	if len(remaining) != 0 {
+		t.Errorf("len(remaining) = %d, want 0", len(remaining))
+	}
+}
+
+// TestPointsDeleteNotFound covers the same two unreachable cases as
+// TestPointsUpdateNotFound, for Delete.
+func TestPointsDeleteNotFound(t *testing.T) {
+	t.Parallel()
+
+	db := newTestDB(t)
+
+	owner, err := db.Users().Create(t.Context(), testUser("delete-owner@example.com"))
+	if err != nil {
+		t.Fatalf("creating the owner: %v", err)
+	}
+
+	other, err := db.Users().Create(t.Context(), testUser("delete-other@example.com"))
+	if err != nil {
+		t.Fatalf("creating the other user: %v", err)
+	}
+
+	timestamp := time.Date(2026, time.February, 3, 4, 5, 6, 0, time.UTC)
+
+	if _, err := db.Points().Create(t.Context(), []model.Point{testPoint(owner.ID, timestamp)}); err != nil {
+		t.Fatalf("inserting the point: %v", err)
+	}
+
+	points, _, err := db.Points().List(t.Context(), owner.ID, nil, timestamp.Add(time.Second), true, 1, 10)
+	if err != nil {
+		t.Fatalf("List returned %v", err)
+	}
+
+	if _, err := db.Points().Delete(t.Context(), owner.ID, points[0].ID+1); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("Delete on a nonexistent id returned %v, want ErrNotFound", err)
+	}
+
+	if _, err := db.Points().Delete(t.Context(), other.ID, points[0].ID); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("Delete on another user's point returned %v, want ErrNotFound", err)
+	}
+}
+
+// TestPointsDeleteBulk pins that it deletes every id belonging to userID and
+// silently skips one that does not exist or belongs to someone else, rather
+// than failing the whole call — matching upstream's own
+// `where(id: point_ids).destroy_all` scoping.
+func TestPointsDeleteBulk(t *testing.T) {
+	t.Parallel()
+
+	db := newTestDB(t)
+
+	owner, err := db.Users().Create(t.Context(), testUser("bulk-owner@example.com"))
+	if err != nil {
+		t.Fatalf("creating the owner: %v", err)
+	}
+
+	other, err := db.Users().Create(t.Context(), testUser("bulk-other@example.com"))
+	if err != nil {
+		t.Fatalf("creating the other user: %v", err)
+	}
+
+	base := time.Date(2026, time.February, 3, 4, 5, 6, 0, time.UTC)
+
+	if _, err := db.Points().Create(t.Context(), []model.Point{
+		testPoint(owner.ID, base),
+		testPoint(owner.ID, base.Add(time.Minute)),
+		testPoint(other.ID, base.Add(2*time.Minute)),
+	}); err != nil {
+		t.Fatalf("inserting points: %v", err)
+	}
+
+	owned, _, err := db.Points().List(t.Context(), owner.ID, nil, base.Add(time.Hour), true, 1, 10)
+	if err != nil {
+		t.Fatalf("List returned %v", err)
+	}
+
+	othersPoints, _, err := db.Points().List(t.Context(), other.ID, nil, base.Add(time.Hour), true, 1, 10)
+	if err != nil {
+		t.Fatalf("List returned %v", err)
+	}
+
+	// One of owner's own points, one that belongs to other, and one that does
+	// not exist at all.
+	ids := []int64{owned[0].ID, othersPoints[0].ID, owned[len(owned)-1].ID + 100}
+
+	timestamps, err := db.Points().DeleteBulk(t.Context(), owner.ID, ids)
+	if err != nil {
+		t.Fatalf("DeleteBulk returned %v", err)
+	}
+
+	if diff := cmp.Diff([]time.Time{owned[0].Timestamp}, timestamps); diff != "" {
+		t.Errorf("timestamps differ (-want +got):\n%s", diff)
+	}
+
+	remainingOwner, _, err := db.Points().List(t.Context(), owner.ID, nil, base.Add(time.Hour), true, 1, 10)
+	if err != nil {
+		t.Fatalf("List returned %v", err)
+	}
+
+	if len(remainingOwner) != 1 {
+		t.Errorf("len(remainingOwner) = %d, want 1", len(remainingOwner))
+	}
+
+	remainingOther, _, err := db.Points().List(t.Context(), other.ID, nil, base.Add(time.Hour), true, 1, 10)
+	if err != nil {
+		t.Fatalf("List returned %v", err)
+	}
+
+	if len(remainingOther) != 1 {
+		t.Errorf("len(remainingOther) = %d, want 1 (untouched by owner's bulk delete)", len(remainingOther))
+	}
+}
+
+// TestPointsDeleteBulkEmpty pins that an empty id list is a no-op rather than
+// an error or a full-table delete.
+func TestPointsDeleteBulkEmpty(t *testing.T) {
+	t.Parallel()
+
+	db := newTestDB(t)
+
+	user, err := db.Users().Create(t.Context(), testUser("bulk-empty@example.com"))
+	if err != nil {
+		t.Fatalf("creating the user: %v", err)
+	}
+
+	timestamp := time.Date(2026, time.February, 3, 4, 5, 6, 0, time.UTC)
+
+	if _, err := db.Points().Create(t.Context(), []model.Point{testPoint(user.ID, timestamp)}); err != nil {
+		t.Fatalf("inserting the point: %v", err)
+	}
+
+	timestamps, err := db.Points().DeleteBulk(t.Context(), user.ID, nil)
+	if err != nil {
+		t.Fatalf("DeleteBulk returned %v", err)
+	}
+
+	if len(timestamps) != 0 {
+		t.Errorf("len(timestamps) = %d, want 0", len(timestamps))
+	}
+
+	remaining, _, err := db.Points().List(t.Context(), user.ID, nil, timestamp.Add(time.Second), true, 1, 10)
+	if err != nil {
+		t.Fatalf("List returned %v", err)
+	}
+
+	if len(remaining) != 1 {
+		t.Errorf("len(remaining) = %d, want 1 (untouched)", len(remaining))
 	}
 }

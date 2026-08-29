@@ -687,3 +687,446 @@ func TestListPointsInvalidPaginationFallsBackToDefaults(t *testing.T) {
 		})
 	}
 }
+
+// TestPatchPoint covers the happy path: the body's coordinates, wrapped in
+// "point", overwrite the stored point.
+//
+// The response is not compared against a golden file the way every other
+// endpoint here is: it echoes updated_at, which Update stamps with the
+// request's own wall-clock time, so the body is not byte-stable across test
+// runs the way a golden file needs. The fields that are stable are checked
+// directly instead.
+func TestPatchPoint(t *testing.T) {
+	t.Parallel()
+
+	st := storetest.NewWithPoints(t, []model.User{testUser(t)}, twoTestPoints(testUser(t).ID))
+	srv := newTestServerWith(t, st)
+
+	resp := do(t, srv, http.MethodPatch, "/api/v1/points/1?api_key="+testAPIKey,
+		withBody(`{"point": {"latitude": 9.5, "longitude": -10.5}}`))
+
+	if resp.status != http.StatusOK {
+		t.Fatalf("status = %d, want %d (body: %s)", resp.status, http.StatusOK, resp.body)
+	}
+
+	var got struct {
+		ID        int64  `json:"id"`
+		Latitude  string `json:"latitude"`
+		Longitude string `json:"longitude"`
+		Timestamp int64  `json:"timestamp"`
+		CreatedAt string `json:"created_at"`
+		UpdatedAt string `json:"updated_at"`
+	}
+	if err := json.Unmarshal(resp.body, &got); err != nil {
+		t.Fatalf("decoding the response body: %v", err)
+	}
+
+	if got.ID != 1 {
+		t.Errorf("id = %d, want 1", got.ID)
+	}
+
+	if got.Latitude != "9.5" || got.Longitude != "-10.5" {
+		t.Errorf("latitude, longitude = %q, %q, want %q, %q", got.Latitude, got.Longitude, "9.5", "-10.5")
+	}
+
+	// PATCH never touches the timestamp.
+	if want := twoTestPoints(testUser(t).ID)[0].Timestamp.Unix(); got.Timestamp != want {
+		t.Errorf("timestamp = %d, want %d (unchanged)", got.Timestamp, want)
+	}
+
+	if got.CreatedAt == "" {
+		t.Errorf("created_at is empty")
+	}
+
+	if got.UpdatedAt == got.CreatedAt {
+		t.Errorf("updated_at = %q, want it to differ from the unchanged created_at %q", got.UpdatedAt, got.CreatedAt)
+	}
+
+	// The change is reflected back through GET too, not just in PATCH's own
+	// response.
+	list := do(t, srv, http.MethodGet, "/api/v1/points?api_key="+testAPIKey)
+	if list.status != http.StatusOK {
+		t.Fatalf("listing points: status = %d, want %d", list.status, http.StatusOK)
+	}
+
+	var points []struct {
+		ID       int64  `json:"id"`
+		Latitude string `json:"latitude"`
+	}
+	if err := json.Unmarshal(list.body, &points); err != nil {
+		t.Fatalf("decoding the listed points: %v", err)
+	}
+
+	for _, p := range points {
+		if p.ID == 1 && p.Latitude != "9.5" {
+			t.Errorf("listed point 1's latitude = %q, want %q", p.Latitude, "9.5")
+		}
+	}
+}
+
+// TestPatchPointNotFound covers both ways a point is unreachable through
+// PATCH: an id nothing stored, and an id that exists but belongs to a
+// different user — the same 404 either way, matching upstream's own
+// current_api_user.points scoping.
+func TestPatchPointNotFound(t *testing.T) {
+	t.Parallel()
+
+	// A test fixture, not a credential — see testAPIKey.
+	const otherAPIKey = "1f0e2d3c4b5a69788796a5b4c3d2e1f01f0e2d3c4b5a69788796a5b4c3d2e1f0" //nolint:gosec // see above
+
+	other := model.User{
+		ID: 2, Email: "bob@example.com", APIKey: otherAPIKey,
+		CreatedAt: testCreatedAt, UpdatedAt: testUpdatedAt,
+	}
+
+	st := storetest.NewWithPoints(t, []model.User{testUser(t), other}, twoTestPoints(testUser(t).ID))
+	srv := newTestServerWith(t, st)
+
+	tests := map[string]struct {
+		path   string
+		apiKey string
+	}{
+		"a nonexistent id":      {path: "/api/v1/points/999", apiKey: testAPIKey},
+		"another user's own id": {path: "/api/v1/points/1", apiKey: otherAPIKey},
+		// Not one of this server's own AUTOINCREMENT ids at all, so it can
+		// never match a stored point either — see [parsePointID].
+		"an id that is not an integer": {path: "/api/v1/points/not-a-number", apiKey: testAPIKey},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			resp := do(t, srv, http.MethodPatch, tt.path+"?api_key="+tt.apiKey,
+				withBody(`{"point": {"latitude": 1, "longitude": 2}}`))
+
+			if resp.status != http.StatusNotFound {
+				t.Errorf("status = %d, want %d", resp.status, http.StatusNotFound)
+			}
+
+			assertGolden(t, "not_found.json", resp.body)
+		})
+	}
+}
+
+// TestPatchPointInvalidBody pins that a body the decoder cannot read is a
+// bad request, the same answer POST /api/v1/points gives.
+func TestPatchPointInvalidBody(t *testing.T) {
+	t.Parallel()
+
+	srv := newTestServer(t)
+	resp := do(t, srv, http.MethodPatch, "/api/v1/points/1?api_key="+testAPIKey, withBody(`{"point":`))
+
+	if resp.status != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", resp.status, http.StatusBadRequest)
+	}
+
+	assertGolden(t, "invalid_request_body.json", resp.body)
+}
+
+// TestPatchPointMissingCoordinates pins that a well-formed body missing
+// either coordinate is refused with upstream's own documented 422, rather
+// than reaching the store with half of what a point needs.
+func TestPatchPointMissingCoordinates(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]string{
+		"missing both":      `{"point": {}}`,
+		"missing longitude": `{"point": {"latitude": 1}}`,
+		"missing latitude":  `{"point": {"longitude": 1}}`,
+	}
+
+	for name, body := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			srv := newTestServer(t)
+			resp := do(t, srv, http.MethodPatch, "/api/v1/points/1?api_key="+testAPIKey, withBody(body))
+
+			if resp.status != http.StatusUnprocessableEntity {
+				t.Errorf("status = %d, want %d", resp.status, http.StatusUnprocessableEntity)
+			}
+
+			assertGolden(t, "invalid_point.json", resp.body)
+		})
+	}
+}
+
+// TestPatchPointRequiresAuthentication pins that PATCH is behind
+// requireUser like every other route serving one account's data.
+func TestPatchPointRequiresAuthentication(t *testing.T) {
+	t.Parallel()
+
+	srv := newTestServer(t)
+	resp := do(t, srv, http.MethodPatch, "/api/v1/points/1", withBody(`{"point": {"latitude": 1, "longitude": 2}}`))
+
+	if resp.status != http.StatusUnauthorized {
+		t.Errorf("status = %d, want %d", resp.status, http.StatusUnauthorized)
+	}
+
+	if len(resp.body) != 0 {
+		t.Errorf("body = %q, want it empty on a 401", resp.body)
+	}
+}
+
+// TestPatchPointStoreFailure covers what a client sees when the store cannot
+// be written to, rather than a 200 claiming a change that was never saved.
+func TestPatchPointStoreFailure(t *testing.T) {
+	t.Parallel()
+
+	srv := newTestServerWith(t, newStoreWithUnavailablePoints(t))
+	resp := do(t, srv, http.MethodPatch, "/api/v1/points/1?api_key="+testAPIKey,
+		withBody(`{"point": {"latitude": 1, "longitude": 2}}`))
+
+	if resp.status != http.StatusInternalServerError {
+		t.Errorf("status = %d, want %d", resp.status, http.StatusInternalServerError)
+	}
+
+	assertGolden(t, "internal_server_error.json", resp.body)
+}
+
+// TestDeletePoint covers the happy path, and pins the Milestone E "Done
+// when": a deletion is reflected in GET /api/v1/stats immediately, not after
+// some later recalculation.
+func TestDeletePoint(t *testing.T) {
+	t.Parallel()
+
+	srv := newTestServer(t)
+
+	created := do(t, srv, http.MethodPost, "/api/v1/points?api_key="+testAPIKey, withBody(validLocationsBody))
+	if created.status != http.StatusOK {
+		t.Fatalf("seeding a point: status = %d, want %d", created.status, http.StatusOK)
+	}
+
+	before := do(t, srv, http.MethodGet, "/api/v1/stats?api_key="+testAPIKey)
+	if before.status != http.StatusOK {
+		t.Fatalf("reading stats before delete: status = %d, want %d", before.status, http.StatusOK)
+	}
+
+	var beforeStats struct {
+		TotalPointsTracked int `json:"totalPointsTracked"`
+	}
+	if err := json.Unmarshal(before.body, &beforeStats); err != nil {
+		t.Fatalf("decoding stats: %v", err)
+	}
+
+	if beforeStats.TotalPointsTracked != 1 {
+		t.Fatalf("totalPointsTracked before delete = %d, want 1", beforeStats.TotalPointsTracked)
+	}
+
+	resp := do(t, srv, http.MethodDelete, "/api/v1/points/1?api_key="+testAPIKey)
+	if resp.status != http.StatusOK {
+		t.Fatalf("status = %d, want %d", resp.status, http.StatusOK)
+	}
+
+	assertGolden(t, "point_deleted.json", resp.body)
+
+	list := do(t, srv, http.MethodGet, "/api/v1/points?api_key="+testAPIKey)
+	if list.status != http.StatusOK {
+		t.Fatalf("listing points: status = %d, want %d", list.status, http.StatusOK)
+	}
+
+	if diff := cmp.Diff([]int64{}, pointIDs(t, list.body)); diff != "" {
+		t.Errorf("ids differ (-want +got):\n%s", diff)
+	}
+
+	after := do(t, srv, http.MethodGet, "/api/v1/stats?api_key="+testAPIKey)
+	if after.status != http.StatusOK {
+		t.Fatalf("reading stats after delete: status = %d, want %d", after.status, http.StatusOK)
+	}
+
+	var afterStats struct {
+		TotalPointsTracked int `json:"totalPointsTracked"`
+	}
+	if err := json.Unmarshal(after.body, &afterStats); err != nil {
+		t.Fatalf("decoding stats: %v", err)
+	}
+
+	if afterStats.TotalPointsTracked != 0 {
+		t.Errorf("totalPointsTracked after delete = %d, want 0 (reflected immediately)", afterStats.TotalPointsTracked)
+	}
+}
+
+// TestDeletePointNotFound is [TestPatchPointNotFound] for DELETE.
+func TestDeletePointNotFound(t *testing.T) {
+	t.Parallel()
+
+	// A test fixture, not a credential — see testAPIKey.
+	const otherAPIKey = "1f0e2d3c4b5a69788796a5b4c3d2e1f01f0e2d3c4b5a69788796a5b4c3d2e1f0" //nolint:gosec // see above
+
+	other := model.User{
+		ID: 2, Email: "bob@example.com", APIKey: otherAPIKey,
+		CreatedAt: testCreatedAt, UpdatedAt: testUpdatedAt,
+	}
+
+	st := storetest.NewWithPoints(t, []model.User{testUser(t), other}, twoTestPoints(testUser(t).ID))
+	srv := newTestServerWith(t, st)
+
+	tests := map[string]struct {
+		path   string
+		apiKey string
+	}{
+		"a nonexistent id":      {path: "/api/v1/points/999", apiKey: testAPIKey},
+		"another user's own id": {path: "/api/v1/points/1", apiKey: otherAPIKey},
+		// Not one of this server's own AUTOINCREMENT ids at all, so it can
+		// never match a stored point either — see [parsePointID].
+		"an id that is not an integer": {path: "/api/v1/points/not-a-number", apiKey: testAPIKey},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			resp := do(t, srv, http.MethodDelete, tt.path+"?api_key="+tt.apiKey)
+
+			if resp.status != http.StatusNotFound {
+				t.Errorf("status = %d, want %d", resp.status, http.StatusNotFound)
+			}
+
+			assertGolden(t, "not_found.json", resp.body)
+		})
+	}
+}
+
+// TestDeletePointRequiresAuthentication pins that DELETE is behind
+// requireUser like every other route serving one account's data.
+func TestDeletePointRequiresAuthentication(t *testing.T) {
+	t.Parallel()
+
+	srv := newTestServer(t)
+	resp := do(t, srv, http.MethodDelete, "/api/v1/points/1")
+
+	if resp.status != http.StatusUnauthorized {
+		t.Errorf("status = %d, want %d", resp.status, http.StatusUnauthorized)
+	}
+
+	if len(resp.body) != 0 {
+		t.Errorf("body = %q, want it empty on a 401", resp.body)
+	}
+}
+
+// TestDeletePointStoreFailure covers what a client sees when the store
+// cannot be written to, rather than a 200 claiming a deletion that never
+// happened.
+func TestDeletePointStoreFailure(t *testing.T) {
+	t.Parallel()
+
+	srv := newTestServerWith(t, newStoreWithUnavailablePoints(t))
+	resp := do(t, srv, http.MethodDelete, "/api/v1/points/1?api_key="+testAPIKey)
+
+	if resp.status != http.StatusInternalServerError {
+		t.Errorf("status = %d, want %d", resp.status, http.StatusInternalServerError)
+	}
+
+	assertGolden(t, "internal_server_error.json", resp.body)
+}
+
+// TestBulkDeletePoints covers the happy path: point_ids naming a mix of the
+// caller's own points, another user's point, and an id nothing stored — only
+// the caller's own points are deleted and counted, matching upstream's own
+// `where(id: point_ids).destroy_all` scoping.
+func TestBulkDeletePoints(t *testing.T) {
+	t.Parallel()
+
+	// A test fixture, not a credential — see testAPIKey.
+	const otherAPIKey = "1f0e2d3c4b5a69788796a5b4c3d2e1f01f0e2d3c4b5a69788796a5b4c3d2e1f0" //nolint:gosec // see above
+
+	other := model.User{
+		ID: 2, Email: "bob@example.com", APIKey: otherAPIKey,
+		CreatedAt: testCreatedAt, UpdatedAt: testUpdatedAt,
+	}
+
+	points := twoTestPoints(testUser(t).ID)
+	points = append(points, model.Point{
+		ID: 3, UserID: other.ID,
+		Timestamp: time.Date(2021, time.June, 1, 14, 0, 0, 0, time.UTC),
+		Latitude:  1, Longitude: 1,
+		CreatedAt: testCreatedAt, UpdatedAt: testUpdatedAt,
+	})
+
+	st := storetest.NewWithPoints(t, []model.User{testUser(t), other}, points)
+	srv := newTestServerWith(t, st)
+
+	resp := do(t, srv, http.MethodDelete, "/api/v1/points/bulk_destroy?api_key="+testAPIKey,
+		withBody(`{"point_ids": [1, 2, 3, 999]}`))
+
+	if resp.status != http.StatusOK {
+		t.Fatalf("status = %d, want %d (body: %s)", resp.status, http.StatusOK, resp.body)
+	}
+
+	assertGolden(t, "points_bulk_deleted.json", resp.body)
+
+	remaining := do(t, srv, http.MethodGet, "/api/v1/points?api_key="+otherAPIKey)
+	if remaining.status != http.StatusOK {
+		t.Fatalf("listing the other user's points: status = %d, want %d", remaining.status, http.StatusOK)
+	}
+
+	if diff := cmp.Diff([]int64{3}, pointIDs(t, remaining.body)); diff != "" {
+		t.Errorf("the other user's point was touched by someone else's bulk delete (-want +got):\n%s", diff)
+	}
+}
+
+// TestBulkDeletePointsEmpty pins upstream's own 422 for a request naming no
+// points to delete, rather than a 200 that deleted nothing silently.
+func TestBulkDeletePointsEmpty(t *testing.T) {
+	t.Parallel()
+
+	srv := newTestServer(t)
+	resp := do(t, srv, http.MethodDelete, "/api/v1/points/bulk_destroy?api_key="+testAPIKey,
+		withBody(`{"point_ids": []}`))
+
+	if resp.status != http.StatusUnprocessableEntity {
+		t.Errorf("status = %d, want %d", resp.status, http.StatusUnprocessableEntity)
+	}
+
+	assertGolden(t, "no_points_selected.json", resp.body)
+}
+
+// TestBulkDeletePointsInvalidBody pins that a body the decoder cannot read
+// is a bad request, the same answer POST /api/v1/points gives.
+func TestBulkDeletePointsInvalidBody(t *testing.T) {
+	t.Parallel()
+
+	srv := newTestServer(t)
+	resp := do(t, srv, http.MethodDelete, "/api/v1/points/bulk_destroy?api_key="+testAPIKey, withBody(`{"point_ids":`))
+
+	if resp.status != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", resp.status, http.StatusBadRequest)
+	}
+
+	assertGolden(t, "invalid_request_body.json", resp.body)
+}
+
+// TestBulkDeletePointsRequiresAuthentication pins that bulk_destroy is
+// behind requireUser like every other route serving one account's data.
+func TestBulkDeletePointsRequiresAuthentication(t *testing.T) {
+	t.Parallel()
+
+	srv := newTestServer(t)
+	resp := do(t, srv, http.MethodDelete, "/api/v1/points/bulk_destroy", withBody(`{"point_ids": [1]}`))
+
+	if resp.status != http.StatusUnauthorized {
+		t.Errorf("status = %d, want %d", resp.status, http.StatusUnauthorized)
+	}
+
+	if len(resp.body) != 0 {
+		t.Errorf("body = %q, want it empty on a 401", resp.body)
+	}
+}
+
+// TestBulkDeletePointsStoreFailure covers what a client sees when the store
+// cannot be written to, rather than a 200 claiming a deletion that never
+// happened.
+func TestBulkDeletePointsStoreFailure(t *testing.T) {
+	t.Parallel()
+
+	srv := newTestServerWith(t, newStoreWithUnavailablePoints(t))
+	resp := do(t, srv, http.MethodDelete, "/api/v1/points/bulk_destroy?api_key="+testAPIKey,
+		withBody(`{"point_ids": [1]}`))
+
+	if resp.status != http.StatusInternalServerError {
+		t.Errorf("status = %d, want %d", resp.status, http.StatusInternalServerError)
+	}
+
+	assertGolden(t, "internal_server_error.json", resp.body)
+}

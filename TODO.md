@@ -48,10 +48,6 @@ Upstream quirks for endpoints not yet implemented. For an endpoint already imple
   `dominant_mode`, `dominant_mode_emoji`.
 - **`GET /api/v1/timeline`** — `start_at` / `end_at` required, **range capped at 31 days**.
   Response is `{days: [...]}`.
-- **Request body wrapping is inconsistent** — `PATCH /api/v1/points/{id}` wraps as
-  `{"point": {"latitude": ..., "longitude": ...}}`, while
-  `DELETE /api/v1/points/bulk_destroy` takes `{"point_ids": [...]}` at the top level. Check the
-  spec per endpoint.
 
 ### About the iOS app
 
@@ -427,29 +423,6 @@ Nothing recorded yet. Fill this in from one capture session — start the server
 method, the path and the query parameters of every line, including the 404s. Diff that against
 the six endpoints under "About the iOS app": what is here and not there is what the official
 app needs and the community client does not, and it is the input to Milestone F's ordering.
-
----
-
-## Milestone E — Browsing
-
-### Step 12: Point mutation endpoints
-
-- [ ] `PATCH /api/v1/points/{id}` (body wrapped as `{"point": {...}}`)
-- [ ] `DELETE /api/v1/points/{id}`
-- [ ] `DELETE /api/v1/points/bulk_destroy` (body `{"point_ids": [...]}`)
-- [ ] All three go through `internal/ingest`, so the affected days' `daily_stats` are
-      recalculated in the same transaction. Never leave a state where points were deleted but
-      `/stats` keeps reporting the old distance
-- [ ] **Extend the incremental-update/`recalculate` agreement test to mutations other than
-      insert**: the incremental update and `recalculate` still agree — **a day whose points are all deleted
-      so the row is removed**, and **deleting or updating only some of a day's points so that
-      `countries` / `cities` shrink**
-
-**Done when**: deleting a point is reflected in `/stats` immediately.
-
-> **Completing Milestone E satisfies the project's requirement: recording and browsing location
-> history from the iPhone app.** Everything after this makes the app's remaining screens work,
-> or is operational.
 
 ---
 

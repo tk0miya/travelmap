@@ -95,3 +95,32 @@ type Point struct {
 	VisitID    *string        `json:"visit_id"`
 	Geodata    map[string]any `json:"geodata"`
 }
+
+// PointUpdateRequest is the body of PATCH /api/v1/points/{id}.
+//
+// Latitude and Longitude are pointers so a request that omits either can be
+// told apart from one sending 0 — upstream's own point.update needs both to
+// build a coordinate, and the same rule holds here.
+type PointUpdateRequest struct {
+	Point struct {
+		Latitude  *float64 `json:"latitude"`
+		Longitude *float64 `json:"longitude"`
+	} `json:"point"`
+}
+
+// PointDeleted is the body of a successful DELETE /api/v1/points/{id}.
+type PointDeleted struct {
+	Message string `json:"message"`
+}
+
+// PointsBulkDeleteRequest is the body of DELETE /api/v1/points/bulk_destroy.
+type PointsBulkDeleteRequest struct {
+	PointIDs []int64 `json:"point_ids"`
+}
+
+// PointsBulkDeleted is the body of a successful
+// DELETE /api/v1/points/bulk_destroy.
+type PointsBulkDeleted struct {
+	Message string `json:"message"`
+	Count   int    `json:"count"`
+}

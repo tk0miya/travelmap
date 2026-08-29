@@ -155,6 +155,36 @@ ignored rather than acted on, the same as any other endpoint here, and every fie
 asks for is already present in the full one, so a client that requested `slim` still gets
 everything it parses.
 
+### `PATCH /api/v1/points/{id}`, `DELETE /api/v1/points/{id}` and `DELETE /api/v1/points/bulk_destroy`
+
+**Request body wrapping is inconsistent across the three** — PATCH wraps as
+`{"point": {"latitude": ..., "longitude": ...}}`, while bulk_destroy takes `{"point_ids": [...]}`
+at the top level; single DELETE takes no body at all.
+
+`id` not existing and `id` belonging to a different user both answer 404, the same body as any
+other unmatched route here: upstream scopes every lookup to `current_api_user.points`, which
+makes "not yours" and "not there" the same query result, not something this server has to tell
+apart to reproduce. `bulk_destroy` scopes the same way but is not an error there — an id in
+`point_ids` that does not exist or is not the caller's is silently skipped, matching upstream's
+own `where(id: point_ids).destroy_all`, and `count` in the response is how many were actually
+deleted, which can be fewer than `point_ids` named.
+
+PATCH only ever changes latitude and longitude, never the timestamp, so upstream's own coordinate
+uniqueness validation (scoped to `lonlat` + `timestamp` + user) can never trigger here: this
+schema's `(user_id, timestamp)` unique index already forbids a second point at the point's own
+timestamp, for any coordinates, before that validation would ever run.
+
+None of the three response bodies are part of the compatibility contract — the community Android
+client's own `deletePoint` checks only the status code, and no known client calls PATCH or
+`bulk_destroy` at all — but matching upstream's shape (`message`, and `count` on the bulk
+response) costs nothing, so this server sends it anyway rather than inventing its own. PATCH's
+success body is the same full point shape `GET /api/v1/points` answers with, upstream's own
+`point_serializer.new(point.reload).call`.
+
+**`bulk_destroy`'s upstream cap of 5,000 ids per request is not reproduced.** No known client
+sends this request at all, so there is no observed behaviour to match, and a request that large
+is not a case anything here builds for.
+
 ### `GET /api/v1/points/tracked_months`
 
 Answers `[{"year": 2024, "months": ["Jan", "Feb", ...]}]`, read from `daily_stats` rather than

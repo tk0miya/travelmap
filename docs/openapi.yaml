@@ -182,6 +182,80 @@ paths:
         "500":
           $ref: "#/components/responses/InternalServerError"
 
+  /api/v1/points/{id}:
+    parameters:
+      - $ref: "#/components/parameters/PointId"
+    patch:
+      summary: Update a point's coordinates
+      description: >
+        Overwrites latitude and longitude; the timestamp is never part of
+        the request and never changes. id not existing, or belonging to a
+        different user, both answer 404 — upstream scopes the lookup to
+        the authenticated user's own points and treats the two the same.
+      operationId: patchPoint
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PointUpdateRequest"
+      responses:
+        "200":
+          $ref: "#/components/responses/PointUpdated"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/InvalidPoint"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    delete:
+      summary: Delete a point
+      description: >
+        id not existing, or belonging to a different user, both answer
+        404, for the same reason as PATCH on this path.
+      operationId: deletePoint
+      responses:
+        "200":
+          $ref: "#/components/responses/PointDeleted"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /api/v1/points/bulk_destroy:
+    delete:
+      summary: Delete several points at once
+      description: >
+        An id in point_ids that does not exist, or belongs to a different
+        user, is silently skipped rather than failing the request —
+        upstream's own `where(id: point_ids).destroy_all` scoping. count
+        is how many were actually deleted, which can be fewer than
+        point_ids named.
+      operationId: bulkDeletePoints
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PointsBulkDeleteRequest"
+      responses:
+        "200":
+          $ref: "#/components/responses/PointsBulkDeleted"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/NoPointsSelected"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
   /api/v1/points/tracked_months:
     get:
       summary: The years and months the user has points recorded for
@@ -351,6 +425,15 @@ components:
         enum:
           - asc
           - desc
+    PointId:
+      name: id
+      in: path
+      required: true
+      description: >
+        Typed as an opaque string in the published spec, but every id
+        this server hands out is one of its own integer primary keys.
+      schema:
+        type: string
 
   headers:
     DawarichResponse:
@@ -475,6 +558,47 @@ components:
             items:
               $ref: "#/components/schemas/Point"
 
+    PointUpdated:
+      description: The point's new coordinates were stored.
+      headers:
+        X-Dawarich-Response:
+          $ref: "#/components/headers/DawarichResponse"
+        X-Dawarich-Version:
+          $ref: "#/components/headers/DawarichVersion"
+      content:
+        application/json; charset=utf-8:
+          schema:
+            $ref: "#/components/schemas/Point"
+
+    PointDeleted:
+      description: The point was deleted.
+      headers:
+        X-Dawarich-Response:
+          $ref: "#/components/headers/DawarichResponse"
+        X-Dawarich-Version:
+          $ref: "#/components/headers/DawarichVersion"
+      content:
+        application/json; charset=utf-8:
+          schema:
+            $ref: "#/components/schemas/PointDeletedBody"
+          example:
+            message: Point deleted successfully
+
+    PointsBulkDeleted:
+      description: Every matching point was deleted.
+      headers:
+        X-Dawarich-Response:
+          $ref: "#/components/headers/DawarichResponse"
+        X-Dawarich-Version:
+          $ref: "#/components/headers/DawarichVersion"
+      content:
+        application/json; charset=utf-8:
+          schema:
+            $ref: "#/components/schemas/PointsBulkDeletedBody"
+          example:
+            message: Points were successfully destroyed
+            count: 2
+
     TrackedMonthsOK:
       description: The years and months the user has points recorded for.
       headers:
@@ -542,6 +666,51 @@ components:
           $ref: "#/components/headers/DawarichResponse"
         X-Dawarich-Version:
           $ref: "#/components/headers/DawarichVersion"
+
+    NotFound:
+      description: >
+        id does not exist, or belongs to a different user — the two are
+        answered the same way, matching upstream scoping every lookup to
+        the authenticated user's own points.
+      headers:
+        X-Dawarich-Response:
+          $ref: "#/components/headers/DawarichResponse"
+        X-Dawarich-Version:
+          $ref: "#/components/headers/DawarichVersion"
+      content:
+        application/json; charset=utf-8:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error: not found
+
+    InvalidPoint:
+      description: The request body was well-formed JSON, but left out a coordinate.
+      headers:
+        X-Dawarich-Response:
+          $ref: "#/components/headers/DawarichResponse"
+        X-Dawarich-Version:
+          $ref: "#/components/headers/DawarichVersion"
+      content:
+        application/json; charset=utf-8:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error: invalid point
+
+    NoPointsSelected:
+      description: point_ids was empty.
+      headers:
+        X-Dawarich-Response:
+          $ref: "#/components/headers/DawarichResponse"
+        X-Dawarich-Version:
+          $ref: "#/components/headers/DawarichVersion"
+      content:
+        application/json; charset=utf-8:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error: no points selected
 
     InternalServerError:
       description: >
@@ -1110,6 +1279,53 @@ components:
         geodata:
           type: object
           description: Always empty; reverse geocoding is not implemented yet.
+
+    PointUpdateRequest:
+      type: object
+      description: The body of PATCH /api/v1/points/{id}. Both coordinates are required.
+      properties:
+        point:
+          type: object
+          required:
+            - latitude
+            - longitude
+          properties:
+            latitude:
+              type: number
+            longitude:
+              type: number
+
+    PointDeletedBody:
+      type: object
+      required:
+        - message
+      properties:
+        message:
+          type: string
+
+    PointsBulkDeleteRequest:
+      type: object
+      description: The body of DELETE /api/v1/points/bulk_destroy.
+      required:
+        - point_ids
+      properties:
+        point_ids:
+          type: array
+          items:
+            type: integer
+            format: int64
+
+    PointsBulkDeletedBody:
+      type: object
+      required:
+        - message
+        - count
+      properties:
+        message:
+          type: string
+        count:
+          type: integer
+          description: How many of point_ids were actually deleted.
 
     TrackedMonthsYear:
       type: object

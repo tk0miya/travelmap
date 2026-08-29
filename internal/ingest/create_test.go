@@ -224,17 +224,22 @@ func TestCreatePointsReportsFailures(t *testing.T) {
 	}
 }
 
-// TestCreatePointsAgreesWithRecalculate confirms that, against a real
-// database, the daily_stats CreatePoints builds up incrementally, batch by
-// batch, equals what Recalculate produces from scratch over the same final
-// points.
+// TestPointMutationsAgreeWithRecalculate confirms that, against a real
+// database, the daily_stats CreatePoints, UpdatePoint and DeletePoint build
+// up incrementally equals what Recalculate produces from scratch over the
+// same final points — insert, update and delete all three, in the same
+// history.
 //
 // The batches are deliberately out of order and split across days, including
 // one that arrives late and lands right before a day an earlier batch already
 // rebuilt — the case CreatePoints' propagation to the following day exists
 // for. Without it, that earlier day's segment would stay computed against the
-// wrong predecessor and this test would catch the disagreement.
-func TestCreatePointsAgreesWithRecalculate(t *testing.T) {
+// wrong predecessor and this test would catch the disagreement. The
+// mutations that follow cover the same propagation for update and delete: a
+// day whose points are all deleted, so its row is removed entirely, and a
+// day left with only some of its original points, one of them moved rather
+// than removed.
+func TestPointMutationsAgreeWithRecalculate(t *testing.T) {
 	t.Parallel()
 
 	loc := time.UTC
@@ -296,6 +301,43 @@ func TestCreatePointsAgreesWithRecalculate(t *testing.T) {
 
 	if _, err := ingest.CreatePoints(t.Context(), st, batch3, loc, trackBreak); err != nil {
 		t.Fatalf("creating batch3: %v", err)
+	}
+
+	day2Points, _, err := st.Points().List(t.Context(), user.ID, &day2, day2.AddDate(0, 0, 1), true, 1, 10)
+	if err != nil {
+		t.Fatalf("listing day2's points: %v", err)
+	}
+
+	if len(day2Points) != 2 {
+		t.Fatalf("len(day2Points) = %d, want 2", len(day2Points))
+	}
+
+	day12Points, _, err := st.Points().List(t.Context(), user.ID, &day12, day12.AddDate(0, 0, 1), true, 1, 10)
+	if err != nil {
+		t.Fatalf("listing day12's points: %v", err)
+	}
+
+	if len(day12Points) != 2 {
+		t.Fatalf("len(day12Points) = %d, want 2", len(day12Points))
+	}
+
+	// Delete every point on day12, so its daily_stats row disappears
+	// entirely: a day whose points are all deleted.
+	for _, p := range day12Points {
+		if err := ingest.DeletePoint(t.Context(), st, user.ID, p.ID, loc, trackBreak); err != nil {
+			t.Fatalf("deleting a day12 point: %v", err)
+		}
+	}
+
+	// Delete one of day2's two points and move the other, so day2 keeps a
+	// row but with only some of its original points, one of them updated
+	// rather than removed.
+	if err := ingest.DeletePoint(t.Context(), st, user.ID, day2Points[1].ID, loc, trackBreak); err != nil {
+		t.Fatalf("deleting a day2 point: %v", err)
+	}
+
+	if _, err := ingest.UpdatePoint(t.Context(), st, user.ID, day2Points[0].ID, 36.00, 140.00, loc, trackBreak); err != nil {
+		t.Fatalf("updating a day2 point: %v", err)
 	}
 
 	incremental := dailyStatsFor(t, st, user.ID, []time.Time{day1, day2, day12})

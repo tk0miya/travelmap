@@ -1,13 +1,17 @@
 package httpapi
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 	"time"
 
+	"github.com/go-chi/chi/v5"
+
 	"github.com/tk0miya/travelmap/internal/httpapi/dto"
 	"github.com/tk0miya/travelmap/internal/ingest"
 	"github.com/tk0miya/travelmap/internal/model"
+	"github.com/tk0miya/travelmap/internal/store"
 )
 
 // createPoints answers POST /api/v1/points: a GeoJSON batch from the app
@@ -223,6 +227,168 @@ func (a *api) listPoints(w http.ResponseWriter, r *http.Request) {
 	a.writeJSON(w, r, http.StatusOK, pointsToDTO(points))
 }
 
+// parsePointID reads the {id} path parameter PATCH and DELETE
+// /api/v1/points/{id} take. The published spec types it as an opaque
+// string, but every id this server hands out is one of its own
+// AUTOINCREMENT primary keys, so anything that does not parse as one can
+// never match a stored point — reported the same way [ingest.UpdatePoint]
+// and [ingest.DeletePoint] report an id that parses but does not exist.
+func parsePointID(r *http.Request) (int64, bool) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+
+	return id, err == nil
+}
+
+// patchPoint answers PATCH /api/v1/points/{id}: the body's latitude and
+// longitude, wrapped in a top-level "point" object per upstream's own
+// request shape, overwrite the point's coordinates. The timestamp is never
+// part of the request and never changes.
+func (a *api) patchPoint(w http.ResponseWriter, r *http.Request) {
+	user, ok := userFrom(r.Context())
+	if !ok {
+		// requireUser is what makes this unreachable; see usersMe for why
+		// answering anything but an error here would be wrong regardless.
+		a.logger.Error("a point update was reached without an authenticated user",
+			"method", r.Method,
+			"path", r.URL.Path,
+		)
+		a.writeError(w, r, http.StatusInternalServerError, "internal server error")
+
+		return
+	}
+
+	id, ok := parsePointID(r)
+	if !ok {
+		a.writeError(w, r, http.StatusNotFound, "not found")
+
+		return
+	}
+
+	var req dto.PointUpdateRequest
+	if err := decodeJSON(w, r, &req); err != nil {
+		a.logger.Warn("a point update body could not be read",
+			"path", r.URL.Path,
+			"error", err,
+		)
+		a.writeError(w, r, http.StatusBadRequest, "invalid request body")
+
+		return
+	}
+
+	if req.Point.Latitude == nil || req.Point.Longitude == nil {
+		a.writeError(w, r, http.StatusUnprocessableEntity, "invalid point")
+
+		return
+	}
+
+	updated, err := ingest.UpdatePoint(
+		r.Context(), a.store, user.ID, id, *req.Point.Latitude, *req.Point.Longitude, a.loc, a.trackBreak,
+	)
+
+	switch {
+	case errors.Is(err, store.ErrNotFound):
+		a.writeError(w, r, http.StatusNotFound, "not found")
+	case err != nil:
+		a.logger.Error("updating a point failed",
+			"path", r.URL.Path,
+			"error", err,
+		)
+		a.writeError(w, r, http.StatusInternalServerError, "internal server error")
+	default:
+		a.writeJSON(w, r, http.StatusOK, pointToDTO(updated))
+	}
+}
+
+// deletePoint answers DELETE /api/v1/points/{id}.
+func (a *api) deletePoint(w http.ResponseWriter, r *http.Request) {
+	user, ok := userFrom(r.Context())
+	if !ok {
+		// requireUser is what makes this unreachable; see usersMe for why
+		// answering anything but an error here would be wrong regardless.
+		a.logger.Error("a point deletion was reached without an authenticated user",
+			"method", r.Method,
+			"path", r.URL.Path,
+		)
+		a.writeError(w, r, http.StatusInternalServerError, "internal server error")
+
+		return
+	}
+
+	id, ok := parsePointID(r)
+	if !ok {
+		a.writeError(w, r, http.StatusNotFound, "not found")
+
+		return
+	}
+
+	err := ingest.DeletePoint(r.Context(), a.store, user.ID, id, a.loc, a.trackBreak)
+
+	switch {
+	case errors.Is(err, store.ErrNotFound):
+		a.writeError(w, r, http.StatusNotFound, "not found")
+	case err != nil:
+		a.logger.Error("deleting a point failed",
+			"path", r.URL.Path,
+			"error", err,
+		)
+		a.writeError(w, r, http.StatusInternalServerError, "internal server error")
+	default:
+		a.writeJSON(w, r, http.StatusOK, dto.PointDeleted{Message: "Point deleted successfully"})
+	}
+}
+
+// bulkDeletePoints answers DELETE /api/v1/points/bulk_destroy: point_ids
+// that do not exist, or belong to another user, are silently skipped rather
+// than failing the request — matching upstream's own
+// `where(id: point_ids).destroy_all` scoping.
+func (a *api) bulkDeletePoints(w http.ResponseWriter, r *http.Request) {
+	user, ok := userFrom(r.Context())
+	if !ok {
+		// requireUser is what makes this unreachable; see usersMe for why
+		// answering anything but an error here would be wrong regardless.
+		a.logger.Error("a bulk point deletion was reached without an authenticated user",
+			"method", r.Method,
+			"path", r.URL.Path,
+		)
+		a.writeError(w, r, http.StatusInternalServerError, "internal server error")
+
+		return
+	}
+
+	var req dto.PointsBulkDeleteRequest
+	if err := decodeJSON(w, r, &req); err != nil {
+		a.logger.Warn("a bulk point deletion body could not be read",
+			"path", r.URL.Path,
+			"error", err,
+		)
+		a.writeError(w, r, http.StatusBadRequest, "invalid request body")
+
+		return
+	}
+
+	if len(req.PointIDs) == 0 {
+		a.writeError(w, r, http.StatusUnprocessableEntity, "no points selected")
+
+		return
+	}
+
+	deleted, err := ingest.DeletePoints(r.Context(), a.store, user.ID, req.PointIDs, a.loc, a.trackBreak)
+	if err != nil {
+		a.logger.Error("bulk deleting points failed",
+			"path", r.URL.Path,
+			"error", err,
+		)
+		a.writeError(w, r, http.StatusInternalServerError, "internal server error")
+
+		return
+	}
+
+	a.writeJSON(w, r, http.StatusOK, dto.PointsBulkDeleted{
+		Message: "Points were successfully destroyed",
+		Count:   deleted,
+	})
+}
+
 // positiveInt parses s as a positive integer, reporting def for anything
 // else — absent, not a number, zero or negative — matching upstream's own
 // `to_i; default unless positive?` handling of page and per_page.
@@ -270,35 +436,42 @@ func pointsToDTO(points []model.Point) []dto.Point {
 	out := make([]dto.Point, 0, len(points))
 
 	for _, p := range points {
-		out = append(out, dto.Point{
-			ID: p.ID,
-
-			Latitude:  formatFloat(p.Latitude),
-			Longitude: formatFloat(p.Longitude),
-			Timestamp: p.Timestamp.Unix(),
-
-			Altitude:         p.Altitude,
-			Velocity:         formatFloatPtr(p.Velocity),
-			Accuracy:         p.Accuracy,
-			VerticalAccuracy: p.VerticalAccuracy,
-			Course:           formatFloatPtr(p.Course),
-			CourseAccuracy:   formatFloatPtr(p.CourseAccuracy),
-			BatteryStatus:    p.BatteryStatus,
-			Battery:          p.Battery,
-			SSID:             p.SSID,
-			TrackerID:        p.TrackerID,
-
-			CreatedAt: formatTimestamp(p.CreatedAt),
-			UpdatedAt: formatTimestamp(p.UpdatedAt),
-			UserID:    p.UserID,
-
-			InRegions: []string{},
-			InRIDs:    []string{},
-			Geodata:   map[string]any{},
-		})
+		out = append(out, pointToDTO(p))
 	}
 
 	return out
+}
+
+// pointToDTO converts one point into the shape [pointsToDTO] answers with —
+// also what PATCH /api/v1/points/{id} answers with, upstream's own
+// point_serializer.new(point.reload).call.
+func pointToDTO(p model.Point) dto.Point {
+	return dto.Point{
+		ID: p.ID,
+
+		Latitude:  formatFloat(p.Latitude),
+		Longitude: formatFloat(p.Longitude),
+		Timestamp: p.Timestamp.Unix(),
+
+		Altitude:         p.Altitude,
+		Velocity:         formatFloatPtr(p.Velocity),
+		Accuracy:         p.Accuracy,
+		VerticalAccuracy: p.VerticalAccuracy,
+		Course:           formatFloatPtr(p.Course),
+		CourseAccuracy:   formatFloatPtr(p.CourseAccuracy),
+		BatteryStatus:    p.BatteryStatus,
+		Battery:          p.Battery,
+		SSID:             p.SSID,
+		TrackerID:        p.TrackerID,
+
+		CreatedAt: formatTimestamp(p.CreatedAt),
+		UpdatedAt: formatTimestamp(p.UpdatedAt),
+		UserID:    p.UserID,
+
+		InRegions: []string{},
+		InRIDs:    []string{},
+		Geodata:   map[string]any{},
+	}
 }
 
 // formatFloat renders v the way upstream's serializer renders a coordinate:
