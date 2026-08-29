@@ -173,6 +173,10 @@ func TestIndexNamesSessionUser(t *testing.T) {
 	if !bytes.Contains(body, []byte("Signed in as "+created.Email)) {
 		t.Errorf("body = %q, want it to name %s", body, created.Email)
 	}
+
+	if !bytes.Contains(body, []byte(`action="/logout"`)) {
+		t.Errorf("body = %q, want a way to log out with a session", body)
+	}
 }
 
 // TestIndexIgnoresExpiredSession pins that an expired row is no session:
