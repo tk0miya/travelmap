@@ -144,6 +144,12 @@ button:hover {
   font-size: 0.9rem;
 }
 
+.field-error {
+  margin: 0.35rem 0 0;
+  color: var(--error-text);
+  font-size: 0.85rem;
+}
+
 .status {
   text-align: center;
 }

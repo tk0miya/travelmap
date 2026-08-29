@@ -32,7 +32,6 @@ cd travelmap
 make build              # builds bin/travelmap
 
 ./bin/travelmap migrate                                          # creates travelmap.db
-./bin/travelmap user create --email you@example.com --password '<password>'
 ./bin/travelmap serve
 ```
 
@@ -43,9 +42,26 @@ into a server that comes up happily with none of your history in it. Running it 
 is nothing to do is a no-op, so it is safe from an upgrade script. `serve` refuses to start
 against a database that has not been migrated, and names this command when it does.
 
-`user create` issues an account and prints its API key, which is what a client authenticates
-with. Neither way of giving it the password is a good one yet, so pick by which exposure you
-mind less:
+The server listens on port 3000 by default, the port upstream Dawarich uses. Ask it for its
+health to see that it came up:
+
+```console
+$ curl http://localhost:3000/api/v1/health
+{"status":"ok"}
+```
+
+Sign up at `http://localhost:3000/signup` to create the first account — the page shows its API
+key, which is what a client authenticates with, and signs the account in as it does so.
+
+For a setup script or a systemd unit, with no browser around to sign up from, `travelmap user
+create` issues the same kind of account from the command line instead and prints its API key:
+
+```sh
+./bin/travelmap user create --email you@example.com --password '<password>'
+```
+
+Neither way of giving it the password is a good one yet, so pick by which exposure you mind
+less:
 
 - `--password` puts it in `ps` output, where every user on the host can read it while the
   command runs, and in the shell history file.
@@ -58,18 +74,7 @@ mind less:
   ```
 
 An echo-off prompt is the fix for both, and it is planned rather than done — see "Milestone G"
-in [TODO.md](TODO.md).
-
-The server listens on port 3000 by default, the port upstream Dawarich uses. Ask it for its
-health to see that it came up:
-
-```console
-$ curl http://localhost:3000/api/v1/health
-{"status":"ok"}
-```
-
-The same account made with `user create` also logs in at `http://localhost:3000/login`, in a
-browser.
+in [TODO.md](TODO.md). An account made either way logs in at `http://localhost:3000/login`.
 
 `SIGINT` or `SIGTERM` stops it: it stops accepting connections and gives the requests already
 running up to ten seconds to finish.

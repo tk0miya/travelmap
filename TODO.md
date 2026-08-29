@@ -19,7 +19,6 @@ it lands.
 | Swarm check-ins | Collected by webhook push, with a periodic API fetch as the backstop | Push is immediate but nothing documented makes it reliable: Foursquare publishes no retry, records a timed-out push as a failure, and reaches only a public HTTPS endpoint. What it does after a failure is not documented at all. Fetching alone would lag every check-in by up to a poll interval. **What each path does and does not see is only partly known** — whether a push fires for a check-in added after the fact, or for an edit to one already stored, is undocumented — which is itself a reason to run both (Milestone I) |
 | Foursquare API version | v2 (`/v2/users/self/checkins`), with `v=` pinned as a constant and `m=swarm` | v2 is what returns Swarm check-ins, and it is current rather than abandoned: it is documented today as the "Personalization APIs", and the pricing change of 1 June 2026 names the checkins and users endpoints as remaining free while putting the venues endpoints behind paid tiers. `v=` is a date Foursquare uses to freeze response shape, so it is a constant raised deliberately after checking behaviour, never "today". `m` asks for the Swarm perspective rather than the Foursquare one; what it changes on this endpoint is untested, and its documented "required" status is contradicted by working clients — see "Fetching check-ins" |
 | Scheduling | A ticker goroutine plus a fixed lookback window, and **no job table** | The periodic fetch is one cron-like task with no queue of items, so the job table in the "Background work" row above would be scaffolding with nothing in it. Step 13's track splitting is the first genuine per-item consumer; the decision stands, its first use just is not here |
-| Sign-up | `GET/POST /signup`, open to anyone: no environment variable, no invite code, no first-user-only rule | A gate is one more setting to get wrong before the first login works, on a server whose first account is the operator's own. What open sign-up means for an instance reachable from the internet is recorded under "Risks and Open Questions" rather than answered here with a default nobody asked for |
 
 These are the defaults as of planning. If any turns out to be wrong during implementation,
 change it — after updating this file.
@@ -477,9 +476,9 @@ All independent of each other; take them in whatever order the need arises.
       points are inserted, so **on completion update `countries` / `cities` /
       `reverse_geocoded_points` in `daily_stats` for the affected days** (without this the
       corresponding `/stats` values stay 0 — see "Data Model")
-- [ ] `POST /api/v1/auth/register`, **open like the browser sign-up Step 29 adds**, not behind
-      an environment variable. Two registration routes whose defaults disagree is exactly the
-      drift this file's rules exist to stop, and there is no reading under which the API is the
+- [ ] `POST /api/v1/auth/register`, **open like the browser's own `/signup`**, not behind an
+      environment variable. Two registration routes whose defaults disagree is exactly the drift
+      this file's rules exist to stop, and there is no reading under which the API is the
       cautious one: a bot reaches a JSON endpoint more easily than a form
 - [ ] `POST /api/v1/owntracks/points`, `POST /api/v1/traccar/points`
 - [ ] `GET /api/v1/countries/visited_cities`
@@ -494,10 +493,10 @@ All independent of each other; take them in whatever order the need arises.
 Start once the API has settled. What the screens still need a library for is in "Library Choices
 for the Web UI".
 
-Steps 29 to 33 are the rest of the browser's way in: a sign-up screen and the Swarm link, which a
-browser is the only sensible place to start from — the `sessions` table and its repository, the
-HTML route group and its one page, the session middleware, the login screen and `auth.Register`
-are already in place. **They add no data endpoint**, which is what leaves "Open question: how the
+Steps 30 to 33 are the rest of the browser's way in: the Swarm link, which a browser is the only
+sensible place to start from — the `sessions` table and its repository, the HTML route group and
+its pages, the session middleware, the login screen, `auth.Register` and the sign-up screen are
+already in place. **They add no data endpoint**, which is what leaves "Open question: how the
 browser authenticates against `/api/v1`" for the map screen to answer rather than this half.
 
 The map, statistics and settings screens keep their bullet form below. They are not planned yet,
@@ -507,15 +506,12 @@ plan rather than recording it.
 ### Ordering
 
 ```
-The login screen ──────────┐
-                           ├─→ Step 29 (sign-up) ─→ Step 32 (remove user create)
-auth.Register ─────────────┘
-
 The login screen + Milestone I's Step 20 ─→ Step 30 (Swarm over a session) ─→ Step 31 (the Swarm page) ─→ Step 33 (remove foursquare connect)
 ```
 
-Step 27 (the session sweep) can be taken at any time, needing nothing but the sessions store
-already in place.
+Step 27 (the session sweep) and Step 32 (removing `travelmap user create`) can each be taken at
+any time — Step 27 needing nothing but the sessions store already in place, and Step 32 nothing
+but the sign-up screen, already in place too.
 
 ### Step 27: The expired-session sweep
 
@@ -541,49 +537,6 @@ the one that settles it, and the second follows it rather than deciding again.
 of itself. Whichever is second follows the first rather than deciding again, and moves nothing.
 
 **Done when**: with one expired row in `sessions`, starting the server removes it on the next tick.
-
-### Step 29: The sign-up screen
-
-Follows the login screen and `auth.Register`, both already in place.
-
-- [ ] `GET /signup` and `POST /signup` on the browser group. **Open to anyone** — no environment
-      variable, no invite code, no first-user-only rule, per the "Sign-up" row under "Technical
-      Decisions"
-- [ ] The form re-renders with the reason against the field it belongs to: an address that is not
-      one, an address already taken (`store.ErrConflict`), a password outside the bounds.
-      **State the bounds in bytes**, because bcrypt's 72 is a byte limit and a Japanese password
-      reaches it at 24 characters — a form saying "72 characters" would be wrong for the users
-      most likely to hit it
-- [ ] A confirmation field, compared before anything is written
-- [ ] `RenewToken`, then sign the new account in, so sign-up does not end at a login form
-- [ ] The page it lands on shows the account's **API key**. Sign-up replaces
-      `travelmap user create`, whose entire output is that key, and without it someone who signed
-      up in a browser has no way to configure the phone app
-- [ ] Links between `GET /`, the login form and the sign-up form, so none of the three is
-      reachable only by typing its path
-- [ ] Two comments go false with this step and both say the same thing, so neither can be left:
-      **`0001_users.sql`'s leading comment on `users`** ("there is no sign-up flow and no columns
-      for one") and **`model.User`'s doc comment** ("A self-hosted instance issues its users from
-      the command line, so a User is created once and then only read"). Rewrite both: there is a
-      sign-up flow now, it still needs no column of its own, and the CLI is one path rather than
-      the path. The migration one sits outside every statement, which is what makes a merged
-      migration editable there
-- [ ] README: sign-up as how the first account is made, `travelmap user create` as the one for a
-      script or a unit file
-- [ ] `docs/architecture.md`: the "User management" row records that an account can now be made in
-      the browser and keeps the CLI as the other path, `auth.Register` leaving
-      `travelmap user create` working. It also drops "`auth/register` optional behind an env var",
-      which describes something not implemented and which Milestone G's own bullet does not say
-      either
-- [ ] Tests: a sign-up against an empty database creates one user, leaves a working session, and
-      the API key the page shows authenticates `GET /api/v1/users/me`; a second sign-up with the
-      same address re-renders the form and writes nothing; a mismatched confirmation writes
-      nothing; the session token differs before and after
-
-**Settles**: that an account can be created without shell access, and that registration is open.
-
-**Done when**: a freshly migrated database with no users gets its first account entirely from a
-browser, and the API key that page shows authenticates `GET /api/v1/users/me`.
 
 ### Step 30: Starting the Swarm flow from a browser session
 
@@ -661,18 +614,18 @@ check-ins already collected remain.
 
 ### Step 32: Remove `travelmap user create`
 
-Follows Step 29. Once the browser can sign up on an empty database, the CLI path settles nothing
-a browser cannot: unlike Foursquare's OAuth exchange, nothing about creating a travelmap account
-needs a redirect to reach the operator's own server from the outside, so there is no deployment
-where sign-up is reachable and `user create` is not. Kept only as long as it takes to prove sign-up
-out; this step is what removes it rather than leaving two paths that can drift.
+Now that the browser can sign up on an empty database, the CLI path settles nothing a browser
+cannot: unlike Foursquare's OAuth exchange, nothing about creating a travelmap account needs a
+redirect to reach the operator's own server from the outside, so there is no deployment where
+sign-up is reachable and `user create` is not. Kept only as long as it takes to prove sign-up out;
+this step is what removes it rather than leaving two paths that can drift.
 
 - [ ] Delete the `user create` subcommand and its own tests
 - [ ] `docs/architecture.md`'s "User management" row drops the CLI entirely: issued via browser
       sign-up, full stop
-- [ ] `0001_users.sql`'s leading comment on `users` and `model.User`'s doc comment — both rewritten
-      once already by Step 29 to say the CLI is one path rather than the path — are rewritten again
-      to say there is no command-line path at all
+- [ ] `0001_users.sql`'s leading comment on `users` and `model.User`'s doc comment — both already
+      rewritten once to say the CLI is one path rather than the path — are rewritten again to say
+      there is no command-line path at all
 - [ ] README: the `user create` walkthrough in "Build and run" is replaced with signing up at
       `/signup`; `travelmap foursquare connect --email …` keeps working unchanged, since it only
       ever needed an existing account's address, not the command that created it. Two places in
