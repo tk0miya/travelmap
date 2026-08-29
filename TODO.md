@@ -29,11 +29,10 @@ change it — after updating this file.
 
 ## Data Model
 
-Columns and indexes for the tables already migrated (`users`, `points`, `daily_stats`, `checkins`,
-`foursquare_accounts`, `sessions`) are in `internal/store/sqlite/schema.sql`, kept current by
-`TestSchema`; the rationale for how a column or index is shaped is a comment in the migration that
-adds it. Behaviour that spans tables or does not attach to a single column — invariants,
-algorithms, config effects — is in `docs/database.md`.
+Columns and indexes for the tables already migrated are in `internal/store/sqlite/schema.sql`,
+kept current by `TestSchema`; the rationale for how a column or index is shaped is a comment in
+the migration that adds it. Behaviour that spans tables or does not attach to a single column —
+invariants, algorithms, config effects — is in `docs/database.md`.
 
 ## Dawarich API Compatibility Notes
 
