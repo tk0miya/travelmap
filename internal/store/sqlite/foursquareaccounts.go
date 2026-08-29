@@ -55,8 +55,60 @@ func (r foursquareAccountRepository) ByFoursquareUserID(ctx context.Context, fou
 	return account, nil
 }
 
+// All implements [store.FoursquareAccountRepository].
+func (r foursquareAccountRepository) All(ctx context.Context) ([]model.FoursquareAccount, error) {
+	rows, err := r.q.QueryContext(ctx,
+		`SELECT `+foursquareAccountColumns+` FROM foursquare_accounts ORDER BY user_id`)
+	if err != nil {
+		return nil, fmt.Errorf("sqlite: listing the Foursquare accounts: %w", translate(err))
+	}
+
+	accounts, err := collect(rows, func(rows *sql.Rows) (model.FoursquareAccount, error) {
+		return scanFoursquareAccount(rows)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("sqlite: listing the Foursquare accounts: %w", err)
+	}
+
+	return accounts, nil
+}
+
+// UpdateSyncedThrough implements [store.FoursquareAccountRepository].
+func (r foursquareAccountRepository) UpdateSyncedThrough(ctx context.Context, userID int64, syncedThrough time.Time) error {
+	// Not truncated to the second here: unixTime.Value() already stores
+	// whole seconds, and nothing here hands a Go time back to a caller that
+	// would need it to match — unlike Create, which returns account.
+	result, err := r.q.ExecContext(ctx,
+		`UPDATE foursquare_accounts SET synced_through = ?, updated_at = ? WHERE user_id = ?`,
+		unixTime(syncedThrough), unixTime(time.Now()), userID,
+	)
+	if err != nil {
+		return fmt.Errorf("sqlite: recording the sync of user %d: %w", userID, translate(err))
+	}
+
+	// An update that matched nothing is the unlinked account this repository
+	// reports as [store.ErrNotFound] everywhere else, not a silent success.
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("sqlite: recording the sync of user %d: %w", userID, translate(err))
+	}
+
+	if affected == 0 {
+		return fmt.Errorf("sqlite: recording the sync of user %d: %w", userID, store.ErrNotFound)
+	}
+
+	return nil
+}
+
+// rowScanner is the part of [sql.Row] and [sql.Rows] the scan below needs,
+// so that a single-row lookup and the listing read the same columns through
+// the same code.
+type rowScanner interface {
+	Scan(dest ...any) error
+}
+
 // scanFoursquareAccount reads one row of [foursquareAccountColumns].
-func scanFoursquareAccount(row *sql.Row) (model.FoursquareAccount, error) {
+func scanFoursquareAccount(row rowScanner) (model.FoursquareAccount, error) {
 	var (
 		account              model.FoursquareAccount
 		syncedThrough        sql.NullInt64

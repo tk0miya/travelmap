@@ -26,6 +26,20 @@ const (
 
 	defaultSessionLifetime     = 720 * time.Hour
 	defaultSessionCookieSecure = true
+
+	// defaultFoursquareSyncLookbackDays is the fortnight the periodic fetch
+	// re-reads on every run. It is a window rather than a cursor because a
+	// check-in can be added or edited after the fact, and a fortnight of one
+	// account's check-ins is expected to fit in a single request.
+	defaultFoursquareSyncLookbackDays = 14
+
+	// defaultFoursquareAPIURL is the API itself, which every deployment
+	// talks to: it is configurable so that a test can point the client at a
+	// local server, not because there is a second Foursquare. The value sits
+	// here rather than in internal/foursquare because that package is a leaf
+	// this one cannot import, and one default is better in the file that
+	// documents every other one.
+	defaultFoursquareAPIURL = "https://api.foursquare.com"
 )
 
 // Config is the server configuration.
@@ -93,6 +107,17 @@ type Config struct {
 	// unreported. Browsers treat http://localhost as a secure context, so
 	// the default costs a developer nothing there.
 	SessionCookieSecure bool
+
+	// FoursquareSyncLookbackDays is how far back a check-in fetch looks,
+	// counted from the moment the run starts. Every run re-reads the whole
+	// window and lets the upsert absorb the overlap, so raising it costs
+	// requests rather than correctness; `travelmap foursquare sync` takes a
+	// wider one for a backfill.
+	FoursquareSyncLookbackDays int
+
+	// FoursquareAPIURL is the base URL of the Foursquare API, without a
+	// trailing path.
+	FoursquareAPIURL string
 }
 
 // Load reads the configuration from the TRAVELMAP_* environment variables,
@@ -103,14 +128,16 @@ type Config struct {
 // them from running in parallel. Callers outside tests pass [os.Getenv].
 func Load(getenv func(string) string) (Config, error) {
 	cfg := Config{
-		Addr:                 lookup(getenv, "ADDR", defaultAddr),
-		LogLevel:             defaultLogLevel,
-		DatabasePath:         lookup(getenv, "DATABASE", defaultDatabasePath),
-		Timezone:             lookup(getenv, "TIMEZONE", defaultTimezone),
-		TrackBreakMinutes:    defaultTrackBreakMinutes,
-		FoursquarePushSecret: lookup(getenv, "FOURSQUARE_PUSH_SECRET", ""),
-		SessionLifetime:      defaultSessionLifetime,
-		SessionCookieSecure:  defaultSessionCookieSecure,
+		Addr:                       lookup(getenv, "ADDR", defaultAddr),
+		LogLevel:                   defaultLogLevel,
+		DatabasePath:               lookup(getenv, "DATABASE", defaultDatabasePath),
+		Timezone:                   lookup(getenv, "TIMEZONE", defaultTimezone),
+		TrackBreakMinutes:          defaultTrackBreakMinutes,
+		FoursquarePushSecret:       lookup(getenv, "FOURSQUARE_PUSH_SECRET", ""),
+		SessionLifetime:            defaultSessionLifetime,
+		SessionCookieSecure:        defaultSessionCookieSecure,
+		FoursquareSyncLookbackDays: defaultFoursquareSyncLookbackDays,
+		FoursquareAPIURL:           lookup(getenv, "FOURSQUARE_API_URL", defaultFoursquareAPIURL),
 	}
 
 	if raw := lookup(getenv, "LOG_LEVEL", ""); raw != "" {
@@ -178,7 +205,22 @@ func Load(getenv func(string) string) (Config, error) {
 		cfg.SessionCookieSecure = on
 	}
 
+	if raw := lookup(getenv, "FOURSQUARE_SYNC_LOOKBACK_DAYS", ""); raw != "" {
+		days, err := strconv.Atoi(raw)
+		if err != nil || days <= 0 {
+			return Config{}, fmt.Errorf("%sFOURSQUARE_SYNC_LOOKBACK_DAYS: must be a positive number of days", prefix)
+		}
+
+		cfg.FoursquareSyncLookbackDays = days
+	}
+
 	return cfg, nil
+}
+
+// FoursquareSyncLookback is [Config.FoursquareSyncLookbackDays] as a
+// [time.Duration], which is the form a fetch takes its window in.
+func (c Config) FoursquareSyncLookback() time.Duration {
+	return time.Duration(c.FoursquareSyncLookbackDays) * 24 * time.Hour
 }
 
 // Location resolves [Config.Timezone] into a *time.Location.

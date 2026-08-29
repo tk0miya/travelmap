@@ -1,0 +1,13 @@
+{
+  "meta": {"code": 200, "requestId": "6512a0b3c4d5e6f708192a3b"},
+  "notifications": [{"type": "notificationTray", "item": {"unreadCount": 0}}],
+  "response": {
+    "checkins": {
+      "count": 2,
+      "items": [
+{"id":"5f2a1b3c4d5e6f708192a3b4","createdAt":1767225906,"type":"checkin","visibility":"public","timeZoneOffset":540,"canonicalUrl":"https://foursquare.com/user/1709193/checkin/5f2a1b3c4d5e6f708192a3b4","editableUntil":1767229506000,"venue":{"id":"4b4429abf964a520a80f25e3","name":"東京タワー","location":{"address":"4 Chome-2-8 Shibakoen","lat":35.6586,"lng":139.7454,"postalCode":"105-0011","cc":"JP","city":"港区","state":"東京都","country":"日本","formattedAddress":["4 Chome-2-8 Shibakoen","港区, 東京都","日本"]},"categories":[{"id":"4bf58dd8d48988d12d941735","name":"モニュメント / ランドマーク","pluralName":"モニュメント / ランドマーク","shortName":"モニュメント","primary":true}]}},
+{"id":"5f2a1b3c4d5e6f708192a3b5","createdAt":1767139506,"type":"checkin","visibility":"public","timeZoneOffset":540,"shout":"lunch","venue":{"id":"4b0588a2f964a520f66422e3","name":"Tsukiji Market","location":{"lat":35.6654,"lng":139.7707,"cc":"JP","city":"中央区","state":"東京都","country":"日本"},"categories":[{"id":"4bf58dd8d48988d1fa941735","name":"Market","pluralName":"Markets","shortName":"Market","primary":true}]}}
+      ]
+    }
+  }
+}

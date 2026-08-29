@@ -59,26 +59,36 @@ func WritePush(ctx context.Context, st store.Store, raw string) (model.Checkin, 
 		return model.Checkin{}, fmt.Errorf("checkin: resolving the Foursquare account for %s: %w", parsed.User.ID, err)
 	}
 
-	return Write(ctx, st, checkinFromPush(account.UserID, raw, parsed))
+	return Write(ctx, st, fromWire(account.UserID, SourcePush, parsed))
 }
 
-// checkinFromPush converts a parsed push checkin into the model.Checkin
-// [Write] stores, for the account it resolved to. This is the one place a
-// [foursquare.PushCheckin] becomes a [model.Checkin], per CLAUDE.md's
-// layering rules.
-func checkinFromPush(userID int64, raw string, c foursquare.PushCheckin) model.Checkin {
+// The two collection paths, as model.Checkin.Source names them: the path
+// that first observed a check-in, which a repeat write from the other one
+// keeps rather than overwriting.
+const (
+	SourcePush = "push"
+	SourceSync = "sync"
+)
+
+// fromWire converts a decoded Foursquare check-in into the model.Checkin
+// [Write] stores, for the account it belongs to and the path that observed
+// it. This is the one place a [foursquare.Checkin] becomes a [model.Checkin],
+// per CLAUDE.md's layering rules — and it is shared by both paths, because
+// the push and the fetch carry the same check-in object and differ only in
+// how it is wrapped.
+func fromWire(userID int64, source string, c foursquare.Checkin) model.Checkin {
 	checkin := model.Checkin{
 		UserID:              userID,
 		FoursquareCheckinID: c.ID,
 		CheckedInAt:         time.Unix(c.CreatedAt, 0).UTC(),
 		TimezoneOffset:      c.TimeZoneOffset,
 		Shout:               c.Shout,
-		Source:              "push",
-		Raw:                 raw,
+		Source:              source,
+		Raw:                 string(c.Raw),
 	}
 
 	// The venue-derived columns are nullable as a group, for a check-in made
-	// without one — not nullable field by field, since none of the push's
+	// without one — not nullable field by field, since none of the payload's
 	// venue sub-fields are themselves documented as optional.
 	if c.Venue != nil {
 		checkin.VenueID = &c.Venue.ID

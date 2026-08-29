@@ -31,6 +31,7 @@ func TestLoad(t *testing.T) {
 				Addr: ":3000", LogLevel: slog.LevelInfo, DatabasePath: "travelmap.db",
 				Timezone: "UTC", TrackBreakMinutes: 30,
 				SessionLifetime: 720 * time.Hour, SessionCookieSecure: true,
+				FoursquareSyncLookbackDays: 14, FoursquareAPIURL: "https://api.foursquare.com",
 			},
 		},
 		"every variable set": {
@@ -44,6 +45,9 @@ func TestLoad(t *testing.T) {
 				"TRAVELMAP_FOURSQUARE_PUSH_SECRET": "shh-its-a-secret",
 				"TRAVELMAP_SESSION_LIFETIME":       "168h",
 				"TRAVELMAP_SESSION_COOKIE_SECURE":  "0",
+
+				"TRAVELMAP_FOURSQUARE_SYNC_LOOKBACK_DAYS": "30",
+				"TRAVELMAP_FOURSQUARE_API_URL":            "http://127.0.0.1:9999",
 			},
 			want: config.Config{
 				Addr:                 "127.0.0.1:8080",
@@ -55,6 +59,9 @@ func TestLoad(t *testing.T) {
 				FoursquarePushSecret: "shh-its-a-secret",
 				SessionLifetime:      168 * time.Hour,
 				SessionCookieSecure:  false,
+
+				FoursquareSyncLookbackDays: 30,
+				FoursquareAPIURL:           "http://127.0.0.1:9999",
 			},
 		},
 		// Documented as =1, but a shell wrapper writes what it writes, and a
@@ -70,6 +77,9 @@ func TestLoad(t *testing.T) {
 				Timezone:          "UTC",
 				TrackBreakMinutes: 30,
 				SessionLifetime:   720 * time.Hour, SessionCookieSecure: true,
+
+				FoursquareSyncLookbackDays: 14,
+				FoursquareAPIURL:           "https://api.foursquare.com",
 			},
 		},
 		// Info is where the request log writes, so a level above it would
@@ -87,6 +97,9 @@ func TestLoad(t *testing.T) {
 				Timezone:          "UTC",
 				TrackBreakMinutes: 30,
 				SessionLifetime:   720 * time.Hour, SessionCookieSecure: true,
+
+				FoursquareSyncLookbackDays: 14,
+				FoursquareAPIURL:           "https://api.foursquare.com",
 			},
 		},
 		// Down, not to: a level below Info is what an operator debugging
@@ -104,6 +117,9 @@ func TestLoad(t *testing.T) {
 				Timezone:          "UTC",
 				TrackBreakMinutes: 30,
 				SessionLifetime:   720 * time.Hour, SessionCookieSecure: true,
+
+				FoursquareSyncLookbackDays: 14,
+				FoursquareAPIURL:           "https://api.foursquare.com",
 			},
 		},
 		// The off switch is a setting an operator writes down, not just the
@@ -121,6 +137,9 @@ func TestLoad(t *testing.T) {
 				Timezone:          "UTC",
 				TrackBreakMinutes: 30,
 				SessionLifetime:   720 * time.Hour, SessionCookieSecure: true,
+
+				FoursquareSyncLookbackDays: 14,
+				FoursquareAPIURL:           "https://api.foursquare.com",
 			},
 		},
 		"the log level is case-insensitive": {
@@ -129,6 +148,7 @@ func TestLoad(t *testing.T) {
 				Addr: ":3000", LogLevel: slog.LevelWarn, DatabasePath: "travelmap.db",
 				Timezone: "UTC", TrackBreakMinutes: 30,
 				SessionLifetime: 720 * time.Hour, SessionCookieSecure: true,
+				FoursquareSyncLookbackDays: 14, FoursquareAPIURL: "https://api.foursquare.com",
 			},
 		},
 		// A variable a wrapper script left blank is not a listen address; an
@@ -139,6 +159,7 @@ func TestLoad(t *testing.T) {
 				Addr: ":3000", LogLevel: slog.LevelInfo, DatabasePath: "travelmap.db",
 				Timezone: "UTC", TrackBreakMinutes: 30,
 				SessionLifetime: 720 * time.Hour, SessionCookieSecure: true,
+				FoursquareSyncLookbackDays: 14, FoursquareAPIURL: "https://api.foursquare.com",
 			},
 		},
 	}
@@ -276,6 +297,33 @@ func TestLoadRejectsAnInvalidSessionCookieSecure(t *testing.T) {
 	}
 }
 
+// TestLoadRejectsAnInvalidFoursquareSyncLookback covers the same two shapes
+// as the track break above: a window that is not a number, and one that is
+// not positive — which would ask the API for a window ending before it
+// starts.
+func TestLoadRejectsAnInvalidFoursquareSyncLookback(t *testing.T) {
+	t.Parallel()
+
+	for name, value := range map[string]string{
+		"not a number": "a fortnight",
+		"zero":         "0",
+		"negative":     "-14",
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := config.Load(env(map[string]string{"TRAVELMAP_FOURSQUARE_SYNC_LOOKBACK_DAYS": value}))
+			if err == nil {
+				t.Fatal("Load returned nil for an invalid TRAVELMAP_FOURSQUARE_SYNC_LOOKBACK_DAYS")
+			}
+
+			if got := err.Error(); !strings.Contains(got, "TRAVELMAP_FOURSQUARE_SYNC_LOOKBACK_DAYS") {
+				t.Errorf("error = %q, want it to name the variable at fault", got)
+			}
+		})
+	}
+}
+
 // TestConfigLocation pins that it resolves the same zone Load already
 // validated, for the one caller — travelmap recalculate — that needs a
 // *time.Location rather than the name.
@@ -310,6 +358,22 @@ func TestConfigTrackBreak(t *testing.T) {
 
 	if got, want := cfg.TrackBreak(), 45*time.Minute; got != want {
 		t.Errorf("TrackBreak = %v, want %v", got, want)
+	}
+}
+
+// TestConfigFoursquareSyncLookback pins the other unit conversion: the
+// window is configured in days, because that is the unit a fortnight of
+// history is thought about in, and a fetch takes it as a duration.
+func TestConfigFoursquareSyncLookback(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := config.Load(env(map[string]string{"TRAVELMAP_FOURSQUARE_SYNC_LOOKBACK_DAYS": "3"}))
+	if err != nil {
+		t.Fatalf("Load returned %v", err)
+	}
+
+	if got, want := cfg.FoursquareSyncLookback(), 72*time.Hour; got != want {
+		t.Errorf("FoursquareSyncLookback = %v, want %v", got, want)
 	}
 }
 

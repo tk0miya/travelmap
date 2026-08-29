@@ -17,7 +17,6 @@ it lands.
 | Background work | Goroutines + a job table in SQLite | Keeps a single process, with no Sidekiq/Redis equivalent |
 | Reverse geocoding | Off by default; optionally point at a Nominatim/Photon URL | Does not make an external service mandatory |
 | Swarm check-ins | Collected by webhook push, with a periodic API fetch as the backstop | Push is immediate but nothing documented makes it reliable: Foursquare publishes no retry, records a timed-out push as a failure, and reaches only a public HTTPS endpoint. What it does after a failure is not documented at all. Fetching alone would lag every check-in by up to a poll interval. **What each path does and does not see is only partly known** — whether a push fires for a check-in added after the fact, or for an edit to one already stored, is undocumented — which is itself a reason to run both (Milestone I) |
-| Foursquare API version | v2 (`/v2/users/self/checkins`), with `v=` pinned as a constant and `m=swarm` | v2 is what returns Swarm check-ins, and it is current rather than abandoned: it is documented today as the "Personalization APIs", and the pricing change of 1 June 2026 names the checkins and users endpoints as remaining free while putting the venues endpoints behind paid tiers. `v=` is a date Foursquare uses to freeze response shape, so it is a constant raised deliberately after checking behaviour, never "today". `m` asks for the Swarm perspective rather than the Foursquare one; what it changes on this endpoint is untested, and its documented "required" status is contradicted by working clients — see "Fetching check-ins" |
 | Scheduling | A ticker goroutine plus a fixed lookback window, and **no job table** | The periodic fetch is one cron-like task with no queue of items, so the job table in the "Background work" row above would be scaffolding with nothing in it. Step 13's track splitting is the first genuine per-item consumer; the decision stands, its first use just is not here |
 | Sign-up | `GET/POST /signup`, open to anyone: no environment variable, no invite code, no first-user-only rule | A gate is one more setting to get wrong before the first login works, on a server whose first account is the operator's own. What open sign-up means for an instance reachable from the internet is recorded under "Risks and Open Questions" rather than answered here with a default nobody asked for |
 
@@ -746,34 +745,34 @@ This client's response to rate limits, ambiguous error codes and locale drift is
 none of that is decided by this step's design, only confirmed once it exists — and, for locale,
 once the push webhook's collection path has a check-in to compare against.
 
-- [ ] `internal/foursquare`: a client for `GET /v2/users/self/checkins` — `v=` pinned, `m=swarm`,
+- [x] `internal/foursquare`: a client for `GET /v2/users/self/checkins` — `v=` pinned, `m=swarm`,
       the token in an `Authorization: Bearer` header rather than the URL, `limit=250`,
       `sort=newestfirst`, and paging through `beforeTimestamp` rather than `offset`, all per
       "Fetching check-ins"
-- [ ] The paging loop follows "Page with `beforeTimestamp`, not `offset`" exactly: the cursor is
+- [x] The paging loop follows "Page with `beforeTimestamp`, not `offset`" exactly: the cursor is
       the page's oldest `createdAt` **plus** one second; a page shorter than `limit` ends the run;
       and a **full page that does not lower the cursor fails the run** without advancing
       `synced_through`
-- [ ] Two tests, because ending and failing are not the same condition. A fake server returning a
+- [x] Two tests, because ending and failing are not the same condition. A fake server returning a
       page shorter than `limit` ends the run normally. A fake server returning the **same full page
       every time** — so its oldest `createdAt` never falls and the cursor cannot advance, the shape
       an ignored `beforeTimestamp` produces — makes the run **fail**. Assert the failure, not merely
       that the run terminates: termination alone passes with the progress check missing, which is
       the whole reason for writing this one
-- [ ] `internal/config`: `TRAVELMAP_FOURSQUARE_SYNC_LOOKBACK_DAYS` and
+- [x] `internal/config`: `TRAVELMAP_FOURSQUARE_SYNC_LOOKBACK_DAYS` and
       `TRAVELMAP_FOURSQUARE_API_URL` (default `https://api.foursquare.com`)
-- [ ] `internal/checkin`: one sync run — the lookback window from "The periodic fetch takes a
+- [x] `internal/checkin`: one sync run — the lookback window from "The periodic fetch takes a
       window, not a cursor", an upsert per check-in through the same writer the webhook uses,
       and `synced_through` advanced on success
-- [ ] `travelmap foursquare sync`, for a one-shot run and for backfilling further back than the
+- [x] `travelmap foursquare sync`, for a one-shot run and for backfilling further back than the
       window
-- [ ] README: the lookback and the API URL, and `travelmap foursquare sync` under "Build and
+- [x] README: the lookback and the API URL, and `travelmap foursquare sync` under "Build and
       run"
-- [ ] Test the client against `httptest.NewServer` serving a recorded response;
+- [x] Test the client against `httptest.NewServer` serving a recorded response;
       `TRAVELMAP_FOURSQUARE_API_URL` exists so the test can point at it
-- [ ] A test that the same check-in arriving by push and then by fetch leaves one row, with
+- [x] A test that the same check-in arriving by push and then by fetch leaves one row, with
       `source` still naming the first path
-- [ ] **A test that pins the window against a cursor**: a check-in dated before the last
+- [x] **A test that pins the window against a cursor**: a check-in dated before the last
       successful run, added after it, is still collected by the next one. This step is where the
       window and `synced_through` are written, so it is where the test belongs — and it is what
       stops a later change from turning `synced_through` into the lower bound, which is the one
@@ -782,7 +781,12 @@ once the push webhook's collection path has a check-in to compare against.
 **Settles**: the conventions for calling an external API from this server — timeouts, closing
 bodies, and how a page-walk knows it succeeded.
 
-**Confirms**, and records the answers in "Fetching check-ins":
+**Not yet confirmed**: this environment has no Foursquare account and no network path to
+`api.foursquare.com`, so nothing below has been run against the live API — only against the
+`httptest.NewServer` fixtures the tests above build. The client and the paging loop are written to
+the design "Fetching check-ins" already settles, so the code does not wait on this, but the step
+itself is not closed until someone with a real account runs `travelmap foursquare sync` and the
+four points below get an answer recorded in that section:
 
 - That `sort`, `afterTimestamp` and `beforeTimestamp` are honoured though the current reference
   page omits them. If they are not, that section names the fallback
@@ -798,7 +802,7 @@ bodies, and how a page-walk knows it succeeded.
   progress check hold under either boundary — but both are cheap to read off a real response
 
 **Done when**: `travelmap foursquare sync` fetches real check-ins, and a second run changes no
-row count.
+row count. Blocked on the confirmation above, which needs a real account.
 
 ### Step 20: Server-side OAuth
 
