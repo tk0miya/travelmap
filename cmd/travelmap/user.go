@@ -103,15 +103,10 @@ func userCreate(args []string, getenv func(string) string, stdin io.Reader, stdo
 		}
 	}
 
-	// Hashing happens before the database is opened, so a password bcrypt will
-	// not take is reported without a database file having been created.
-	hash, err := auth.HashPassword(secret)
-	if err != nil {
-		return err
-	}
-
-	apiKey, err := auth.NewAPIKey()
-	if err != nil {
+	// Checked before the database is opened, so a password bcrypt will not take
+	// is reported without a database file having been created. auth.Register
+	// applies the same bounds again, through auth.HashPassword.
+	if err := checkPasswordLength(secret); err != nil {
 		return err
 	}
 
@@ -128,11 +123,7 @@ func userCreate(args []string, getenv func(string) string, stdin io.Reader, stdo
 		return err
 	}
 
-	created, err := db.Users().Create(ctx, model.User{
-		Email:        address,
-		PasswordHash: hash,
-		APIKey:       apiKey,
-	})
+	created, err := auth.Register(ctx, db.Users(), address, secret)
 	if err != nil {
 		if errors.Is(err, store.ErrConflict) {
 			return fmt.Errorf("%s: a user with the email %s already exists", path, address)
@@ -145,6 +136,20 @@ func userCreate(args []string, getenv func(string) string, stdin io.Reader, stdo
 	fmt.Fprintf(stdout, "api_key: %s\n", created.APIKey)
 
 	return nil
+}
+
+// checkPasswordLength rejects a password bcrypt would not take. It exists so
+// that check can run before a database is opened for it; auth.MinPasswordLength
+// and auth.MaxPasswordLength are exported for exactly this.
+func checkPasswordLength(password string) error {
+	switch {
+	case len(password) < auth.MinPasswordLength:
+		return fmt.Errorf("password: shorter than %d bytes", auth.MinPasswordLength)
+	case len(password) > auth.MaxPasswordLength:
+		return fmt.Errorf("password: longer than the %d bytes bcrypt hashes", auth.MaxPasswordLength)
+	default:
+		return nil
+	}
 }
 
 // readPassword takes the password off the first line of standard input.

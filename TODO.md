@@ -504,11 +504,11 @@ All independent of each other; take them in whatever order the need arises.
 Start once the API has settled. What the screens still need a library for is in "Library Choices
 for the Web UI".
 
-Steps 28 to 31 are the rest of the browser's way in: a sign-up screen and the Swarm link, which a
+Steps 29 to 31 are the rest of the browser's way in: a sign-up screen and the Swarm link, which a
 browser is the only sensible place to start from — the `sessions` table and its repository, the
-HTML route group and its one page, the session middleware, and the login screen are already in
-place. **They add no data endpoint**, which is what leaves "Open question: how the browser
-authenticates against `/api/v1`" for the map screen to answer rather than this half.
+HTML route group and its one page, the session middleware, the login screen and `auth.Register`
+are already in place. **They add no data endpoint**, which is what leaves "Open question: how the
+browser authenticates against `/api/v1`" for the map screen to answer rather than this half.
 
 The map, statistics and settings screens keep their bullet form below. They are not planned yet,
 and writing a checklist for a screen whose rendering approach is undecided would be inventing the
@@ -519,13 +519,13 @@ plan rather than recording it.
 ```
 The login screen ──────────┐
                            ├─→ Step 29 (sign-up)
-Step 28 (auth.Register) ───┘
+auth.Register ─────────────┘
 
 The login screen + Milestone I's Step 20 ─→ Step 30 (Swarm over a session) ─→ Step 31 (the Swarm page)
 ```
 
 Step 27 (the session sweep) can be taken at any time, needing nothing but the sessions store
-already in place. Step 28 is independent of everything above it and can be taken in parallel.
+already in place.
 
 ### Step 27: The expired-session sweep
 
@@ -552,34 +552,9 @@ of itself. Whichever is second follows the first rather than deciding again, and
 
 **Done when**: with one expired row in `sessions`, starting the server removes it on the next tick.
 
-### Step 28: `auth.Register`
-
-Nothing here blocks it, so it can be taken at any point; Step 29 is the one thing that waits on
-it. **Nothing observable changes** — it is a move between layers, and it is what stops Step 29
-from being a second way of creating an account.
-
-- [ ] `auth.Register(ctx, users, email, password)`: normalise, hash, issue an API key, create.
-      `internal/auth` gains `store` and `model` imports, which its tier allows
-- [ ] `travelmap user create` rewritten to call it. CLAUDE.md makes `cmd/travelmap` wiring only,
-      and a subcommand that grows business logic hands it to the package that owns the behaviour
-- [ ] `user create` keeps refusing a password bcrypt will not take **before it opens the
-      database**, by checking `auth.MinPasswordLength` and `MaxPasswordLength` itself. Those
-      constants are exported for exactly this, and their doc comment already says the caller
-      asking for a password is the one that has to state the bounds
-- [ ] `internal/auth/doc.go`: that this package now issues accounts as well as checking
-      credentials
-- [ ] Tests: `user create`'s existing tests pass unchanged, which is the whole claim of this step;
-      plus table-driven tests for `Register` itself — a malformed address, a duplicate answering
-      `store.ErrConflict`, and both password bounds
-
-**Settles**: that one code path creates every account, and that `internal/auth` owns it.
-
-**Done when**: `travelmap user create` still creates a user and prints its API key, and
-`make check` passes.
-
 ### Step 29: The sign-up screen
 
-Follows the login screen, already in place, and Step 28.
+Follows the login screen and `auth.Register`, both already in place.
 
 - [ ] `GET /signup` and `POST /signup` on the browser group. **Open to anyone** — no environment
       variable, no invite code, no first-user-only rule, per the "Sign-up" row under "Technical
@@ -606,9 +581,10 @@ Follows the login screen, already in place, and Step 28.
 - [ ] README: sign-up as how the first account is made, `travelmap user create` as the one for a
       script or a unit file
 - [ ] `docs/architecture.md`: the "User management" row records that an account can now be made in
-      the browser and keeps the CLI as the other path, Step 28 leaving `travelmap user create`
-      working. It also drops "`auth/register` optional behind an env var", which describes
-      something not implemented and which Milestone G's own bullet does not say either
+      the browser and keeps the CLI as the other path, `auth.Register` leaving
+      `travelmap user create` working. It also drops "`auth/register` optional behind an env var",
+      which describes something not implemented and which Milestone G's own bullet does not say
+      either
 - [ ] Tests: a sign-up against an empty database creates one user, leaves a working session, and
       the API key the page shows authenticates `GET /api/v1/users/me`; a second sign-up with the
       same address re-renders the form and writes nothing; a mismatched confirmation writes
