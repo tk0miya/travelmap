@@ -33,12 +33,24 @@ var staticFiles = func() fs.FS {
 	return sub
 }()
 
-// index answers GET /, travelmap's own browser entry point. It needs no
-// credential yet — a session is what a later step has it name the account
-// it belongs to.
+// indexData is what the index page's template renders.
+type indexData struct {
+	// Email is the signed-in account's address, or "" when no session names
+	// one.
+	Email string
+}
+
+// index answers GET /, travelmap's own browser entry point. It takes no
+// credential of its own; loadSessionUser is what puts a user on the request
+// context for it to name.
 func (a *api) index(w http.ResponseWriter, r *http.Request) {
+	var data indexData
+	if user, ok := userFrom(r.Context()); ok {
+		data.Email = user.Email
+	}
+
 	var buf bytes.Buffer
-	if err := pageTemplates.ExecuteTemplate(&buf, "base", nil); err != nil {
+	if err := pageTemplates.ExecuteTemplate(&buf, "base", data); err != nil {
 		a.logger.Error("rendering the index page failed", "error", err)
 		a.writeError(w, r, http.StatusInternalServerError, "internal server error")
 

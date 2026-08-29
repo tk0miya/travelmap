@@ -55,6 +55,8 @@ func serve(getenv func(string) string, stderr io.Writer) error {
 		Location:             loc,
 		TrackBreak:           cfg.TrackBreak(),
 		FoursquarePushSecret: cfg.FoursquarePushSecret,
+		SessionLifetime:      cfg.SessionLifetime,
+		SessionCookieSecure:  cfg.SessionCookieSecure,
 	})
 
 	return httpapi.Serve(ctx, cfg.Addr, handler, logger)

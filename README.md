@@ -92,10 +92,17 @@ default, so it runs with an empty environment.
 | `TRAVELMAP_TIMEZONE` | `UTC` | The timezone the day boundary is cut on |
 | `TRAVELMAP_TRACK_BREAK_MINUTES` | `30` | Gaps longer than this are not counted as travelled distance |
 | `TRAVELMAP_FOURSQUARE_PUSH_SECRET` | unset | Shared secret for the Swarm (Foursquare) push webhook. See below |
+| `TRAVELMAP_SESSION_LIFETIME` | `720h` | How long a browser session lasts before it needs a fresh login |
+| `TRAVELMAP_SESSION_COOKIE_SECURE` | on | Send the session cookie only over HTTPS. See below |
 
 `TRAVELMAP_TIMEZONE` and `TRAVELMAP_TRACK_BREAK_MINUTES` decide how stored statistics are
 computed, so changing either invalidates the ones already stored; `travelmap recalculate`
 rebuilds them.
+
+`TRAVELMAP_SESSION_COOKIE_SECURE` defaults to on, which is what a login form needs to keep
+working over plain HTTP: browsers treat `http://localhost` as a secure context, so this costs a
+developer nothing there. A server reachable only over a plain-HTTP LAN sets
+`TRAVELMAP_SESSION_COOKIE_SECURE=0`, or the session cookie never leaves the browser at all.
 
 ### Swarm (Foursquare) check-ins
 

@@ -30,6 +30,7 @@ func TestLoad(t *testing.T) {
 			want: config.Config{
 				Addr: ":3000", LogLevel: slog.LevelInfo, DatabasePath: "travelmap.db",
 				Timezone: "UTC", TrackBreakMinutes: 30,
+				SessionLifetime: 720 * time.Hour, SessionCookieSecure: true,
 			},
 		},
 		"every variable set": {
@@ -41,6 +42,8 @@ func TestLoad(t *testing.T) {
 				"TRAVELMAP_TIMEZONE":               "Asia/Tokyo",
 				"TRAVELMAP_TRACK_BREAK_MINUTES":    "45",
 				"TRAVELMAP_FOURSQUARE_PUSH_SECRET": "shh-its-a-secret",
+				"TRAVELMAP_SESSION_LIFETIME":       "168h",
+				"TRAVELMAP_SESSION_COOKIE_SECURE":  "0",
 			},
 			want: config.Config{
 				Addr:                 "127.0.0.1:8080",
@@ -50,6 +53,8 @@ func TestLoad(t *testing.T) {
 				Timezone:             "Asia/Tokyo",
 				TrackBreakMinutes:    45,
 				FoursquarePushSecret: "shh-its-a-secret",
+				SessionLifetime:      168 * time.Hour,
+				SessionCookieSecure:  false,
 			},
 		},
 		// Documented as =1, but a shell wrapper writes what it writes, and a
@@ -64,6 +69,7 @@ func TestLoad(t *testing.T) {
 				DebugLogRequests:  true,
 				Timezone:          "UTC",
 				TrackBreakMinutes: 30,
+				SessionLifetime:   720 * time.Hour, SessionCookieSecure: true,
 			},
 		},
 		// Info is where the request log writes, so a level above it would
@@ -80,6 +86,7 @@ func TestLoad(t *testing.T) {
 				DebugLogRequests:  true,
 				Timezone:          "UTC",
 				TrackBreakMinutes: 30,
+				SessionLifetime:   720 * time.Hour, SessionCookieSecure: true,
 			},
 		},
 		// Down, not to: a level below Info is what an operator debugging
@@ -96,6 +103,7 @@ func TestLoad(t *testing.T) {
 				DebugLogRequests:  true,
 				Timezone:          "UTC",
 				TrackBreakMinutes: 30,
+				SessionLifetime:   720 * time.Hour, SessionCookieSecure: true,
 			},
 		},
 		// The off switch is a setting an operator writes down, not just the
@@ -112,6 +120,7 @@ func TestLoad(t *testing.T) {
 				DatabasePath:      "travelmap.db",
 				Timezone:          "UTC",
 				TrackBreakMinutes: 30,
+				SessionLifetime:   720 * time.Hour, SessionCookieSecure: true,
 			},
 		},
 		"the log level is case-insensitive": {
@@ -119,6 +128,7 @@ func TestLoad(t *testing.T) {
 			want: config.Config{
 				Addr: ":3000", LogLevel: slog.LevelWarn, DatabasePath: "travelmap.db",
 				Timezone: "UTC", TrackBreakMinutes: 30,
+				SessionLifetime: 720 * time.Hour, SessionCookieSecure: true,
 			},
 		},
 		// A variable a wrapper script left blank is not a listen address; an
@@ -128,6 +138,7 @@ func TestLoad(t *testing.T) {
 			want: config.Config{
 				Addr: ":3000", LogLevel: slog.LevelInfo, DatabasePath: "travelmap.db",
 				Timezone: "UTC", TrackBreakMinutes: 30,
+				SessionLifetime: 720 * time.Hour, SessionCookieSecure: true,
 			},
 		},
 	}
@@ -220,6 +231,48 @@ func TestLoadRejectsAnInvalidTrackBreakMinutes(t *testing.T) {
 				t.Errorf("error = %q, want it to name the variable at fault", got)
 			}
 		})
+	}
+}
+
+// TestLoadRejectsAnInvalidSessionLifetime covers both a value that does not
+// parse as a duration and one that is not positive: a zero or negative
+// lifetime would make every session expire before it could be used.
+func TestLoadRejectsAnInvalidSessionLifetime(t *testing.T) {
+	t.Parallel()
+
+	for name, value := range map[string]string{
+		"not a duration": "soon",
+		"zero":           "0h",
+		"negative":       "-5h",
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := config.Load(env(map[string]string{"TRAVELMAP_SESSION_LIFETIME": value}))
+			if err == nil {
+				t.Fatal("Load returned nil for an invalid TRAVELMAP_SESSION_LIFETIME")
+			}
+
+			if got := err.Error(); !strings.Contains(got, "TRAVELMAP_SESSION_LIFETIME") {
+				t.Errorf("error = %q, want it to name the variable at fault", got)
+			}
+		})
+	}
+}
+
+// TestLoadRejectsAnInvalidSessionCookieSecure pins that a typo here fails
+// loudly too: silently keeping the insecure default on a server meant to run
+// behind HTTPS would go unnoticed until a session cookie leaked.
+func TestLoadRejectsAnInvalidSessionCookieSecure(t *testing.T) {
+	t.Parallel()
+
+	_, err := config.Load(env(map[string]string{"TRAVELMAP_SESSION_COOKIE_SECURE": "yes please"}))
+	if err == nil {
+		t.Fatal("Load returned nil for an invalid TRAVELMAP_SESSION_COOKIE_SECURE")
+	}
+
+	if got := err.Error(); !strings.Contains(got, "TRAVELMAP_SESSION_COOKIE_SECURE") {
+		t.Errorf("error = %q, want it to name the variable at fault", got)
 	}
 }
 

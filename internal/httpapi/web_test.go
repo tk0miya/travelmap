@@ -26,6 +26,10 @@ func TestIndex(t *testing.T) {
 	if !bytes.Contains(resp.body, []byte("travelmap")) {
 		t.Errorf("body = %q, want it to mention travelmap", resp.body)
 	}
+
+	if !bytes.Contains(resp.body, []byte("Not signed in.")) {
+		t.Errorf("body = %q, want it to say not signed in with no session", resp.body)
+	}
 }
 
 // TestStaticStylesheet covers that the stylesheet is served out of the same
