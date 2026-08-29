@@ -123,6 +123,15 @@ func New(opts Options) http.Handler {
 		r.Post("/webhooks/foursquare", a.foursquareWebhook)
 	}
 
+	// The browser's own group, beside /api/v1 rather than under it: a later
+	// step attaches a session and CSRF protection here, neither of which
+	// /api/v1 needs. No session yet, so GET / is all it serves so far.
+	r.Group(func(r chi.Router) {
+		r.Get("/", a.index)
+	})
+
+	r.Handle("/static/*", http.StripPrefix("/static/", http.FileServerFS(staticFiles)))
+
 	r.Route("/api/v1", func(r chi.Router) {
 		// authenticate first, for the reason on dawarichHeaders.
 		r.Use(a.authenticate)

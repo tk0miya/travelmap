@@ -19,6 +19,7 @@ ground is already covered by a schema.sql/migration comment, a package's own com
 | HTTP | `net/http` + `github.com/go-chi/chi/v5` | Chosen with the future web UI in mind — see "Router" below |
 | User management | Issued via CLI. `auth/login` implemented, `auth/register` optional behind an env var, no 2FA | Self-hosted assumption |
 | Recalculation trigger | CLI only (`travelmap recalculate`), not exposed as `/api/v1/recalculations` | Rebuilding `daily_stats` is only needed after an import, an inconsistency, or a `TRAVELMAP_TIMEZONE` / `TRAVELMAP_TRACK_BREAK_MINUTES` change — all operator-run locally on a self-hosted instance. Revisit if triggering it from the app turns out to be necessary |
+| HTML rendering | `html/template`, parsed once at startup, with the templates and the CSS in an `embed.FS` | Keeps deployment a single binary, and adds neither a code-generation step nor a Node build chain to a checkout that today needs nothing installed but Go |
 
 Schema-shape decisions (`STRICT` tables, Unix-second timestamps, indexes, the distance and
 statistics precomputation) are in `internal/store/sqlite/schema.sql`'s own comments and
