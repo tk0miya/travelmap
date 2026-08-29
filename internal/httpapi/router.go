@@ -152,6 +152,8 @@ func New(opts Options) http.Handler {
 			get(r, "/points", a.listPoints)
 			r.Post("/points", a.createPoints)
 			r.Post("/overland/batches", a.createOverlandBatch)
+			get(r, "/points/tracked_months", a.trackedMonths)
+			get(r, "/stats", a.stats)
 		})
 	})
 

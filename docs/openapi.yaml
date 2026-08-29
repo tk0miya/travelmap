@@ -182,6 +182,64 @@ paths:
         "500":
           $ref: "#/components/responses/InternalServerError"
 
+  /api/v1/points/tracked_months:
+    get:
+      summary: The years and months the user has points recorded for
+      description: >
+        Read from daily_stats, not points directly. Years most-recent-first;
+        within a year, months in calendar order.
+      operationId: trackedMonths
+      responses:
+        "200":
+          $ref: "#/components/responses/TrackedMonthsOK"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    head:
+      summary: The years and months the user has points recorded for (headers only)
+      description: >
+        Identical to GET, with no response body. See the note on
+        GET /api/v1/users/me.
+      operationId: trackedMonthsHead
+      responses:
+        "200":
+          $ref: "#/components/responses/TrackedMonthsOK"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /api/v1/stats:
+    get:
+      summary: Aggregate distance, point and place counts
+      description: >
+        Distance, point counts and country/city counts aggregated from
+        daily_stats, overall and broken down by year and month. The only
+        endpoint using camelCase; see docs/api-notes.md for why its
+        distances are whole kilometres rather than a JSON number.
+      operationId: stats
+      responses:
+        "200":
+          $ref: "#/components/responses/StatsOK"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    head:
+      summary: Aggregate distance, point and place counts (headers only)
+      description: >
+        Identical to GET, with no response body. See the note on
+        GET /api/v1/users/me.
+      operationId: statsHead
+      responses:
+        "200":
+          $ref: "#/components/responses/StatsOK"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
   /api/v1/overland/batches:
     post:
       summary: Record a batch of GPS points (Overland app format)
@@ -416,6 +474,35 @@ components:
             type: array
             items:
               $ref: "#/components/schemas/Point"
+
+    TrackedMonthsOK:
+      description: The years and months the user has points recorded for.
+      headers:
+        X-Dawarich-Response:
+          $ref: "#/components/headers/DawarichResponse"
+        X-Dawarich-Version:
+          $ref: "#/components/headers/DawarichVersion"
+      content:
+        application/json; charset=utf-8:
+          schema:
+            type: array
+            items:
+              $ref: "#/components/schemas/TrackedMonthsYear"
+          example:
+            - year: 2024
+              months: [Jan, Feb, Mar]
+
+    StatsOK:
+      description: Aggregate distance, point and place counts.
+      headers:
+        X-Dawarich-Response:
+          $ref: "#/components/headers/DawarichResponse"
+        X-Dawarich-Version:
+          $ref: "#/components/headers/DawarichVersion"
+      content:
+        application/json; charset=utf-8:
+          schema:
+            $ref: "#/components/schemas/Stats"
 
     OverlandBatchCreated:
       description: The points were stored.
@@ -1023,3 +1110,111 @@ components:
         geodata:
           type: object
           description: Always empty; reverse geocoding is not implemented yet.
+
+    TrackedMonthsYear:
+      type: object
+      description: One year's worth of GET /api/v1/points/tracked_months.
+      required:
+        - year
+        - months
+      properties:
+        year:
+          type: integer
+        months:
+          type: array
+          items:
+            type: string
+            description: A three-letter English month abbreviation.
+
+    Stats:
+      type: object
+      description: >
+        camelCase throughout, matching upstream — the one endpoint that
+        departs from the rest of this API on that. See docs/api-notes.md
+        for why the distance fields here and on YearlyStats are whole
+        kilometres, not a fractional JSON number.
+      required:
+        - totalDistanceKm
+        - totalPointsTracked
+        - totalReverseGeocodedPoints
+        - totalCountriesVisited
+        - totalCitiesVisited
+        - yearlyStats
+      properties:
+        totalDistanceKm:
+          type: integer
+        totalPointsTracked:
+          type: integer
+        totalReverseGeocodedPoints:
+          type: integer
+        totalCountriesVisited:
+          type: integer
+        totalCitiesVisited:
+          type: integer
+        yearlyStats:
+          type: array
+          items:
+            $ref: "#/components/schemas/YearlyStats"
+
+    YearlyStats:
+      type: object
+      description: One element of Stats.yearlyStats.
+      required:
+        - year
+        - totalDistanceKm
+        - totalCountriesVisited
+        - totalCitiesVisited
+        - monthlyDistanceKm
+      properties:
+        year:
+          type: integer
+        totalDistanceKm:
+          type: integer
+        totalCountriesVisited:
+          type: integer
+        totalCitiesVisited:
+          type: integer
+        monthlyDistanceKm:
+          $ref: "#/components/schemas/MonthlyDistanceKm"
+
+    MonthlyDistanceKm:
+      type: object
+      description: YearlyStats.monthlyDistanceKm, keyed by lowercase month name.
+      required:
+        - january
+        - february
+        - march
+        - april
+        - may
+        - june
+        - july
+        - august
+        - september
+        - october
+        - november
+        - december
+      properties:
+        january:
+          type: integer
+        february:
+          type: integer
+        march:
+          type: integer
+        april:
+          type: integer
+        may:
+          type: integer
+        june:
+          type: integer
+        july:
+          type: integer
+        august:
+          type: integer
+        september:
+          type: integer
+        october:
+          type: integer
+        november:
+          type: integer
+        december:
+          type: integer

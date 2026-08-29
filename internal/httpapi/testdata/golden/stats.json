@@ -1,0 +1,49 @@
+{
+  "totalDistanceKm": 403,
+  "totalPointsTracked": 4,
+  "totalReverseGeocodedPoints": 0,
+  "totalCountriesVisited": 0,
+  "totalCitiesVisited": 0,
+  "yearlyStats": [
+    {
+      "year": 2022,
+      "totalDistanceKm": 0,
+      "totalCountriesVisited": 0,
+      "totalCitiesVisited": 0,
+      "monthlyDistanceKm": {
+        "january": 0,
+        "february": 0,
+        "march": 0,
+        "april": 0,
+        "may": 0,
+        "june": 0,
+        "july": 0,
+        "august": 0,
+        "september": 0,
+        "october": 0,
+        "november": 0,
+        "december": 0
+      }
+    },
+    {
+      "year": 2021,
+      "totalDistanceKm": 403,
+      "totalCountriesVisited": 0,
+      "totalCitiesVisited": 0,
+      "monthlyDistanceKm": {
+        "january": 0,
+        "february": 0,
+        "march": 0,
+        "april": 0,
+        "may": 0,
+        "june": 403,
+        "july": 0,
+        "august": 0,
+        "september": 0,
+        "october": 0,
+        "november": 0,
+        "december": 0
+      }
+    }
+  ]
+}

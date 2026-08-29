@@ -85,3 +85,12 @@ func newStoreWithUnavailablePoints(t *testing.T) store.Store {
 
 	return storetest.UnavailablePoints(t, testUser(t))
 }
+
+// newStoreWithUnavailableDailyStats returns a store that authenticates as
+// [testUser] normally but fails every read of daily_stats, for the tests
+// newUnavailableStore would fail too early for.
+func newStoreWithUnavailableDailyStats(t *testing.T) store.Store {
+	t.Helper()
+
+	return storetest.UnavailableDailyStats(t, testUser(t))
+}

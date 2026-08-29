@@ -40,12 +40,6 @@ Upstream quirks for endpoints not yet implemented. For an endpoint already imple
 
 ### Per-endpoint
 
-- **`GET /api/v1/stats`** — The only endpoint using **camelCase** (`totalDistanceKm`,
-  `totalPointsTracked`, `totalReverseGeocodedPoints`, `totalCountriesVisited`,
-  `totalCitiesVisited`, `yearlyStats[].monthlyDistanceKm.january`, …). Everything else is
-  snake_case, so do not mix them up.
-- **`GET /api/v1/points/tracked_months`** — `[{"year": 2024, "months": ["Jan", "Feb", ...]}]`.
-  Months are three-letter English abbreviations.
 - **`GET/PATCH /api/v1/settings/mobile`** — GET wraps as
   `{settings: {...}, updated_at, status}`. For PATCH the **spec contradicts itself**: the schema
   puts fields at the top level while the example wraps them in `{"settings": {...}}`.
@@ -440,16 +434,6 @@ app needs and the community client does not, and it is the input to Milestone F'
 ---
 
 ## Milestone E — Browsing
-
-### Step 11: Statistics
-
-- [ ] `GET /api/v1/points/tracked_months` (read from `daily_stats`)
-- [ ] `GET /api/v1/stats` (aggregate `daily_stats`; keep camelCase exactly).
-      **Do not aggregate points directly** (see "Data Model")
-- [ ] Compare the distance against the app's own display and revisit the
-      `TRAVELMAP_TRACK_BREAK_MINUTES` rule if they diverge (see "Data Model")
-
-**Done when**: the stats screen shows distance and point counts.
 
 ### Step 12: Point mutation endpoints
 

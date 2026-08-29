@@ -171,6 +171,47 @@ func (r dailyStatsRepository) Get(ctx context.Context, userID int64, day time.Ti
 	return stat, nil
 }
 
+// All implements [store.DailyStatsRepository].
+func (r dailyStatsRepository) All(ctx context.Context, userID int64) ([]model.DailyStat, error) {
+	rows, err := r.q.QueryContext(ctx,
+		`SELECT day, points, reverse_geocoded_points, km, countries, cities
+		 FROM daily_stats WHERE user_id = ? ORDER BY day ASC`,
+		userID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("sqlite: listing daily_stats for user %d: %w", userID, err)
+	}
+
+	stats, err := collect(rows, func(rows *sql.Rows) (model.DailyStat, error) {
+		var (
+			stat              model.DailyStat
+			label             string
+			countries, cities jsonStrings
+		)
+
+		if err := rows.Scan(&label, &stat.Points, &stat.ReverseGeocodedPoints, &stat.KM, &countries, &cities); err != nil {
+			return model.DailyStat{}, err
+		}
+
+		day, err := time.Parse(dayFormat, label)
+		if err != nil {
+			return model.DailyStat{}, fmt.Errorf("parsing day %q: %w", label, err)
+		}
+
+		stat.UserID = userID
+		stat.Day = day
+		stat.Countries = countries
+		stat.Cities = cities
+
+		return stat, nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("sqlite: listing daily_stats for user %d: %w", userID, err)
+	}
+
+	return stats, nil
+}
+
 // The interface this type exists to satisfy. See the equivalent assertion on
 // [DB] for why this is worth spelling out.
 var _ store.DailyStatsRepository = dailyStatsRepository{}
