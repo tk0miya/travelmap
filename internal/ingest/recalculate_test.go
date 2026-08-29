@@ -105,6 +105,23 @@ type fakePoints struct {
 	// userIDsErr, timestampsErr, createErr and nextTimestampErr, when set,
 	// are what UserIDs, Timestamps, Create and NextTimestamp fail with.
 	userIDsErr, timestampsErr, createErr, nextTimestampErr error
+
+	// updateResult, when set, is what Update reports instead of a point
+	// built from its own arguments — for a test pinning that UpdatePoint
+	// returns exactly what Update reported.
+	updateResult *model.Point
+
+	// deleteResult is the timestamp Delete reports removed.
+	deleteResult time.Time
+
+	// deleteBulkResult is the timestamps DeleteBulk reports removed —
+	// possibly fewer than the ids it was given, for a test pinning that
+	// DeletePoints counts only what was actually deleted.
+	deleteBulkResult []time.Time
+
+	// updateErr, deleteErr and deleteBulkErr, when set, are what Update,
+	// Delete and DeleteBulk fail with.
+	updateErr, deleteErr, deleteBulkErr error
 }
 
 func (f *fakePoints) Create(_ context.Context, points []model.Point) (int, error) {
@@ -170,6 +187,34 @@ func (f *fakePoints) NextTimestamp(_ context.Context, userID int64, after time.T
 	}
 
 	return next, found, nil
+}
+
+func (f *fakePoints) Update(_ context.Context, userID, id int64, latitude, longitude float64) (model.Point, error) {
+	if f.updateErr != nil {
+		return model.Point{}, f.updateErr
+	}
+
+	if f.updateResult != nil {
+		return *f.updateResult, nil
+	}
+
+	return model.Point{ID: id, UserID: userID, Latitude: latitude, Longitude: longitude}, nil
+}
+
+func (f *fakePoints) Delete(context.Context, int64, int64) (time.Time, error) {
+	if f.deleteErr != nil {
+		return time.Time{}, f.deleteErr
+	}
+
+	return f.deleteResult, nil
+}
+
+func (f *fakePoints) DeleteBulk(context.Context, int64, []int64) ([]time.Time, error) {
+	if f.deleteBulkErr != nil {
+		return nil, f.deleteBulkErr
+	}
+
+	return f.deleteBulkResult, nil
 }
 
 // fakeStore implements [store.Store] over [fakePoints] and [fakeDailyStats].

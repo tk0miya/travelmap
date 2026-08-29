@@ -124,6 +124,27 @@ type PointRepository interface {
 	// recent first otherwise — and the total number of matching rows across
 	// every page, for GET /api/v1/points to turn into X-Total-Pages.
 	List(ctx context.Context, userID int64, startAt *time.Time, endAt time.Time, ascending bool, page, perPage int) ([]model.Point, int, error)
+
+	// Update overwrites id's latitude and longitude, scoped to userID, and
+	// returns the row as stored. It returns [ErrNotFound] if id does not
+	// exist or belongs to a different user — PATCH /api/v1/points/{id}
+	// treats the two the same, matching upstream's own
+	// current_api_user.points scoping.
+	Update(ctx context.Context, userID, id int64, latitude, longitude float64) (model.Point, error)
+
+	// Delete removes id, scoped to userID, and returns its Timestamp — what
+	// internal/ingest needs to find the days a rebuild is owed, per "Which
+	// days to update" in docs/database.md. It returns [ErrNotFound] like
+	// Update.
+	Delete(ctx context.Context, userID, id int64) (time.Time, error)
+
+	// DeleteBulk removes every id in ids that belongs to userID, silently
+	// skipping one that does not exist or belongs to someone else —
+	// matching upstream's own `where(id: point_ids).destroy_all` scoping,
+	// which is not an error for DELETE /api/v1/points/bulk_destroy the way
+	// it is for a single Delete. It returns the Timestamp of each row
+	// actually deleted.
+	DeleteBulk(ctx context.Context, userID int64, ids []int64) ([]time.Time, error)
 }
 
 // DailyStatsRepository stores the daily_stats table: one precomputed per-day
