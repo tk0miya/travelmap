@@ -18,6 +18,11 @@ maps / fog of war, and areas, places, notes, tags, digests and insights. See "No
 
 ## Build and run
 
+There is no tagged release yet. The
+[`nightly` release](https://github.com/tk0miya/travelmap/releases/tag/nightly) carries prebuilt
+binaries for Linux, macOS and Windows, rebuilt from `main` on every merge — pick one of those to
+skip building from source, or build it yourself:
+
 A checkout and a Go toolchain are all it takes. The Go version comes from `go.mod`, so nothing
 else has to be installed.
 
@@ -154,7 +159,8 @@ make migrate            # go run ./cmd/travelmap migrate
 ```
 
 CI runs `build`, `test`, `lint` and `vulncheck` on every pull request and on pushes to `main`, and
-raises the development tools in a pull request of its own once a week.
+raises the development tools in a pull request of its own once a week. A push to `main` also
+rebuilds the binaries and republishes them as the `nightly` release.
 Unformatted code fails `lint` rather than a target of its own, so `make fmt` before pushing.
 
 [CLAUDE.md](CLAUDE.md) holds the project conventions: English as the project language, the
