@@ -58,6 +58,19 @@ func UnavailablePoints(t *testing.T, users ...model.User) store.Store {
 	return open(t, path)
 }
 
+// NewWithPoints is [New], plus points seeded directly with their own ID,
+// CreatedAt and UpdatedAt — not [store.PointRepository.Create]'s, which
+// stamps the timestamps with the current time — so a caller can pin what a
+// golden file shows a client being handed back.
+func NewWithPoints(t *testing.T, users []model.User, points []model.Point) store.Store {
+	t.Helper()
+
+	path := prepare(t, users)
+	seedPoints(t, path, points)
+
+	return open(t, path)
+}
+
 // prepare copies the migrated template into a directory of the test's own,
 // seeds it with users and returns the path to it.
 func prepare(t *testing.T, users []model.User) string {
@@ -151,6 +164,32 @@ func seed(t *testing.T, path string, users []model.User) {
 			 VALUES (?, ?, ?, ?, ?, ?)`,
 			user.ID, user.Email, user.PasswordHash, user.APIKey,
 			user.CreatedAt.Unix(), user.UpdatedAt.Unix(),
+		)
+	}
+}
+
+// seedPoints writes points directly, rather than through the repository, for
+// the same reason [seed] does for users: PointRepository.Create sets
+// created_at/updated_at to the current time, and a caller pinning a golden
+// file needs the ones it asked for.
+func seedPoints(t *testing.T, path string, points []model.Point) {
+	t.Helper()
+
+	if len(points) == 0 {
+		return
+	}
+
+	for _, p := range points {
+		exec(t, path,
+			`INSERT INTO points (
+				id, user_id, timestamp, latitude, longitude, altitude, velocity,
+				accuracy, vertical_accuracy, course, course_accuracy,
+				battery_status, battery, ssid, tracker_id, created_at, updated_at
+			 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			p.ID, p.UserID, p.Timestamp.Unix(), p.Latitude, p.Longitude, p.Altitude, p.Velocity,
+			p.Accuracy, p.VerticalAccuracy, p.Course, p.CourseAccuracy,
+			p.BatteryStatus, p.Battery, p.SSID, p.TrackerID,
+			p.CreatedAt.Unix(), p.UpdatedAt.Unix(),
 		)
 	}
 }

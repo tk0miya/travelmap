@@ -38,9 +38,6 @@ Upstream quirks for endpoints not yet implemented. For an endpoint already imple
 
 ### Per-endpoint
 
-- **`GET /api/v1/points`** — `start_at` / `end_at` / `page` / `per_page` / `order`. Must return
-  the `X-Current-Page` and `X-Total-Pages` response headers. Body is an array of point objects
-  with roughly 30 fields.
 - **`GET /api/v1/stats`** — The only endpoint using **camelCase** (`totalDistanceKm`,
   `totalPointsTracked`, `totalReverseGeocodedPoints`, `totalCountriesVisited`,
   `totalCitiesVisited`, `yearlyStats[].monthlyDistanceKm.january`, …). Everything else is
@@ -61,17 +58,6 @@ Upstream quirks for endpoints not yet implemented. For an endpoint already imple
   `{"point": {"latitude": ..., "longitude": ...}}`, while
   `DELETE /api/v1/points/bulk_destroy` takes `{"point_ids": [...]}` at the top level. Check the
   spec per endpoint.
-
-### `GET /api/v1/points` must answer HTTP HEAD
-
-Clients issue a `HEAD /api/v1/points` with the same query parameters first, read
-`X-Total-Pages` from the response, and only then fetch the pages. **If `X-Total-Pages` is absent
-or 0 the client concludes there is nothing to fetch and stops** — the map silently shows no
-points. This endpoint therefore needs the pagination headers computed on the HEAD path too, not
-only on GET.
-
-Verified in the community Android client
-(`lib/core/network/repositories/api_point_repository.dart`).
 
 ### About the iOS app
 
@@ -441,17 +427,6 @@ app needs and the community client does not, and it is the input to Milestone F'
 ---
 
 ## Milestone E — Browsing
-
-Steps 10 and 11 are independent of each other and can run in parallel.
-
-### Step 10: `GET /api/v1/points`
-
-- [ ] Time filter, pagination, `X-Current-Page` / `X-Total-Pages` headers
-- [ ] **Answer `HEAD` on the same route with the same headers.** Clients probe with HEAD to get
-      the page count before fetching, and treat a missing or zero `X-Total-Pages` as "no data"
-      (see "`GET /api/v1/points` must answer HTTP HEAD")
-
-**Done when**: past points appear on the app's map.
 
 ### Step 11: Statistics
 

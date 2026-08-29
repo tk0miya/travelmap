@@ -326,3 +326,169 @@ func TestPointsNextTimestampNone(t *testing.T) {
 		t.Error("NextTimestamp reported a next point, want none")
 	}
 }
+
+// pointTimestamps extracts the timestamps of points, in order, for a test
+// that cares which rows came back rather than every column of each.
+func pointTimestamps(points []model.Point) []time.Time {
+	timestamps := make([]time.Time, len(points))
+	for i, p := range points {
+		timestamps[i] = p.Timestamp
+	}
+
+	return timestamps
+}
+
+// TestPointsList pins that it returns only the given user's points, newest
+// first by default, along with the total count across every page — not just
+// the page requested.
+func TestPointsList(t *testing.T) {
+	t.Parallel()
+
+	db := newTestDB(t)
+
+	user, err := db.Users().Create(t.Context(), testUser("list@example.com"))
+	if err != nil {
+		t.Fatalf("creating the user: %v", err)
+	}
+
+	other, err := db.Users().Create(t.Context(), testUser("other-list@example.com"))
+	if err != nil {
+		t.Fatalf("creating the other user: %v", err)
+	}
+
+	base := time.Date(2026, time.February, 3, 4, 5, 6, 0, time.UTC)
+
+	if _, err := db.Points().Create(t.Context(), []model.Point{
+		testPoint(user.ID, base),
+		testPoint(user.ID, base.Add(time.Hour)),
+		testPoint(user.ID, base.Add(2*time.Hour)),
+		testPoint(other.ID, base.Add(time.Hour)),
+	}); err != nil {
+		t.Fatalf("inserting points: %v", err)
+	}
+
+	points, total, err := db.Points().List(t.Context(), user.ID, nil, base.Add(24*time.Hour), false, 1, 100)
+	if err != nil {
+		t.Fatalf("List returned %v", err)
+	}
+
+	if total != 3 {
+		t.Errorf("total = %d, want 3 (the other user's point must not count)", total)
+	}
+
+	want := []time.Time{base.Add(2 * time.Hour), base.Add(time.Hour), base}
+	if diff := cmp.Diff(want, pointTimestamps(points)); diff != "" {
+		t.Errorf("timestamps differ (-want +got):\n%s", diff)
+	}
+}
+
+// TestPointsListAscending pins that ascending reverses the default
+// newest-first order.
+func TestPointsListAscending(t *testing.T) {
+	t.Parallel()
+
+	db := newTestDB(t)
+
+	user, err := db.Users().Create(t.Context(), testUser("list-asc@example.com"))
+	if err != nil {
+		t.Fatalf("creating the user: %v", err)
+	}
+
+	base := time.Date(2026, time.February, 3, 4, 5, 6, 0, time.UTC)
+
+	if _, err := db.Points().Create(t.Context(), []model.Point{
+		testPoint(user.ID, base),
+		testPoint(user.ID, base.Add(time.Hour)),
+	}); err != nil {
+		t.Fatalf("inserting points: %v", err)
+	}
+
+	points, _, err := db.Points().List(t.Context(), user.ID, nil, base.Add(24*time.Hour), true, 1, 100)
+	if err != nil {
+		t.Fatalf("List returned %v", err)
+	}
+
+	want := []time.Time{base, base.Add(time.Hour)}
+	if diff := cmp.Diff(want, pointTimestamps(points)); diff != "" {
+		t.Errorf("timestamps differ (-want +got):\n%s", diff)
+	}
+}
+
+// TestPointsListFiltersByTimeRange pins that startAt/endAt narrow the result
+// to the points falling inside the range, both bounds inclusive, and that a
+// nil startAt leaves the range open at the bottom.
+func TestPointsListFiltersByTimeRange(t *testing.T) {
+	t.Parallel()
+
+	db := newTestDB(t)
+
+	user, err := db.Users().Create(t.Context(), testUser("list-range@example.com"))
+	if err != nil {
+		t.Fatalf("creating the user: %v", err)
+	}
+
+	base := time.Date(2026, time.February, 3, 4, 5, 6, 0, time.UTC)
+
+	if _, err := db.Points().Create(t.Context(), []model.Point{
+		testPoint(user.ID, base),
+		testPoint(user.ID, base.Add(time.Hour)),
+		testPoint(user.ID, base.Add(2*time.Hour)),
+	}); err != nil {
+		t.Fatalf("inserting points: %v", err)
+	}
+
+	startAt := base.Add(time.Hour)
+	endAt := base.Add(2 * time.Hour)
+
+	points, total, err := db.Points().List(t.Context(), user.ID, &startAt, endAt, true, 1, 100)
+	if err != nil {
+		t.Fatalf("List returned %v", err)
+	}
+
+	if total != 2 {
+		t.Errorf("total = %d, want 2", total)
+	}
+
+	want := []time.Time{base.Add(time.Hour), base.Add(2 * time.Hour)}
+	if diff := cmp.Diff(want, pointTimestamps(points)); diff != "" {
+		t.Errorf("timestamps differ (-want +got):\n%s", diff)
+	}
+}
+
+// TestPointsListPaginates pins that page/perPage slice the ordered result and
+// that the total returned alongside it still counts every matching row, not
+// just the page fetched.
+func TestPointsListPaginates(t *testing.T) {
+	t.Parallel()
+
+	db := newTestDB(t)
+
+	user, err := db.Users().Create(t.Context(), testUser("list-page@example.com"))
+	if err != nil {
+		t.Fatalf("creating the user: %v", err)
+	}
+
+	base := time.Date(2026, time.February, 3, 4, 5, 6, 0, time.UTC)
+
+	if _, err := db.Points().Create(t.Context(), []model.Point{
+		testPoint(user.ID, base),
+		testPoint(user.ID, base.Add(time.Hour)),
+		testPoint(user.ID, base.Add(2*time.Hour)),
+	}); err != nil {
+		t.Fatalf("inserting points: %v", err)
+	}
+
+	points, total, err := db.Points().List(t.Context(), user.ID, nil, base.Add(24*time.Hour), true, 2, 1)
+	if err != nil {
+		t.Fatalf("List returned %v", err)
+	}
+
+	if total != 3 {
+		t.Errorf("total = %d, want 3 (the count across every page, not just this one)", total)
+	}
+
+	want := []time.Time{base.Add(time.Hour)}
+	if diff := cmp.Diff(want, pointTimestamps(points)); diff != "" {
+		t.Errorf("timestamps differ (-want +got):\n%s", diff)
+	}
+}

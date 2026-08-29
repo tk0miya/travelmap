@@ -109,6 +109,52 @@ paths:
           $ref: "#/components/responses/InternalServerError"
 
   /api/v1/points:
+    get:
+      summary: List the authenticated user's points
+      description: >
+        Optionally narrowed by start_at/end_at (RFC 3339, a bare
+        YYYY-MM-DD date, or a Unix timestamp), paginated by page/per_page,
+        ordered newest-first unless order=asc. See docs/api-notes.md for
+        where the response shape deliberately diverges from the published
+        Dawarich schema.
+      operationId: listPoints
+      parameters:
+        - $ref: "#/components/parameters/StartAt"
+        - $ref: "#/components/parameters/EndAt"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+        - $ref: "#/components/parameters/Order"
+      responses:
+        "200":
+          $ref: "#/components/responses/PointsListed"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    head:
+      summary: List the authenticated user's points (headers only)
+      description: >
+        Identical to GET, with no response body. Clients probe with HEAD
+        to read X-Total-Pages before fetching any page at all; see the
+        note on GET /api/v1/users/me.
+      operationId: listPointsHead
+      parameters:
+        - $ref: "#/components/parameters/StartAt"
+        - $ref: "#/components/parameters/EndAt"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+        - $ref: "#/components/parameters/Order"
+      responses:
+        "200":
+          $ref: "#/components/responses/PointsListed"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
     post:
       summary: Record a batch of GPS points
       description: >
@@ -206,6 +252,47 @@ components:
       description: >
         `Authorization: Bearer <api_key>`. Accepted on every endpoint here,
         regardless of which one upstream's own spec documents it for.
+
+  parameters:
+    StartAt:
+      name: start_at
+      in: query
+      description: >
+        RFC 3339, a bare YYYY-MM-DD date, or a Unix timestamp. Left
+        unset, the range has no lower bound.
+      schema:
+        type: string
+    EndAt:
+      name: end_at
+      in: query
+      description: >
+        Same formats as start_at. Left unset, defaults to the request
+        time.
+      schema:
+        type: string
+    Page:
+      name: page
+      in: query
+      description: 1-based. Anything not a positive integer is page 1.
+      schema:
+        type: integer
+    PerPage:
+      name: per_page
+      in: query
+      description: Anything not a positive integer defaults to 100.
+      schema:
+        type: integer
+    Order:
+      name: order
+      in: query
+      description: >
+        "asc" for oldest-first. Anything else — "desc", unset, or a
+        value that is neither — is newest-first.
+      schema:
+        type: string
+        enum:
+          - asc
+          - desc
 
   headers:
     DawarichResponse:
@@ -305,6 +392,30 @@ components:
             $ref: "#/components/schemas/LocationsCreated"
           example:
             created: 1
+
+    PointsListed:
+      description: The user's points for the requested range and page.
+      headers:
+        X-Dawarich-Response:
+          $ref: "#/components/headers/DawarichResponse"
+        X-Dawarich-Version:
+          $ref: "#/components/headers/DawarichVersion"
+        X-Current-Page:
+          description: The page this response answers with.
+          schema:
+            type: integer
+        X-Total-Pages:
+          description: >
+            The total number of pages across the whole matching range,
+            not just the page fetched. 0 when nothing matches.
+          schema:
+            type: integer
+      content:
+        application/json; charset=utf-8:
+          schema:
+            type: array
+            items:
+              $ref: "#/components/schemas/Point"
 
     OverlandBatchCreated:
       description: The points were stored.
@@ -765,3 +876,150 @@ components:
           description: >
             Marks the category this server treats as "the" category when
             a venue carries more than one.
+    Point:
+      type: object
+      description: >
+        See docs/api-notes.md's GET /api/v1/points section for why
+        latitude/longitude/velocity/course/course_accuracy are strings
+        rather than numbers, and why every field travelmap has no data
+        for yet is sent as upstream's own "not yet populated" value
+        rather than omitted.
+      required:
+        - id
+        - latitude
+        - longitude
+        - timestamp
+        - altitude
+        - velocity
+        - accuracy
+        - vertical_accuracy
+        - course
+        - course_accuracy
+        - battery_status
+        - battery
+        - ssid
+        - tracker_id
+        - created_at
+        - updated_at
+        - user_id
+        - ping
+        - topic
+        - trigger
+        - bssid
+        - connection
+        - mode
+        - in_regions
+        - inrids
+        - raw_data
+        - import_id
+        - city
+        - country
+        - visit_id
+        - geodata
+      properties:
+        id:
+          type: integer
+          format: int64
+        latitude:
+          type: string
+        longitude:
+          type: string
+        timestamp:
+          type: integer
+          description: Unix seconds.
+        altitude:
+          type: number
+          nullable: true
+        velocity:
+          type: string
+          nullable: true
+        accuracy:
+          type: number
+          nullable: true
+        vertical_accuracy:
+          type: number
+          nullable: true
+        course:
+          type: string
+          nullable: true
+        course_accuracy:
+          type: string
+          nullable: true
+        battery_status:
+          type: string
+          nullable: true
+        battery:
+          type: number
+          nullable: true
+        ssid:
+          type: string
+          nullable: true
+        tracker_id:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        user_id:
+          type: integer
+          format: int64
+        ping:
+          type: number
+          nullable: true
+          description: Always null; not stored yet.
+        topic:
+          type: string
+          nullable: true
+          description: Always null; not stored yet.
+        trigger:
+          type: string
+          nullable: true
+          description: Always null; not stored yet.
+        bssid:
+          type: string
+          nullable: true
+          description: Always null; not stored yet.
+        connection:
+          type: string
+          nullable: true
+          description: Always null; not stored yet.
+        mode:
+          type: number
+          nullable: true
+          description: Always null; not stored yet.
+        in_regions:
+          type: array
+          items:
+            type: string
+          description: Always empty; region matching is not implemented.
+        inrids:
+          type: array
+          items:
+            type: string
+          description: Always empty; region matching is not implemented.
+        raw_data:
+          type: string
+          nullable: true
+          description: Always null; not stored yet.
+        import_id:
+          type: string
+          nullable: true
+          description: Always null; imports are not implemented yet.
+        city:
+          type: string
+          nullable: true
+          description: Always null; reverse geocoding is not implemented yet.
+        country:
+          type: string
+          nullable: true
+          description: Always null; reverse geocoding is not implemented yet.
+        visit_id:
+          type: string
+          nullable: true
+          description: Always null; visits are not implemented yet.
+        geodata:
+          type: object
+          description: Always empty; reverse geocoding is not implemented yet.
