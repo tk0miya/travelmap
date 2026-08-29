@@ -108,6 +108,13 @@ type PointRepository interface {
 	// though none of D's own points changed. NextTimestamp is how a caller
 	// tells whether inserting a point does that.
 	NextTimestamp(ctx context.Context, userID int64, after time.Time) (time.Time, bool, error)
+
+	// List returns userID's points timestamped no earlier than startAt (no
+	// lower bound if nil) and no later than endAt, the page'th page (1-based)
+	// of perPage of them ordered by timestamp — ascending if ascending, most
+	// recent first otherwise — and the total number of matching rows across
+	// every page, for GET /api/v1/points to turn into X-Total-Pages.
+	List(ctx context.Context, userID int64, startAt *time.Time, endAt time.Time, ascending bool, page, perPage int) ([]model.Point, int, error)
 }
 
 // DailyStatsRepository stores the daily_stats table: one precomputed per-day

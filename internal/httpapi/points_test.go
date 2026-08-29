@@ -1,9 +1,15 @@
 package httpapi_test
 
 import (
+	"encoding/json"
 	"net/http"
 	"testing"
 	"time"
+
+	"github.com/google/go-cmp/cmp"
+
+	"github.com/tk0miya/travelmap/internal/model"
+	"github.com/tk0miya/travelmap/internal/store/storetest"
 )
 
 // validLocationsBody is one GeoJSON Feature carrying every property this
@@ -205,4 +211,479 @@ func TestCreatePointsStoreFailure(t *testing.T) {
 	}
 
 	assertGolden(t, "internal_server_error.json", resp.body)
+}
+
+// twoPointsBody seeds two points an hour apart: one carrying every property
+// this server stores, the other only what a Feature must have — a timestamp
+// and coordinates — so a listing test's golden file shows both a populated
+// and an empty device property.
+const twoPointsBody = `{
+	"locations": [
+		{
+			"type": "Feature",
+			"geometry": {"type": "Point", "coordinates": [13.356718, 52.502397]},
+			"properties": {
+				"timestamp": "2021-06-01T12:00:00Z",
+				"altitude": 10,
+				"speed": 5,
+				"horizontal_accuracy": 4,
+				"vertical_accuracy": 3,
+				"course": 90,
+				"course_accuracy": 1,
+				"battery_state": "charging",
+				"battery_level": 0.5,
+				"wifi": "home",
+				"track_id": "track-1",
+				"device_id": "device-1"
+			}
+		},
+		{
+			"type": "Feature",
+			"geometry": {"type": "Point", "coordinates": [10, 20]},
+			"properties": {"timestamp": "2021-06-01T13:00:00Z"}
+		}
+	]
+}`
+
+// ptr returns a pointer to a copy of v, for building a [model.Point] literal
+// whose optional fields take an address rather than a variable of their own.
+func ptr[T any](v T) *T {
+	return &v
+}
+
+// twoTestPoints is [twoPointsBody] as the [model.Point] values it describes,
+// for a test that seeds the store directly rather than through POST
+// /api/v1/points — so that created_at/updated_at are the fixed
+// [testCreatedAt]/[testUpdatedAt] a golden file can pin, not whichever
+// instant the test happened to run at.
+func twoTestPoints(userID int64) []model.Point {
+	return []model.Point{
+		{
+			ID:        1,
+			UserID:    userID,
+			Timestamp: time.Date(2021, time.June, 1, 12, 0, 0, 0, time.UTC),
+			Latitude:  52.502397,
+			Longitude: 13.356718,
+
+			Altitude:         ptr(10.0),
+			Velocity:         ptr(5.0),
+			Accuracy:         ptr(4.0),
+			VerticalAccuracy: ptr(3.0),
+			Course:           ptr(90.0),
+			CourseAccuracy:   ptr(1.0),
+			BatteryStatus:    ptr("charging"),
+			Battery:          ptr(0.5),
+			SSID:             ptr("home"),
+			TrackerID:        ptr("device-1"),
+
+			CreatedAt: testCreatedAt,
+			UpdatedAt: testUpdatedAt,
+		},
+		{
+			ID:        2,
+			UserID:    userID,
+			Timestamp: time.Date(2021, time.June, 1, 13, 0, 0, 0, time.UTC),
+			Latitude:  20,
+			Longitude: 10,
+
+			CreatedAt: testCreatedAt,
+			UpdatedAt: testUpdatedAt,
+		},
+	}
+}
+
+// TestListPoints covers GET /api/v1/points: the shape of one point carrying
+// every property this server stores, one carrying none of them, and that the
+// default order is newest first.
+func TestListPoints(t *testing.T) {
+	t.Parallel()
+
+	st := storetest.NewWithPoints(t, []model.User{testUser(t)}, twoTestPoints(testUser(t).ID))
+	srv := newTestServerWith(t, st)
+
+	resp := do(t, srv, http.MethodGet, "/api/v1/points?api_key="+testAPIKey)
+
+	if resp.status != http.StatusOK {
+		t.Errorf("status = %d, want %d", resp.status, http.StatusOK)
+	}
+
+	if got, want := resp.header.Get("Content-Type"), "application/json; charset=utf-8"; got != want {
+		t.Errorf("Content-Type = %q, want %q", got, want)
+	}
+
+	if got, want := resp.header.Get("X-Current-Page"), "1"; got != want {
+		t.Errorf("X-Current-Page = %q, want %q", got, want)
+	}
+
+	if got, want := resp.header.Get("X-Total-Pages"), "1"; got != want {
+		t.Errorf("X-Total-Pages = %q, want %q", got, want)
+	}
+
+	assertGolden(t, "points_listed.json", resp.body)
+}
+
+// TestListPointsAnswersHead pins that HEAD carries the same pagination
+// headers as GET, with no body — the headers are what a client reads to
+// decide whether to fetch any pages at all.
+func TestListPointsAnswersHead(t *testing.T) {
+	t.Parallel()
+
+	srv := newTestServer(t)
+
+	seed := do(t, srv, http.MethodPost, "/api/v1/points?api_key="+testAPIKey, withBody(twoPointsBody))
+	if seed.status != http.StatusOK {
+		t.Fatalf("seeding points: status = %d, want %d", seed.status, http.StatusOK)
+	}
+
+	resp := do(t, srv, http.MethodHead, "/api/v1/points?api_key="+testAPIKey)
+
+	if resp.status != http.StatusOK {
+		t.Errorf("status = %d, want %d", resp.status, http.StatusOK)
+	}
+
+	if got, want := resp.header.Get("X-Total-Pages"), "1"; got != want {
+		t.Errorf("X-Total-Pages = %q, want %q", got, want)
+	}
+
+	if len(resp.body) != 0 {
+		t.Errorf("body = %q, want it empty on a HEAD response", resp.body)
+	}
+}
+
+// TestListPointsRequiresAuthentication pins that listing is behind
+// requireUser like every other route serving one account's data.
+func TestListPointsRequiresAuthentication(t *testing.T) {
+	t.Parallel()
+
+	srv := newTestServer(t)
+	resp := do(t, srv, http.MethodGet, "/api/v1/points")
+
+	if resp.status != http.StatusUnauthorized {
+		t.Errorf("status = %d, want %d", resp.status, http.StatusUnauthorized)
+	}
+
+	if len(resp.body) != 0 {
+		t.Errorf("body = %q, want it empty on a 401", resp.body)
+	}
+}
+
+// TestListPointsEmptyResultIsAnEmptyArray pins that no matching points still
+// answers a JSON array, never `null` — a client iterating the body would fail
+// on `null` where it expects a (possibly empty) list.
+func TestListPointsEmptyResultIsAnEmptyArray(t *testing.T) {
+	t.Parallel()
+
+	srv := newTestServer(t)
+	resp := do(t, srv, http.MethodGet, "/api/v1/points?api_key="+testAPIKey)
+
+	if resp.status != http.StatusOK {
+		t.Errorf("status = %d, want %d", resp.status, http.StatusOK)
+	}
+
+	if got, want := resp.header.Get("X-Total-Pages"), "0"; got != want {
+		t.Errorf("X-Total-Pages = %q, want %q", got, want)
+	}
+
+	if got, want := string(resp.body), "[]\n"; got != want {
+		t.Errorf("body = %q, want %q", got, want)
+	}
+}
+
+// pointIDs decodes body as a list of points and returns their ids in order,
+// for a test that cares which points came back and in what order rather than
+// the shape of one — that is [TestListPoints]'s job.
+func pointIDs(t *testing.T, body []byte) []int64 {
+	t.Helper()
+
+	var points []struct {
+		ID int64 `json:"id"`
+	}
+
+	if err := json.Unmarshal(body, &points); err != nil {
+		t.Fatalf("decoding the response body: %v", err)
+	}
+
+	ids := make([]int64, len(points))
+	for i, p := range points {
+		ids[i] = p.ID
+	}
+
+	return ids
+}
+
+// TestListPointsOrder pins that order=asc reverses the default newest-first
+// order, and that anything else — including leaving it unset — keeps that
+// default rather than erroring.
+func TestListPointsOrder(t *testing.T) {
+	t.Parallel()
+
+	srv := newTestServer(t)
+
+	seed := do(t, srv, http.MethodPost, "/api/v1/points?api_key="+testAPIKey, withBody(twoPointsBody))
+	if seed.status != http.StatusOK {
+		t.Fatalf("seeding points: status = %d, want %d", seed.status, http.StatusOK)
+	}
+
+	tests := map[string]struct {
+		query   string
+		wantIDs []int64
+	}{
+		"default is newest first": {query: "", wantIDs: []int64{2, 1}},
+		"desc is newest first":    {query: "&order=desc", wantIDs: []int64{2, 1}},
+		"asc is oldest first":     {query: "&order=asc", wantIDs: []int64{1, 2}},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			resp := do(t, srv, http.MethodGet, "/api/v1/points?api_key="+testAPIKey+tt.query)
+
+			if resp.status != http.StatusOK {
+				t.Fatalf("status = %d, want %d", resp.status, http.StatusOK)
+			}
+
+			ids := pointIDs(t, resp.body)
+			if diff := cmp.Diff(ids, tt.wantIDs); diff != "" {
+				t.Errorf("ids differ (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// TestListPointsFiltersByTimeRange pins that start_at/end_at narrow the
+// result to the points falling inside the range, both bounds inclusive.
+func TestListPointsFiltersByTimeRange(t *testing.T) {
+	t.Parallel()
+
+	srv := newTestServer(t)
+
+	seed := do(t, srv, http.MethodPost, "/api/v1/points?api_key="+testAPIKey, withBody(twoPointsBody))
+	if seed.status != http.StatusOK {
+		t.Fatalf("seeding points: status = %d, want %d", seed.status, http.StatusOK)
+	}
+
+	// The first point is at 12:00Z, the second at 13:00Z; a range covering
+	// only the second's own instant should exclude the first.
+	resp := do(t, srv, http.MethodGet,
+		"/api/v1/points?api_key="+testAPIKey+"&start_at=2021-06-01T13:00:00Z&end_at=2021-06-01T13:00:00Z")
+
+	if resp.status != http.StatusOK {
+		t.Fatalf("status = %d, want %d", resp.status, http.StatusOK)
+	}
+
+	if diff := cmp.Diff(pointIDs(t, resp.body), []int64{2}); diff != "" {
+		t.Errorf("ids differ (-want +got):\n%s", diff)
+	}
+}
+
+// TestListPointsPaginates pins that per_page/page slice the result and that
+// X-Total-Pages reflects the whole range, not just the page fetched.
+func TestListPointsPaginates(t *testing.T) {
+	t.Parallel()
+
+	srv := newTestServer(t)
+
+	seed := do(t, srv, http.MethodPost, "/api/v1/points?api_key="+testAPIKey, withBody(twoPointsBody))
+	if seed.status != http.StatusOK {
+		t.Fatalf("seeding points: status = %d, want %d", seed.status, http.StatusOK)
+	}
+
+	resp := do(t, srv, http.MethodGet, "/api/v1/points?api_key="+testAPIKey+"&per_page=1&page=2")
+
+	if resp.status != http.StatusOK {
+		t.Fatalf("status = %d, want %d", resp.status, http.StatusOK)
+	}
+
+	if got, want := resp.header.Get("X-Current-Page"), "2"; got != want {
+		t.Errorf("X-Current-Page = %q, want %q", got, want)
+	}
+
+	if got, want := resp.header.Get("X-Total-Pages"), "2"; got != want {
+		t.Errorf("X-Total-Pages = %q, want %q", got, want)
+	}
+
+	// Newest first by default, one per page: page 2 is the older point.
+	if diff := cmp.Diff(pointIDs(t, resp.body), []int64{1}); diff != "" {
+		t.Errorf("ids differ (-want +got):\n%s", diff)
+	}
+}
+
+// TestListPointsStoreFailure covers what a client sees when the store cannot
+// be read, rather than a 200 with an incomplete or empty result.
+func TestListPointsStoreFailure(t *testing.T) {
+	t.Parallel()
+
+	srv := newTestServerWith(t, newStoreWithUnavailablePoints(t))
+	resp := do(t, srv, http.MethodGet, "/api/v1/points?api_key="+testAPIKey)
+
+	if resp.status != http.StatusInternalServerError {
+		t.Errorf("status = %d, want %d", resp.status, http.StatusInternalServerError)
+	}
+
+	assertGolden(t, "internal_server_error.json", resp.body)
+}
+
+// TestListPointsExcludesOtherUsersPoints pins that the listing is scoped to
+// the authenticated user: a request must not read another account's location
+// history back, which id alone would not catch since ids are not
+// per-user.
+func TestListPointsExcludesOtherUsersPoints(t *testing.T) {
+	t.Parallel()
+
+	// A test fixture, not a credential — see testAPIKey.
+	const otherAPIKey = "1f0e2d3c4b5a69788796a5b4c3d2e1f01f0e2d3c4b5a69788796a5b4c3d2e1f0" //nolint:gosec // see above
+
+	other := model.User{
+		ID:        2,
+		Email:     "bob@example.com",
+		APIKey:    otherAPIKey,
+		CreatedAt: testCreatedAt,
+		UpdatedAt: testUpdatedAt,
+	}
+
+	st := storetest.New(t, testUser(t), other)
+	srv := newTestServerWith(t, st)
+
+	if _, err := st.Points().Create(t.Context(), []model.Point{
+		{
+			UserID:    testUser(t).ID,
+			Timestamp: time.Date(2021, time.June, 1, 12, 0, 0, 0, time.UTC),
+			Latitude:  1,
+			Longitude: 1,
+		},
+		{
+			UserID:    other.ID,
+			Timestamp: time.Date(2021, time.June, 1, 13, 0, 0, 0, time.UTC),
+			Latitude:  2,
+			Longitude: 2,
+		},
+	}); err != nil {
+		t.Fatalf("seeding points: %v", err)
+	}
+
+	resp := do(t, srv, http.MethodGet, "/api/v1/points?api_key="+testAPIKey)
+
+	if resp.status != http.StatusOK {
+		t.Fatalf("status = %d, want %d", resp.status, http.StatusOK)
+	}
+
+	// The seeded point belonging to testUser is the first row inserted, so
+	// its id is 1 regardless of which user owns it — id alone would not
+	// catch a query that forgot to scope by user_id.
+	if diff := cmp.Diff([]int64{1}, pointIDs(t, resp.body)); diff != "" {
+		t.Errorf("ids differ (-want +got):\n%s", diff)
+	}
+}
+
+// TestListPointsRejectsUnparseableTime pins that a start_at/end_at this
+// server cannot read is a 400, not silently treated as absent — a client
+// whose date landed in a range it did not ask for would have no way to tell.
+func TestListPointsRejectsUnparseableTime(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		query      string
+		wantGolden string
+	}{
+		"start_at": {query: "start_at=not-a-date", wantGolden: "invalid_start_at.json"},
+		"end_at":   {query: "end_at=not-a-date", wantGolden: "invalid_end_at.json"},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			srv := newTestServer(t)
+			resp := do(t, srv, http.MethodGet, "/api/v1/points?api_key="+testAPIKey+"&"+tt.query)
+
+			if resp.status != http.StatusBadRequest {
+				t.Errorf("status = %d, want %d", resp.status, http.StatusBadRequest)
+			}
+
+			assertGolden(t, tt.wantGolden, resp.body)
+		})
+	}
+}
+
+// TestListPointsAcceptsAlternateTimeFormats pins that start_at/end_at also
+// accept a bare YYYY-MM-DD date and a purely numeric Unix-seconds value, not
+// only RFC 3339 — both deliberately, for existing clients that send them,
+// not merely because [time.Parse] happens to accept them.
+func TestListPointsAcceptsAlternateTimeFormats(t *testing.T) {
+	t.Parallel()
+
+	// Both seeded points are on 2021-06-01, at 12:00Z and 13:00Z; both
+	// queries below are chosen to include both of them.
+	tests := map[string]string{
+		"bare date as start_at": "start_at=2021-06-01&end_at=2021-06-01T13:00:00Z",
+		"Unix seconds":          "start_at=1622548800&end_at=1622552400",
+	}
+
+	for name, query := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			srv := newTestServer(t)
+
+			seed := do(t, srv, http.MethodPost, "/api/v1/points?api_key="+testAPIKey, withBody(twoPointsBody))
+			if seed.status != http.StatusOK {
+				t.Fatalf("seeding points: status = %d, want %d", seed.status, http.StatusOK)
+			}
+
+			resp := do(t, srv, http.MethodGet, "/api/v1/points?api_key="+testAPIKey+"&"+query)
+
+			if resp.status != http.StatusOK {
+				t.Fatalf("status = %d, want %d", resp.status, http.StatusOK)
+			}
+
+			if diff := cmp.Diff([]int64{2, 1}, pointIDs(t, resp.body)); diff != "" {
+				t.Errorf("ids differ (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// TestListPointsInvalidPaginationFallsBackToDefaults pins that a page or
+// per_page that is not a positive integer falls back to the default (1 and
+// 100 respectively) rather than answering an error or an empty page — for
+// both ways it can fail to be one: zero/negative, and not a number at all.
+func TestListPointsInvalidPaginationFallsBackToDefaults(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]string{
+		"zero and negative": "page=0&per_page=-5",
+		"not a number":      "page=abc&per_page=xyz",
+	}
+
+	for name, query := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			srv := newTestServer(t)
+
+			seed := do(t, srv, http.MethodPost, "/api/v1/points?api_key="+testAPIKey, withBody(twoPointsBody))
+			if seed.status != http.StatusOK {
+				t.Fatalf("seeding points: status = %d, want %d", seed.status, http.StatusOK)
+			}
+
+			resp := do(t, srv, http.MethodGet, "/api/v1/points?api_key="+testAPIKey+"&"+query)
+
+			if resp.status != http.StatusOK {
+				t.Fatalf("status = %d, want %d", resp.status, http.StatusOK)
+			}
+
+			if got, want := resp.header.Get("X-Current-Page"), "1"; got != want {
+				t.Errorf("X-Current-Page = %q, want %q", got, want)
+			}
+
+			if got, want := resp.header.Get("X-Total-Pages"), "1"; got != want {
+				t.Errorf("X-Total-Pages = %q, want %q", got, want)
+			}
+
+			if diff := cmp.Diff([]int64{2, 1}, pointIDs(t, resp.body)); diff != "" {
+				t.Errorf("ids differ (-want +got):\n%s", diff)
+			}
+		})
+	}
 }

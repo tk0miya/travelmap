@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/tk0miya/travelmap/internal/httpapi/dto"
@@ -150,4 +151,175 @@ func pointFromFeature(f dto.Feature, userID int64) (model.Point, bool) {
 		SSID:             f.Properties.Wifi,
 		TrackerID:        f.Properties.DeviceID,
 	}, true
+}
+
+// defaultPointsPerPage is what per_page defaults to when absent or not a
+// positive integer, matching upstream's own controller default.
+const defaultPointsPerPage = 100
+
+// listPoints answers GET /api/v1/points: the authenticated user's points,
+// optionally narrowed by start_at/end_at, paginated by page/per_page, sorted
+// per the order parameter.
+func (a *api) listPoints(w http.ResponseWriter, r *http.Request) {
+	user, ok := userFrom(r.Context())
+	if !ok {
+		// requireUser is what makes this unreachable; see usersMe for why
+		// answering anything but an error here would be wrong regardless.
+		a.logger.Error("points listing was reached without an authenticated user",
+			"method", r.Method,
+			"path", r.URL.Path,
+		)
+		a.writeError(w, r, http.StatusInternalServerError, "internal server error")
+
+		return
+	}
+
+	q := r.URL.Query()
+
+	startAt, ok := parseQueryTime(q.Get("start_at"))
+	if !ok {
+		a.writeError(w, r, http.StatusBadRequest, "invalid start_at")
+
+		return
+	}
+
+	endAt, ok := parseQueryTime(q.Get("end_at"))
+	if !ok {
+		a.writeError(w, r, http.StatusBadRequest, "invalid end_at")
+
+		return
+	}
+
+	// Upstream defaults end_at to the request time rather than leaving the
+	// range open-ended, so a client that never sends it still gets an upper
+	// bound.
+	end := time.Now().UTC()
+	if endAt != nil {
+		end = *endAt
+	}
+
+	page := positiveInt(q.Get("page"), 1)
+	perPage := positiveInt(q.Get("per_page"), defaultPointsPerPage)
+	ascending := q.Get("order") == "asc"
+
+	points, total, err := a.store.Points().List(r.Context(), user.ID, startAt, end, ascending, page, perPage)
+	if err != nil {
+		a.logger.Error("listing points failed",
+			"path", r.URL.Path,
+			"error", err,
+		)
+		a.writeError(w, r, http.StatusInternalServerError, "internal server error")
+
+		return
+	}
+
+	// Integer ceiling division: perPage is always positive, from
+	// [positiveInt] above, so this never divides by zero.
+	totalPages := (total + perPage - 1) / perPage
+
+	w.Header().Set("X-Current-Page", strconv.Itoa(page))
+	w.Header().Set("X-Total-Pages", strconv.Itoa(totalPages))
+
+	a.writeJSON(w, r, http.StatusOK, pointsToDTO(points))
+}
+
+// positiveInt parses s as a positive integer, reporting def for anything
+// else — absent, not a number, zero or negative — matching upstream's own
+// `to_i; default unless positive?` handling of page and per_page.
+func positiveInt(s string, def int) int {
+	n, err := strconv.Atoi(s)
+	if err != nil || n <= 0 {
+		return def
+	}
+
+	return n
+}
+
+// parseQueryTime reads a start_at/end_at query value, reporting (nil, true)
+// for one left empty. Besides RFC 3339 and a bare date, a purely numeric
+// value is read as Unix seconds — upstream's own SafeTimestampParser treats
+// one as such deliberately, not as a leniency, so a client already relying on
+// it is not left with a 400 when it works upstream.
+func parseQueryTime(s string) (*time.Time, bool) {
+	if s == "" {
+		return nil, true
+	}
+
+	if secs, err := strconv.ParseInt(s, 10, 64); err == nil {
+		t := time.Unix(secs, 0).UTC()
+
+		return &t, true
+	}
+
+	for _, layout := range []string{time.RFC3339, time.DateOnly} {
+		if t, err := time.Parse(layout, s); err == nil {
+			t = t.UTC()
+
+			return &t, true
+		}
+	}
+
+	return nil, false
+}
+
+// pointsToDTO converts points into the shape GET /api/v1/points answers with,
+// in the same order. It never returns nil: an empty result is still a JSON
+// array, since a client that gets `null` where it expects an array of points
+// would fail iterating it rather than seeing an empty list.
+func pointsToDTO(points []model.Point) []dto.Point {
+	out := make([]dto.Point, 0, len(points))
+
+	for _, p := range points {
+		out = append(out, dto.Point{
+			ID: p.ID,
+
+			Latitude:  formatFloat(p.Latitude),
+			Longitude: formatFloat(p.Longitude),
+			Timestamp: p.Timestamp.Unix(),
+
+			Altitude:         p.Altitude,
+			Velocity:         formatFloatPtr(p.Velocity),
+			Accuracy:         p.Accuracy,
+			VerticalAccuracy: p.VerticalAccuracy,
+			Course:           formatFloatPtr(p.Course),
+			CourseAccuracy:   formatFloatPtr(p.CourseAccuracy),
+			BatteryStatus:    p.BatteryStatus,
+			Battery:          p.Battery,
+			SSID:             p.SSID,
+			TrackerID:        p.TrackerID,
+
+			CreatedAt: formatTimestamp(p.CreatedAt),
+			UpdatedAt: formatTimestamp(p.UpdatedAt),
+			UserID:    p.UserID,
+
+			InRegions: []string{},
+			InRIDs:    []string{},
+			Geodata:   map[string]any{},
+		})
+	}
+
+	return out
+}
+
+// formatFloat renders v the way upstream's serializer renders a coordinate:
+// as a string rather than a JSON number. [strconv.FormatFloat]'s shortest
+// round-trippable form is not a byte-for-byte match for Ruby's Float#to_s
+// (which always keeps a ".0" on a whole number, for one) — nothing here
+// parses this back as a float to check — but it round-trips through the same
+// `strconv.ParseFloat`/Dart `double.parse` a client would use, which is what
+// compatibility actually rests on.
+func formatFloat(v float64) string {
+	return strconv.FormatFloat(v, 'f', -1, 64)
+}
+
+// formatFloatPtr is [formatFloat] for a device property that may not have
+// been reported.
+func formatFloatPtr(v *float64) *string {
+	if v == nil {
+		return nil
+	}
+
+	s := formatFloat(*v)
+
+	return &s
 }

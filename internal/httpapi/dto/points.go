@@ -49,3 +49,49 @@ type PointProperties struct {
 type LocationsCreated struct {
 	Created int `json:"created"`
 }
+
+// Point is one location as GET /api/v1/points reports it.
+//
+// Latitude, Longitude, Velocity, Course and CourseAccuracy are strings, not
+// numbers: that is what upstream's own serializer sends, not what its
+// published schema says.
+type Point struct {
+	ID int64 `json:"id"`
+
+	Latitude  string `json:"latitude"`
+	Longitude string `json:"longitude"`
+	Timestamp int64  `json:"timestamp"`
+
+	Altitude         *float64 `json:"altitude"`
+	Velocity         *string  `json:"velocity"`
+	Accuracy         *float64 `json:"accuracy"`
+	VerticalAccuracy *float64 `json:"vertical_accuracy"`
+	Course           *string  `json:"course"`
+	CourseAccuracy   *string  `json:"course_accuracy"`
+	BatteryStatus    *string  `json:"battery_status"`
+	Battery          *float64 `json:"battery"`
+	SSID             *string  `json:"ssid"`
+	TrackerID        *string  `json:"tracker_id"`
+
+	CreatedAt string `json:"created_at"`
+	UpdatedAt string `json:"updated_at"`
+	UserID    int64  `json:"user_id"`
+
+	// Below: nothing here stores any of these yet, so every point reports
+	// them as the value a point that has never been reverse-geocoded,
+	// imported, or assigned to a visit already carries upstream.
+	Ping       *float64       `json:"ping"`
+	Topic      *string        `json:"topic"`
+	Trigger    *string        `json:"trigger"`
+	BSSID      *string        `json:"bssid"`
+	Connection *string        `json:"connection"`
+	Mode       *float64       `json:"mode"`
+	InRegions  []string       `json:"in_regions"`
+	InRIDs     []string       `json:"inrids"`
+	RawData    *string        `json:"raw_data"`
+	ImportID   *string        `json:"import_id"`
+	City       *string        `json:"city"`
+	Country    *string        `json:"country"`
+	VisitID    *string        `json:"visit_id"`
+	Geodata    map[string]any `json:"geodata"`
+}

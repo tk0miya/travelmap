@@ -140,6 +140,7 @@ func New(opts Options) http.Handler {
 			r.Use(requireUser)
 
 			get(r, "/users/me", a.usersMe)
+			get(r, "/points", a.listPoints)
 			r.Post("/points", a.createPoints)
 			r.Post("/overland/batches", a.createOverlandBatch)
 		})

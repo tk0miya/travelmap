@@ -117,6 +117,40 @@ A 1000-point batch runs to roughly 435 KB as JSON, comfortably inside the reques
 Overland iOS app's (`-0700`, no colon — see its README's example payload): `/overland/batches`
 exists to accept that app's own format.
 
+### `GET /api/v1/points`
+
+A purely numeric `start_at`/`end_at` is read as Unix seconds deliberately, not as a side effect of
+a lenient parser: upstream's own `SafeTimestampParser` accepts one on purpose, its comment calling
+out treating a numeric string as a timestamp. An unparseable value here answers 400 rather than
+upstream's own fallback to "now" for anything its parser cannot read — not worth reproducing,
+since no known client sends anything but the documented formats. `page` and `per_page`'s fallback
+values match upstream's own `to_i; default unless positive?`.
+
+**`latitude`, `longitude`, `velocity`, `course` and `course_accuracy` are JSON strings, not
+numbers, which this project trusts over the published OpenAPI schema's declared `number`
+type** — read off upstream's actual `Api::PointSerializer` and its `points` schema
+(`db/schema.rb`), not the document. Upstream's serializer renders latitude/longitude with an
+explicit `.to_s`; velocity is a string column in its own schema; course and course_accuracy are
+`decimal` columns, which Rails' JSON encoder always renders as a string to avoid the precision
+loss a JSON number would risk. The community Android client's `ApiPointDTO` casts exactly these
+fields (`latitude`, `longitude`, `velocity`) to `String` with no numeric fallback — an
+unconditional cast that fails outright on a bare JSON number — which is the client evidence this
+rests on; course and course_accuracy are not in that DTO or the published schema at all, but
+travelmap stores both, so they are sent anyway, as strings, for the same column-type reason.
+
+Every field upstream's serializer sends that travelmap has no data for yet (`docs/openapi.yaml`'s
+`Point` schema says which) is sent as what a fresh upstream point already looks like before
+reverse geocoding, an import or a visit ever touches it — the columns' own defaults in upstream's
+schema, not an arbitrary placeholder invented here.
+
+Upstream also accepts a `slim=true` parameter that answers a narrower per-point shape
+(`id`, `latitude`, `longitude`, `timestamp`, `velocity`, `country_name`, `tracker_id`); it is not
+in the published spec at all, only in the community client's own request code. This server
+always answers the full shape above regardless of `slim`: an unrecognised query parameter is
+ignored rather than acted on, the same as any other endpoint here, and every field the slim shape
+asks for is already present in the full one, so a client that requested `slim` still gets
+everything it parses.
+
 ### Every response carries `Content-Type: application/json; charset=utf-8`
 
 Upstream sends the charset, and it is worth copying rather than sending a bare

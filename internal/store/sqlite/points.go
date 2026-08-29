@@ -11,6 +11,12 @@ import (
 	"github.com/tk0miya/travelmap/internal/store"
 )
 
+// pointColumns is the select list [List] reads, in the order [scanPoint]
+// expects them.
+const pointColumns = `id, user_id, timestamp, latitude, longitude, altitude,
+	velocity, accuracy, vertical_accuracy, course, course_accuracy,
+	battery_status, battery, ssid, tracker_id, created_at, updated_at`
+
 // pointRepository implements [store.PointRepository].
 type pointRepository struct {
 	q querier
@@ -125,6 +131,71 @@ func (r pointRepository) NextTimestamp(ctx context.Context, userID int64, after 
 	default:
 		return time.Time(ts), true, nil
 	}
+}
+
+// List implements [store.PointRepository].
+func (r pointRepository) List(
+	ctx context.Context, userID int64, startAt *time.Time, endAt time.Time, ascending bool, page, perPage int,
+) ([]model.Point, int, error) {
+	where := `user_id = ? AND timestamp <= ?`
+	args := []any{userID, unixTime(endAt)}
+
+	if startAt != nil {
+		where += ` AND timestamp >= ?`
+		args = append(args, unixTime(*startAt))
+	}
+
+	var total int
+	if err := r.q.QueryRowContext(ctx, `SELECT COUNT(*) FROM points WHERE `+where, args...).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("sqlite: counting points for user %d: %w", userID, err)
+	}
+
+	// The only place order becomes part of the query text: it is always one
+	// of these two literals, never the client's own string, so there is
+	// nothing here for a malformed order value to inject.
+	direction := "DESC"
+	if ascending {
+		direction = "ASC"
+	}
+
+	rows, err := r.q.QueryContext(ctx,
+		`SELECT `+pointColumns+` FROM points WHERE `+where+` ORDER BY timestamp `+direction+` LIMIT ? OFFSET ?`,
+		append(args, perPage, (page-1)*perPage)...,
+	)
+	if err != nil {
+		return nil, 0, fmt.Errorf("sqlite: listing points for user %d: %w", userID, err)
+	}
+
+	points, err := collect(rows, scanPoint)
+	if err != nil {
+		return nil, 0, fmt.Errorf("sqlite: listing points for user %d: %w", userID, err)
+	}
+
+	return points, total, nil
+}
+
+// scanPoint reads one row of [pointColumns].
+func scanPoint(rows *sql.Rows) (model.Point, error) {
+	var (
+		p                    model.Point
+		timestamp            unixTime
+		createdAt, updatedAt unixTime
+	)
+
+	err := rows.Scan(
+		&p.ID, &p.UserID, &timestamp, &p.Latitude, &p.Longitude, &p.Altitude,
+		&p.Velocity, &p.Accuracy, &p.VerticalAccuracy, &p.Course, &p.CourseAccuracy,
+		&p.BatteryStatus, &p.Battery, &p.SSID, &p.TrackerID, &createdAt, &updatedAt,
+	)
+	if err != nil {
+		return model.Point{}, err
+	}
+
+	p.Timestamp = time.Time(timestamp)
+	p.CreatedAt = time.Time(createdAt)
+	p.UpdatedAt = time.Time(updatedAt)
+
+	return p, nil
 }
 
 // The interface this type exists to satisfy. See the equivalent assertion on
