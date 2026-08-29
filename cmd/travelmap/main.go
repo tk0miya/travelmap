@@ -26,6 +26,7 @@ Commands:
   user create          Issue a user and its API key
   recalculate          Rebuild daily_stats from points
   foursquare connect   Link a travelmap account to a Swarm account
+  foursquare sync      Fetch the linked accounts' Swarm check-ins once
 `
 
 // errUsage asks main for the exit status a misuse gets, which is not the same

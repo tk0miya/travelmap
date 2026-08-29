@@ -1,5 +1,6 @@
-// Package foursquare reads the wire shapes Foursquare sends: a Swarm User
-// Push notification's "checkin" form parameter, today.
+// Package foursquare reads and fetches the wire shapes Foursquare sends: a
+// Swarm User Push notification's "checkin" form parameter, and the check-ins
+// GET /v2/users/self/checkins answers with.
 //
 // It is a leaf package (see CLAUDE.md's layering rules): it returns the
 // shapes Foursquare sends, and the package that owns the record converts them
