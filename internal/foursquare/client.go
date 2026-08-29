@@ -25,20 +25,10 @@ const (
 	// [Client.Checkins] logs that one loudly.
 	apiVersion = "20260824"
 
-	// mode is the `m` parameter, which selects the Swarm perspective on an
-	// endpoint that also answers with the Foursquare one. It is sent for what
-	// it selects, not because the API refuses a request without it.
-	mode = "swarm"
-
 	// pageLimit is the `limit` parameter, at its documented maximum: a
 	// fortnight of one account's check-ins is expected to fit in a single
 	// page, so the fetch that finds nothing new costs one request.
 	pageLimit = 250
-
-	// sortNewestFirst is the `sort` parameter. Paging walks backwards through
-	// time, so a page has to arrive newest first for its oldest check-in to
-	// be the next cursor.
-	sortNewestFirst = "newestfirst"
 )
 
 // requestTimeout bounds one request, from dialling to the last byte of the
@@ -56,22 +46,22 @@ const requestTimeout = 30 * time.Second
 // page is not a short page.
 const maxResponseBody = 8 << 20
 
-// ErrNoProgress reports a page-walk that could not advance: a full page whose
-// oldest check-in is no older than the cursor that fetched it, so the next
-// request would return the same page forever.
+// ErrNoProgress reports a page-walk that could not advance: a full page
+// reaching no further back than the one before it, so the next request would
+// return the same check-ins forever.
 //
-// This is the shape a `beforeTimestamp` that is accepted and ignored
-// produces, and it is deliberately an error rather than an end of the walk —
-// a walk that stopped quietly here would look like a successful sync of one
-// page, every time, forever.
+// This is the shape an `offset` that is accepted and ignored produces, and it
+// is deliberately an error rather than an end of the walk — a walk that
+// stopped quietly here would look like a successful sync of one page, every
+// time, forever.
 var ErrNoProgress = errors.New("foursquare: the check-in page walk cannot advance")
 
 // APIError is a request Foursquare refused.
 //
 // Both the HTTP status and the `meta` block are kept: Foursquare's own
 // wording is that it "attempts to use appropriate HTTP status codes", and its
-// mapping is not the one a client would guess — the rate limit is a 403,
-// shared with a revoked authorisation, while 429 is the daily quota. So
+// mapping is not the one a client would guess — a 403 is both a passing
+// refusal and a revoked authorisation, which are not the same thing. So
 // ErrorType is what a caller deciding how to react should read. RequestID is
 // what a support question has to quote.
 type APIError struct {
@@ -112,16 +102,11 @@ func NewClient(baseURL string, logger *slog.Logger) *Client {
 	}
 }
 
-// CheckinsQuery is the window and the cursor of one check-in request.
+// CheckinsQuery is the position of one check-in request in the walk.
 type CheckinsQuery struct {
-	// After is the start of the window being fetched, sent as
-	// afterTimestamp. Every run computes it by looking back a fixed interval
-	// from now rather than resuming where the last one stopped.
-	After time.Time
-
-	// Before is the paging cursor, sent as beforeTimestamp. It is zero on a
-	// run's first request, which asks for the newest page of the window.
-	Before time.Time
+	// Offset is how many of the newest check-ins to skip, sent as offset. It
+	// is 0 on a walk's first request, which asks for the newest page.
+	Offset int
 }
 
 // Checkins fetches one page of the token holder's own check-ins, newest
@@ -129,16 +114,10 @@ type CheckinsQuery struct {
 func (c *Client) Checkins(ctx context.Context, token string, query CheckinsQuery) ([]Checkin, error) {
 	values := url.Values{}
 	values.Set("v", apiVersion)
-	values.Set("m", mode)
 	values.Set("limit", strconv.Itoa(pageLimit))
-	values.Set("sort", sortNewestFirst)
 
-	if !query.After.IsZero() {
-		values.Set("afterTimestamp", strconv.FormatInt(query.After.Unix(), 10))
-	}
-
-	if !query.Before.IsZero() {
-		values.Set("beforeTimestamp", strconv.FormatInt(query.Before.Unix(), 10))
+	if query.Offset > 0 {
+		values.Set("offset", strconv.Itoa(query.Offset))
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
@@ -178,12 +157,6 @@ type checkinsResponse struct {
 	Meta     responseMeta `json:"meta"`
 	Response struct {
 		Checkins struct {
-			// Count is documented as the total number of the user's
-			// check-ins. Whether it narrows when afterTimestamp is set is
-			// untested, so it is read as a progress hint and nothing —
-			// least of all the decision to stop paging — keys off it.
-			Count int `json:"count"`
-
 			// Items are decoded twice over: once as raw JSON, so that each
 			// check-in keeps the bytes it arrived as, and once into the
 			// struct whose fields become columns.
@@ -264,27 +237,32 @@ func (c *Client) decodeCheckins(status int, body []byte) ([]Checkin, error) {
 }
 
 // EachCheckinPage walks the token holder's check-ins created at or after
-// after, newest first, calling fn with each page as it arrives. A page is
-// handed over before the next one is requested, so a walk of a long backfill
-// holds one page in memory rather than all of them, and an error from fn
-// stops the walk and is returned as it stands.
+// after, calling fn with each page's check-ins that fall inside that window,
+// as the page arrives. A page is handed over before the next one is
+// requested, so a walk of a long backfill holds one page in memory rather
+// than all of them, and an error from fn stops the walk and is returned as it
+// stands.
 //
-// The walk pages by beforeTimestamp rather than by offset: an offset walks a
-// list that an incoming check-in pushes along underneath it, where a
-// timestamp cursor pins each page to the data. The cursor is the page's
-// oldest createdAt plus one second — not that timestamp itself, since
-// beforeTimestamp is undocumented as inclusive or exclusive and the two
-// readings disagree about the boundary second. Plus one second is inside the
-// page either way, so the boundary second is re-read rather than risked; the
-// repeat costs nothing, because a check-in is written by upsert.
+// The walk pages by offset over check-ins the endpoint answers newest first,
+// which is what lets it stop before reading a whole history. The window's
+// lower bound is applied to each page here rather than asked of the server.
 //
-// A page shorter than the request limit is the ordinary end of the data. A
-// full page that does not lower the cursor returns [ErrNoProgress]: those are
-// two different conditions, and treating the second as an end is how a
-// beforeTimestamp that is silently ignored would look like a successful sync
-// of the same newest page, forever.
+// A page shorter than the request limit is the end of the data, and a page
+// reaching past the window's start is the end of the window. A full page that
+// reaches no further back than the one before it returns [ErrNoProgress]:
+// that is a third condition, and treating it as an end is how an offset that
+// is silently ignored would look like a successful sync of the same newest
+// page, forever.
+//
+// An offset walks a list that an arriving check-in shifts underneath it, so a
+// page boundary can repeat a check-in or step over one. Neither is prevented
+// here; what absorbs them is where check-ins are written and how the window
+// is chosen.
 func (c *Client) EachCheckinPage(ctx context.Context, token string, after time.Time, fn func([]Checkin) error) error {
-	query := CheckinsQuery{After: after, Before: time.Time{}}
+	var (
+		query    CheckinsQuery
+		previous time.Time
+	)
 
 	for {
 		page, err := c.Checkins(ctx, token, query)
@@ -292,36 +270,60 @@ func (c *Client) EachCheckinPage(ctx context.Context, token string, after time.T
 			return err
 		}
 
-		if len(page) > 0 {
-			if err := fn(page); err != nil {
+		if len(page) == 0 {
+			return nil
+		}
+
+		oldest := oldestCreatedAt(page)
+
+		if within := inWindow(page, after); len(within) > 0 {
+			if err := fn(within); err != nil {
 				return err
 			}
 		}
 
-		if len(page) < pageLimit {
+		if len(page) < pageLimit || oldest.Before(after) {
 			return nil
 		}
 
-		next := nextCursor(page)
-
-		// The first request of a walk carries no cursor, so there is nothing
-		// for its page to have failed to advance past; the check starts with
-		// the second request.
-		if !query.Before.IsZero() && !next.Before(query.Before) {
-			return fmt.Errorf("%w: a full page ending at %s did not advance the cursor at %s",
-				ErrNoProgress, next.UTC().Format(time.RFC3339), query.Before.UTC().Format(time.RFC3339))
+		// Only a full page that is being asked to continue can have failed to
+		// advance, and only against a page before it — a walk's first request
+		// has none.
+		if query.Offset > 0 && !oldest.Before(previous) {
+			return fmt.Errorf("%w: a full page reaching back to %s did not pass the previous page's %s",
+				ErrNoProgress, oldest.Format(time.RFC3339), previous.Format(time.RFC3339))
 		}
 
-		query.Before = next
+		previous = oldest
+		query.Offset += pageLimit
 	}
 }
 
-// nextCursor is the page's oldest createdAt plus one second.
+// inWindow is the page's check-ins created at or after after, in the order
+// the page carried them.
+func inWindow(page []Checkin, after time.Time) []Checkin {
+	if after.IsZero() {
+		return page
+	}
+
+	start := after.Unix()
+	within := make([]Checkin, 0, len(page))
+
+	for _, checkin := range page {
+		if checkin.CreatedAt >= start {
+			within = append(within, checkin)
+		}
+	}
+
+	return within
+}
+
+// oldestCreatedAt is the page's minimum createdAt.
 //
 // It is the page's minimum rather than its last element on purpose: a server
-// returning the right check-ins in an order it never promised still pages
+// returning the right check-ins in an order it never promised still walks
 // correctly this way.
-func nextCursor(page []Checkin) time.Time {
+func oldestCreatedAt(page []Checkin) time.Time {
 	oldest := page[0].CreatedAt
 
 	for _, checkin := range page[1:] {
@@ -330,5 +332,5 @@ func nextCursor(page []Checkin) time.Time {
 		}
 	}
 
-	return time.Unix(oldest, 0).UTC().Add(time.Second)
+	return time.Unix(oldest, 0).UTC()
 }

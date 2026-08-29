@@ -3,10 +3,12 @@ package main
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 // withFoursquareUser returns the environment of a migrated database holding
@@ -166,13 +168,21 @@ func withFoursquareAPI(t *testing.T, checkins string) func(string) string {
 	}
 }
 
+// recentCheckin is one check-in dated relative to now. A run computes its
+// window from its own start, so a fixed date would drift out of that window
+// as time passed; dating it from now is what keeps a fixture on the side of
+// the window its test means it to be on.
+func recentCheckin(id string, ago time.Duration) string {
+	return fmt.Sprintf(`{"id":%q,"createdAt":%d}`, id, time.Now().UTC().Add(-ago).Unix())
+}
+
 // TestFoursquareSyncCommand covers the command's own completion condition: a
 // run against a linked account collects what the window holds and reports it
 // per account, naming the database it wrote to like every other command here.
 func TestFoursquareSyncCommand(t *testing.T) {
 	t.Parallel()
 
-	env := withFoursquareAPI(t, `{"id":"5f2a1b3c4d5e6f708192a3b4","createdAt":1767225906}`)
+	env := withFoursquareAPI(t, recentCheckin("5f2a1b3c4d5e6f708192a3b4", time.Hour))
 
 	var stdout, stderr bytes.Buffer
 
@@ -186,11 +196,13 @@ func TestFoursquareSyncCommand(t *testing.T) {
 }
 
 // TestFoursquareSyncTakesAWiderWindow covers --lookback-days, which is how a
-// backfill reaches further back than the window a routine run takes.
+// backfill reaches further back than the window a routine run takes. The
+// check-in is 30 days old, so the default fortnight would leave it alone and
+// only the wider window collects it.
 func TestFoursquareSyncTakesAWiderWindow(t *testing.T) {
 	t.Parallel()
 
-	env := withFoursquareAPI(t, `{"id":"5f2a1b3c4d5e6f708192a3b4","createdAt":1767225906}`)
+	env := withFoursquareAPI(t, recentCheckin("5f2a1b3c4d5e6f708192a3b4", 30*24*time.Hour))
 
 	var stdout, stderr bytes.Buffer
 
@@ -257,7 +269,7 @@ func TestFoursquareSyncContinuesAfterOneAccountFails(t *testing.T) {
 	env := migrated(t)
 
 	body := `{"meta":{"code":200},"response":{"checkins":{"count":1,` +
-		`"items":[{"id":"5f2a1b3c4d5e6f708192a3b4","createdAt":1767225906}]}}}`
+		`"items":[` + recentCheckin("5f2a1b3c4d5e6f708192a3b4", time.Hour) + `]}}}`
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") == "Bearer the-failing-token" {

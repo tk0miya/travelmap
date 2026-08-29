@@ -22,7 +22,8 @@ ground is already covered by a schema.sql/migration comment, a package's own com
 | HTML rendering | `html/template`, parsed once at startup, with the templates and the CSS in an `embed.FS` | Keeps deployment a single binary, and adds neither a code-generation step nor a Node build chain to a checkout that today needs nothing installed but Go |
 | Browser sessions | `github.com/alexedwards/scs/v2` over a `sessions` table of this project's own | scs brings no dependencies of its own: its `go.mod` has no `require` entries at all, the same property chi was checked for. Its bundled `sqlite3store` is **not** usable — that module requires the CGO `github.com/mattn/go-sqlite3` — so the store is written here against `internal/store` instead. Chosen over a JWT, which has no defensible default for its signing key (one generated at startup logs every user out on restart, so it becomes a required setting) and which cannot be revoked, leaving `POST /logout` able only to clear the cookie while the token stays valid until it expires. That is not a cost saved but a part of the feature missing |
 | Browser CSRF | Standard `net/http.CrossOriginProtection`, on the browser routes only | Present in the toolchain `go.mod` already names (`go 1.26.6`), and its `Handler` is a plain `func(http.Handler) http.Handler`, so this costs no dependency, which is what needed confirming before it could be chosen. `/api/v1` keeps Bearer / `api_key` only and needs none |
-| Foursquare API version | v2 (`/v2/users/self/checkins`), with `v=` pinned as a constant and `m=swarm` | v2 is what returns Swarm check-ins, and it is current rather than abandoned: it is documented today as the "Personalization APIs", and the pricing change of 1 June 2026 names the checkins and users endpoints as remaining free while putting the venues endpoints behind paid tiers. `v=` is a date Foursquare uses to freeze response shape, so it is a constant raised deliberately after checking behaviour, never "today". `m` asks for the Swarm perspective rather than the Foursquare one; what it changes on this endpoint is untested, and its documented "required" status is contradicted by working clients — see "Fetching check-ins" in TODO.md |
+| Swarm check-ins | Collected by webhook push, with an API fetch as the backstop | Push is immediate but nothing documented makes it reliable: Foursquare publishes no retry, records a timed-out push as a failure, and reaches only a public HTTPS endpoint. What it does after a failure is not documented at all. Fetching alone would lag every check-in by up to a poll interval. **What each path does and does not see is only partly known** — whether a push fires for a check-in added after the fact, or for an edit to one already stored, is undocumented — which is itself a reason to run both. How the fetch is made is under "Fetching Swarm check-ins" below |
+| Foursquare API version | v2 (`/v2/users/self/checkins`), with `v=` pinned as a constant | v2 is what returns Swarm check-ins, and it is current rather than abandoned: it is documented today as the "Personalization APIs", and the endpoints this uses are the ones that remain free. `v=` is a date Foursquare uses to freeze response shape, so it is a constant raised deliberately after checking behaviour, never "today". The request this client makes is under "Fetching Swarm check-ins" below |
 
 Schema-shape decisions (`STRICT` tables, Unix-second timestamps, indexes, the distance and
 statistics precomputation) are in `internal/store/sqlite/schema.sql`'s own comments and
@@ -59,3 +60,48 @@ on `r`, outside `r.Route("/api/v1", ...)`, so it carries none of that group's mi
 `POST /webhooks/foursquare` is the first of these. Its body carries a credential like
 `auth/login`'s, which is already why the request logger never reads one at all (see
 `internal/httpapi/requestlog.go`), route grouping aside.
+
+## Fetching Swarm check-ins
+
+The other half of check-in collection, alongside the push webhook: `internal/foursquare` calls
+[`GET /v2/users/self/checkins`](https://docs.foursquare.com/developer/reference/get-user-checkins)
+and `internal/checkin` writes what comes back. That page, and
+[v2 authentication](https://docs.foursquare.com/developer/reference/v2-authentication), are the
+reference for everything not stated here. The request is
+
+```
+GET /v2/users/self/checkins?v=<pinned date>&limit=250&offset=<check-ins already read>
+Host: api.foursquare.com
+Authorization: Bearer <access token>
+```
+
+The token is sent in a `Bearer` header, per v2 authentication.
+
+### The walk tolerates what `offset` does under it
+
+An `offset` walks a list that an arriving check-in shifts underneath it, so a page boundary can
+hand a check-in back twice or step over one. Neither is prevented. A repeat is an upsert onto the
+row already there, and `internal/checkin` keeps the run's own set of ids so it is skipped before
+it is written; a check-in stepped over is inside the window the next run recomputes, so it arrives
+one interval late rather than never. That is what makes the recomputed window below load-bearing
+rather than merely convenient.
+
+A walk stops at the window's start rather than at the end of the account's history, which is sound
+only because the endpoint answers **newest first**: what has already been read is everything newer.
+
+### The window is recomputed, never resumed
+
+Every run re-reads a whole window — `TRAVELMAP_FOURSQUARE_SYNC_LOOKBACK_DAYS` (default 14) back
+from now — rather than resuming from where the last one stopped.
+
+A high-water-mark cursor cannot see two things, both of which happen whatever the push path does.
+A check-in whose own timestamp sorts *before* the stored cursor is skipped, and then skipped
+forever, which is the shape Swarm's retro check-in flow produces. And an **edit** to a check-in
+already stored moves no timestamp at all, so a cursor never revisits it; `editableUntil` says edits
+are expected long after the fact. The unique index on `foursquare_checkin_id` absorbs the overlap
+that re-reading a window costs.
+
+So `foursquare_accounts.synced_through` advances on success but is never the lower bound of what is
+asked for — what it is and is not used for is under "`foursquare_accounts`" in
+[`docs/database.md`](database.md). A wider `--lookback-days` on `travelmap foursquare sync` is
+therefore how a backfill reaches further back than a routine run's window.
