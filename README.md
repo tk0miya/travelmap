@@ -86,10 +86,36 @@ default, so it runs with an empty environment.
 | `TRAVELMAP_LOG_LEVEL` | `info` | The lowest level that is logged: `debug`, `info`, `warn` or `error` |
 | `TRAVELMAP_TIMEZONE` | `UTC` | The timezone the day boundary is cut on |
 | `TRAVELMAP_TRACK_BREAK_MINUTES` | `30` | Gaps longer than this are not counted as travelled distance |
+| `TRAVELMAP_FOURSQUARE_PUSH_SECRET` | unset | Shared secret for the Swarm (Foursquare) push webhook. See below |
 
 `TRAVELMAP_TIMEZONE` and `TRAVELMAP_TRACK_BREAK_MINUTES` decide how stored statistics are
 computed, so changing either invalidates the ones already stored; `travelmap recalculate`
 rebuilds them.
+
+### Swarm (Foursquare) check-ins
+
+travelmap can collect your Swarm check-ins alongside the GPS trace the app records, as its own
+extension to the Dawarich API — see "Keeping the two parts apart" in
+[docs/api-notes.md](docs/api-notes.md). **Nothing is collected until an account is linked** with
+`travelmap foursquare connect`, which reads the
+Foursquare access token from standard input rather than a flag, the same concern `user create`'s
+password reading answers:
+
+```sh
+./bin/travelmap foursquare connect --email you@example.com --foursquare-user-id <your Swarm user id> \
+    < /run/secrets/foursquare-access-token
+```
+
+Until the OAuth flow exists, get an access token from the Foursquare application's own console —
+it issues one for the account that owns the application.
+
+`TRAVELMAP_FOURSQUARE_PUSH_SECRET` turns on `POST /webhooks/foursquare`, which receives your
+check-ins in real time via a Foursquare application's **"Push API notifications"** setting,
+reached from the app's page and its "Edit This App" button — **not** the similarly-named
+"Configure Server Webhooks" page, an unrelated product that will not deliver check-ins here. Set
+the variable to the same secret configured there, and give Foursquare a URL it can reach over
+**HTTPS on port 443** — a self-signed certificate is fine, but it has to run behind something
+terminating TLS, so this is not something to test straight off a laptop.
 
 ### Logging the requests a client makes
 

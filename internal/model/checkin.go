@@ -3,8 +3,8 @@ package model
 import "time"
 
 // Checkin is a Swarm (Foursquare) check-in collected for a user — travelmap's
-// own extension, not a Dawarich concept. See "travelmap's own extensions" in
-// TODO.md.
+// own extension, not a Dawarich concept. See "Keeping the two parts apart" in
+// docs/api-notes.md.
 //
 // Both collection paths (the push webhook and the periodic fetch) write a
 // Checkin through internal/checkin, which upserts on FoursquareCheckinID; see

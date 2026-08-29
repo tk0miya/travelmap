@@ -4,11 +4,11 @@ info:
   version: unreleased
   description: >
     The OpenAPI contract for travelmap's API — paths, schemas, headers,
-    and status codes for the endpoints actually implemented. Today
-    that is only the Dawarich-compatible subset, since travelmap's own
-    extensions don't exist yet. See `docs/api-notes.md` for what
-    travelmap's API is as a whole and the reasoning behind this
-    contract.
+    and status codes for the endpoints actually implemented. That
+    includes travelmap's own extensions, at paths outside `/api/v1`,
+    alongside the Dawarich-compatible subset. See `docs/api-notes.md`
+    for what travelmap's API is as a whole and the reasoning behind
+    this contract.
 
 
     Upstream's own OpenAPI document
@@ -159,6 +159,37 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "500":
           $ref: "#/components/responses/InternalServerError"
+
+  /webhooks/foursquare:
+    post:
+      summary: Swarm (Foursquare) User Push notification
+      description: >
+        travelmap's own extension, not a Dawarich endpoint — see "travelmap's
+        own extensions" in docs/api-notes.md. Registered only when
+        TRAVELMAP_FOURSQUARE_PUSH_SECRET is set; an unconfigured server
+        answers 404 here like any endpoint it does not implement. Every
+        response has an empty body.
+      operationId: foursquareWebhook
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: "#/components/schemas/FoursquarePush"
+      responses:
+        "200":
+          description: >
+            Handled: a check-in was stored, or there was nothing to store
+            (no checkin parameter, one that is not JSON, or a Foursquare
+            user id with no linked travelmap account). Not an error in any
+            of those cases.
+        "400":
+          description: The request body did not parse as a form at all.
+        "401":
+          description: The secret form field is missing or does not match.
+        "500":
+          description: The store could not be read or written.
 
 components:
   securitySchemes:
@@ -612,3 +643,125 @@ components:
       properties:
         created:
           type: integer
+
+    FoursquarePush:
+      type: object
+      description: >
+        A Swarm User Push notification. checkin and user are each a JSON
+        string rather than a nested object, matching the form field
+        Foursquare actually sends.
+      required:
+        - checkin
+        - secret
+      properties:
+        checkin:
+          type: string
+          description: A JSON-encoded FoursquareCheckin object (see that schema).
+        user:
+          type: string
+          description: >
+            JSON-encoded profile of the checked-in user. Not read by this
+            server: checkin.user.id inside checkin is the join key onto a
+            linked account instead.
+        secret:
+          type: string
+          description: The shared secret this receiving application was configured with.
+
+    FoursquareCheckin:
+      type: object
+      description: >
+        The JSON value of FoursquarePush's own checkin field. Foursquare's
+        documented sample payload and an observed push disagree about
+        which fields exist at all beyond id and user, so every other
+        field here is optional and unrecognised fields are ignored — for
+        example editableUntil (Unix milliseconds), which says a check-in
+        stays editable long after it is made, but is not itself modelled
+        here.
+      required:
+        - id
+        - user
+      properties:
+        id:
+          type: string
+          description: The check-in's own id (24 hex characters).
+        createdAt:
+          type: integer
+          description: Unix seconds. The check-in's own time, not when this server received it.
+        timeZoneOffset:
+          type: integer
+          nullable: true
+          description: Minutes.
+        shout:
+          type: string
+          nullable: true
+          description: Absent as a key, not present as an empty string, when a check-in carries none.
+        user:
+          $ref: "#/components/schemas/FoursquareUser"
+        venue:
+          $ref: "#/components/schemas/FoursquareVenue"
+
+    FoursquareUser:
+      type: object
+      description: checkin.user. Only id is read; it is the join key onto a linked account.
+      required:
+        - id
+      properties:
+        id:
+          type: string
+          description: >
+            The Swarm account's own id, sent as a quoted string (e.g.
+            "1709193") though it looks numeric — matching what
+            /v2/users/self itself declares.
+
+    FoursquareVenue:
+      type: object
+      description: checkin.venue, absent for a check-in made without one — a shape that has not itself been observed.
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+          description: Localised display text.
+        location:
+          $ref: "#/components/schemas/FoursquareLocation"
+        categories:
+          type: array
+          items:
+            $ref: "#/components/schemas/FoursquareCategory"
+
+    FoursquareLocation:
+      type: object
+      properties:
+        lat:
+          type: number
+        lng:
+          type: number
+        cc:
+          type: string
+          description: The stable country code, unlike country below.
+        city:
+          type: string
+          description: Localised display text.
+        state:
+          type: string
+          description: Localised display text.
+        country:
+          type: string
+          description: >
+            Localised display text: an observed push had cc "JP" while
+            this came back in Japanese. What decides the language is
+            undocumented.
+
+    FoursquareCategory:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+          description: Localised display text.
+        primary:
+          type: boolean
+          description: >
+            Marks the category this server treats as "the" category when
+            a venue carries more than one.

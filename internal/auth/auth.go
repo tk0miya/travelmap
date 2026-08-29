@@ -2,6 +2,7 @@ package auth
 
 import (
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -111,6 +112,20 @@ func CheckAbsentPassword(password string) error {
 	// Only reachable by guessing the random password below, which is reported
 	// as the mismatch it has to be rather than as a successful login.
 	return ErrPasswordMismatch
+}
+
+// CheckSecret reports whether secret matches want, comparing in constant time.
+//
+// It is for a credential held as a plain value in this server's own
+// configuration rather than a per-user digest — the Foursquare push secret,
+// which has nothing to hash against — so there is no bcrypt cost here the way
+// there is in [CheckPassword]: a shared secret is not a password a person
+// typed, and the endpoint it guards has no per-address timing to leak.
+// [subtle.ConstantTimeCompare] itself still returns immediately on a length
+// mismatch, which only ever reveals that the guess was the wrong length, not
+// any of its content.
+func CheckSecret(secret, want string) bool {
+	return subtle.ConstantTimeCompare([]byte(secret), []byte(want)) == 1
 }
 
 // absentUserHash is the digest [CheckAbsentPassword] compares against.

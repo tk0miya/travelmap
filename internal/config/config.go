@@ -70,6 +70,15 @@ type Config struct {
 	// meaning of past aggregates whenever the user changes it in the app.
 	// Changing this one likewise requires `travelmap recalculate`.
 	TrackBreakMinutes int
+
+	// FoursquarePushSecret is the shared secret a Swarm User Push notification
+	// carries in its own `secret` form field. Empty by default, which is what
+	// keeps POST /webhooks/foursquare unregistered: a route answering 401 to
+	// every request would still confirm the feature exists, where 404 says it
+	// does not (see "An endpoint this server does not implement answers 404"
+	// in docs/api-notes.md, which this route follows even though it is not a
+	// Dawarich-compatible one).
+	FoursquarePushSecret string
 }
 
 // Load reads the configuration from the TRAVELMAP_* environment variables,
@@ -80,11 +89,12 @@ type Config struct {
 // them from running in parallel. Callers outside tests pass [os.Getenv].
 func Load(getenv func(string) string) (Config, error) {
 	cfg := Config{
-		Addr:              lookup(getenv, "ADDR", defaultAddr),
-		LogLevel:          defaultLogLevel,
-		DatabasePath:      lookup(getenv, "DATABASE", defaultDatabasePath),
-		Timezone:          lookup(getenv, "TIMEZONE", defaultTimezone),
-		TrackBreakMinutes: defaultTrackBreakMinutes,
+		Addr:                 lookup(getenv, "ADDR", defaultAddr),
+		LogLevel:             defaultLogLevel,
+		DatabasePath:         lookup(getenv, "DATABASE", defaultDatabasePath),
+		Timezone:             lookup(getenv, "TIMEZONE", defaultTimezone),
+		TrackBreakMinutes:    defaultTrackBreakMinutes,
+		FoursquarePushSecret: lookup(getenv, "FOURSQUARE_PUSH_SECRET", ""),
 	}
 
 	if raw := lookup(getenv, "LOG_LEVEL", ""); raw != "" {

@@ -128,7 +128,8 @@ External behaviour that must be known before implementing Milestone I, in the sa
 Four sources feed this section and they are kept apart on purpose, because they do not carry equal
 weight and this milestone has already been planned once on the assumption that they did.
 
-1. **A real push captured with a webhook recorder** — everything under "The push payload".
+1. **A real push captured with a webhook recorder** — what the push webhook's own design and
+   `docs/api-notes.md` are built on.
 2. **Foursquare's own reference**, at `https://docs.foursquare.com/developer/reference/`, which
    documents v2 today under the name **Personalization APIs**, labelled a public beta.
 3. **Foursquare's 2014 announcement** of the Foursquare/Swarm split, which the reference does not
@@ -154,131 +155,6 @@ Pages read on 2026-08-24, all under `https://docs.foursquare.com/developer/`:
 `reference/upcoming-changes`, `docs/configure-server-webhooks`. The `m` parameter appears in none
 of them. It is documented in Foursquare's 2014 announcement of the Foursquare/Swarm split, which
 the reference does not link and which working clients contradict — see "Fetching check-ins".
-
-### The push payload
-
-```
-POST <the configured push URL>
-Content-Type: application/x-www-form-urlencoded
-User-Agent: FoursquarePush/1.0
-
-checkin=<JSON>&user=<JSON>&secret=<the application's push secret>
-```
-
-Three form parameters, each a JSON string except `secret`. So this route parses a form; the
-`decodeJSON` helper and its `maxRequestBody` do not apply to it.
-
-- `checkin`: `id` (24 hex characters), `createdAt` (Unix seconds), `type`, `visibility`,
-  `timeZoneOffset` (minutes), `canonicalUrl`, `editableUntil` (**milliseconds**), `user`, `venue`
-- `checkin.venue`: `id`, `name`, `location` (`address`, `lat`, `lng`, `labeledLatLngs`,
-  `postalCode`, `cc`, `city`, `state`, `country`, `formattedAddress`), `categories` (`id`,
-  `name`, `pluralName`, `shortName`, `icon`, `categoryCode`, `mapIcon`, `primary`), `timeZone`
-- `checkins.venue_id` and `.venue_name` are nullable for a check-in made without one, per
-  "checkins" in docs/database.md, but **the venueless shape has not been observed** — the
-  captured push had a venue — so confirm where its coordinates sit before relying on it; Step
-  18's fixture covers only the shape actually seen. The documentation will not settle it either.
-  The schema on `reference/get-checkin-details` describes `venue` without saying whether it can
-  be absent, and that schema is demonstrably incomplete — it omits `shout`, `visibility` and
-  `editableUntil`, which the observed push carries — so its silence is not evidence either way.
-  Only an observation decides this one
-- `shout` was **absent as a key** in the observed push, which carried no comment — so treat it
-  as optional rather than as an empty string
-- `checkin.user.id` is a quoted string, and is the join key onto `foursquare_accounts`. The
-  separate `user` parameter repeats it with extra profile fields; **read the key off
-  `checkin.user.id`**, which keeps the identity inside the object being stored
-- The display text is **localised**, and what decides the language is unknown — see "Localisation
-  is left unset on both paths" and "checkins" in docs/database.md. In an observed push, `cc` was
-  `JP` while `country` and the category name came back as Japanese
-- `editableUntil` says a check-in stays editable long after it is made, which is why the write
-  path is an upsert and not an insert-if-absent
-
-The documentation confirms the envelope and contradicts nothing above, but its own sample payload
-is **narrower than what arrives**: it has no `shout`, `visibility`, `canonicalUrl` or
-`editableUntil`, its categories carry `parents` where the observed ones carry `categoryCode` and
-`mapIcon`, and its venue carries `contact`, `stats`, `url` and `verified`, which the observed one
-did not. Two consequences for the wire struct in `internal/foursquare`: **unknown fields are
-ignored, and almost every field is optional.** It does confirm `timeZoneOffset` in minutes, and it
-prints `user.id` as `"1"` — quoted, like the observed `"1709193"` and like the `string` that
-`/v2/users/self` declares. That is three independent reasons for `foursquare_user_id` being TEXT.
-
-Only `checkin` ever arrives on the User Push API. The same push format is shared with the **Venue
-Push API**, where the second parameter is instead one of `like`, `tip` or `photo`, and this server
-does not subscribe to that. So the handler reads the `checkin` parameter **by name** and treats its
-absence as a body it has nothing to do with — **not** as a shape to grow branches for. There is no
-`like`, `tip` or `photo` handling in this milestone and none is wanted.
-
-**There is no IP allowlist.** Foursquare does publish a range — "you must whitelist the IP range
-`199.38.176.0/22` in order to receive pushes" — and the observed request did not come from it; it
-came from an AWS us-east-1 address. That is **not evidence that the range is wrong**: the push was
-captured with a webhook recorder, so the address seen is as likely to be the recorder's egress as
-Foursquare's. The published range stands unrefuted and untested.
-
-So the reason for not filtering is not the range's accuracy but what filtering would buy. `secret`
-already authenticates the push, and it authenticates it against forgery rather than against an
-address that a proxy, a tunnel or a future migration rewrites. An allowlist would add a failure
-mode with no symptom — pushes silently dropped by a rule nobody re-checks — for a credential
-check it does not strengthen. If one is ever wanted, the range has to be verified first against an
-endpoint terminating HTTPS directly, not through a recorder.
-
-The push URL must accept **HTTPS on the default port (443)**, which the documentation requires.
-It also says self-signed certificates are fine, so what a reverse proxy has to provide is TLS on
-443, not a publicly trusted chain. The URL is configured on the application itself, not per user.
-
-### The push body carries a credential and personal data
-
-Besides the push secret, the body holds the checked-in user's `email`, `birthday` and `gender`.
-Two consequences, both recorded where they apply: Step 6's request logger never logs a request
-body, which already covers this one, and a payload committed as a test fixture has its secret and
-email redacted.
-
-Foursquare's own framing of the channel goes further than the secret. The Real Time documentation
-says a User Push application receives **all** of a user's check-ins — "public, friend restricted,
-and private" — and that an application is expected "not to share, retransmit to third parties,
-retransmit unsecurely, or cache indefinitely any information we transmit to you". `checkins.raw`
-is an indefinite cache of that payload by design, so the trade is written down rather than
-assumed: a self-hosted server storing its own operator's check-ins on the operator's own disk is
-the mildest reading of it, the redaction rule above is what keeps the payload out of the
-repository, and nothing in this milestone forwards a check-in anywhere.
-
-### Webhook responses
-
-| Situation | Response | Why |
-| --- | --- | --- |
-| `secret` missing or not matching | 401, empty body | Matches how `requireUser` answers elsewhere |
-| The form does not parse | 400 | |
-| No `checkin` parameter in a form that otherwise parsed | **200** | A User Push never omits it, so the body is malformed or meant for something else. Refusing it buys nothing and the consequence of a non-200 is unknown, so it is logged and dropped |
-| `foursquare_user_id` is not registered here | **200** | A push application can be authorised by users this server has never heard of. Their check-in is not this server's to store, so the request was handled correctly and says so. Logged and dropped |
-| The store fails | 500 | The write did not happen, so the response does not claim it did. What Foursquare makes of a 500 is unknown, per below — this row is honesty, not a redelivery request |
-
-`secret` is compared in constant time (`crypto/subtle`), in `internal/auth` — it sits above
-`store` and below `httpapi`, and `CheckAbsentPassword` is already the precedent for treating
-timing as part of a credential check.
-
-These codes are for this server's own diagnosis, and **nothing in the table above expects
-Foursquare to act on them.** No retry is documented, and neither is any consequence of a non-200
-reply. What the documentation covers is the timeout: a push that does not get a `200 OK` quickly
-enough "will timeout ... and this will be recorded as a push failure", and time-consuming work
-should be done asynchronously so the 200 can go out immediately. Whether
-a 4xx or 5xx is counted the same way, whether anything is redelivered, and whether a URL that
-keeps failing is disabled are all **unknown and must not be assumed** — those are exactly the
-things a reader would reach for to justify the table above, and the table does not rest on them.
-
-That leaves a timeout as the failure mode to design against rather than a retry storm. One SQLite
-upsert is not time-consuming work, so **the write stays synchronous** and the 200 is the truthful
-answer rather than a receipt; if that ever stops being true, the documented shape of the fix is to
-answer 200 first and write after. The fetch path is what covers a push that never landed, since
-nothing is known to bring it back.
-
-`http.Request.ParseForm` reads up to 10 MiB of form body by default. The observed payload was
-3554 bytes, so the handler wraps the body in an explicit `http.MaxBytesReader` rather than
-inheriting that.
-
-Where the push URL is configured is worth pinning down, because the documentation describes two
-unrelated mechanisms under similar names. The one this milestone uses is **"Push API
-notifications" on the application's own page**, reached from the app list and its "Edit This App"
-button. The page titled "Configure Server Webhooks" is a different product — Movement SDK
-webhooks, authenticated by a `Pilgrim-Secret` **header** rather than a `secret` form field — and
-following it would produce a route that never receives a check-in.
 
 ### Fetching check-ins
 
@@ -706,17 +582,17 @@ upstream's — read "Keeping the two parts apart" in `docs/api-notes.md` before 
 here.
 
 Independent of the points/stats pipeline: it touches neither `points` nor `daily_stats`. What it
-does need is the store foundation and the authenticated router, both already in place — Step
-18 hangs a route off the same router, and Step 20 reuses the `api_key` credential. So it can be
-taken at any time after Milestone B, like Step 16.
+does need is the store foundation and the authenticated router, both already in place — the push
+webhook already hangs a route off the same router, and Step 20 reuses the `api_key` credential.
+So the remaining steps can be taken at any time after Milestone B, like Step 16.
 
 External behaviour these steps rely on is in "Foursquare / Swarm Integration Notes"; the two
 tables are in `internal/store/sqlite/schema.sql` and docs/database.md, per "Data Model".
 
-There are seven `TRAVELMAP_FOURSQUARE_*` settings, and no step adds all of them: the push secret
-belongs to Step 18, the lookback and the API URL to Step 19, the three OAuth settings to Step 20,
-the interval to Step 21. Steps 18 and 19 run in parallel, so neither can wait on the other for a
-variable. An eighth setting joins whichever step needs it.
+There are seven `TRAVELMAP_FOURSQUARE_*` settings, and no step adds all of them:
+`TRAVELMAP_FOURSQUARE_PUSH_SECRET` is already in place, the lookback and the API URL belong to
+Step 19, the three OAuth settings to Step 20, the interval to Step 21. An eighth setting joins
+whichever step needs it.
 
 **Each step documents its own settings in the README, in the same pull request.** The README is
 for someone about to run this server, so a knob that is listed there and does nothing yet is the
@@ -724,60 +600,27 @@ one kind of drift its reader cannot detect — and this milestone's settings com
 (an OAuth URL, a CLI invocation) that would invite a reader to try something not built. The
 settings and their defaults are recorded here in the meantime, which is what `TODO.md` is for.
 
-Whichever of Steps 18 and 19 lands first opens a check-in section under the README's
-"Configuration" — either one collects check-ins on its own, so neither can claim to be the step
-that starts the feature, and the later one adds to what the earlier one wrote. That section
-carries the one fact no single setting does: **nothing is collected until an account is linked**,
-which until Step 20 exists means `travelmap foursquare connect`. Without it a reader can set
-every variable, run `foursquare sync`, and be told nothing about why the result is empty.
-Step 20 adds its browser flow to the same sentence when it lands, which is its own README item.
+The push webhook already opened a check-in section under the README's "Configuration", since it
+collects check-ins on its own; Step 19 adds to what it wrote there rather than starting the
+section itself. That section carries the one fact no single setting does: **nothing is collected
+until an account is linked**, which until Step 20 exists means `travelmap foursquare connect`.
+Without it a reader can set every variable, run `foursquare sync`, and be told nothing about why
+the result is empty. Step 20 adds its browser flow to the same sentence when it lands, which is
+its own README item.
 
-Steps 18 and 19 are parallel; Step 21 follows Step 19, and Step 20 can be taken at any point or
-left until last, needing nothing this milestone has not already shipped.
-`travelmap foursquare connect` exists precisely so the collecting steps can be finished and run
-for real before the OAuth flow is written. Until it is, the access token comes out of the
-Foursquare application's own console, which issues one for the account that owns the application;
-that is the whole of what Step 20 later automates.
+Step 19 can be taken at any time now that the push webhook already collects check-ins on its own;
+Step 21 follows Step 19, and Step 20 can be taken at any point or left until last, needing nothing
+this milestone has not already shipped. `travelmap foursquare connect` exists precisely so the
+collecting steps can be finished and run for real before the OAuth flow is written. Until it is,
+the access token comes out of the Foursquare application's own console, which issues one for the
+account that owns the application; that is the whole of what Step 20 later automates.
 
 **Step 19 grew a second step rather than one long checklist.** Calling the endpoint and knowing a
 page-walk succeeded is one decision; how that client copes with a rate limit, an ambiguous error
 code, or a check-in whose language disagrees between paths is another, confirmed empirically
-rather than designed alongside the first. That second half is Step 22 — it follows both 18 and
-19, and nothing in this milestone waits on it in turn.
-
-### Step 18: The push webhook
-
-- [ ] `POST /webhooks/foursquare`, registered **at the top level, outside
-      `r.Route("/api/v1", …)`** — no `authenticate`, no `dawarichHeaders`, no `requireUser`
-- [ ] `TRAVELMAP_FOURSQUARE_PUSH_SECRET` in `internal/config`, and the route registered **only
-      when it is set**, so an unconfigured server answers 404 like any route it does not
-      implement
-- [ ] Form parsing under an explicit `http.MaxBytesReader` in the handler, and a constant-time
-      secret comparison in `internal/auth`
-- [ ] The handler then hands the raw `checkin` value to `internal/checkin`, which parses it
-      through `internal/foursquare`, resolves `checkin.user.id` against `foursquare_accounts`
-      and writes. Keeping the parse behind that package is what lets Step 19 reach the store by
-      the same road
-- [ ] The response codes in "Webhook responses" — in particular **200 for a Foursquare user
-      this server does not know**
-- [ ] README: the push secret, and that the webhook needs a URL Foursquare can reach over HTTPS
-      — so it works behind a reverse proxy and not on a laptop
-- [ ] The wire struct **ignores unknown fields and makes almost every field optional**, per "The
-      push payload" — the documented sample and the observed one disagree about which fields exist
-      at all, so a struct that requires any of them breaks on the next payload Foursquare widens
-- [ ] Pin the parse with a fixture: the recorded push body in `internal/foursquare/testdata/`
-      **with the secret and the email redacted**, and the wire struct it parses to compared by
-      go-cmp — the wire shape, not `model.Checkin`, since `internal/checkin` owns that
-      conversion (see CLAUDE.md's layering rules). This fixture is the compatibility contract
-      for this route, the role golden files play for responses
-- [ ] Confirm the request logger leaves this route's body alone — Step 6's request logger
-      already never logs a body, and this is the route that would hurt most
-
-**Settles**: where a non-Dawarich route lives and how it authenticates, and that a body carrying
-a credential is never logged.
-
-**Done when**: replaying the recorded payload against a running server stores one check-in, and
-replaying it again still leaves one.
+rather than designed alongside the first. That second half is Step 22 — it follows Step 19 and
+also reaches back to a check-in already collected by push for the locale comparison — and nothing
+in this milestone waits on it in turn.
 
 ### Step 19: The Foursquare API client
 
@@ -786,7 +629,7 @@ this step, for two different reasons. The timer that repeats it is Step 21 — a
 scheduler settle different conventions, and this half already reaches real check-ins on its own.
 This client's response to rate limits, ambiguous error codes and locale drift is Step 22 instead:
 none of that is decided by this step's design, only confirmed once it exists — and, for locale,
-once Step 18's push path has a check-in to compare against.
+once the push webhook's collection path has a check-in to compare against.
 
 - [ ] `internal/foursquare`: a client for `GET /v2/users/self/checkins` — `v=` pinned, `m=swarm`,
       the token in an `Authorization: Bearer` header rather than the URL, `limit=250`,
@@ -937,8 +780,8 @@ configured and nothing is lost", and that one as "the fetch path collects".
 
 Split out of Step 19 because none of this is decided by the calling convention or the paging
 design — it is confirmed empirically, once a client exists to run and a check-in has arrived by
-both paths to compare. Depends on Step 19, which this extends, and on Step 18 for the check-in
-the locale bullet compares against.
+both paths to compare. Depends on Step 19, which this extends, and on a check-in already
+collected by the push webhook for the locale bullet to compare against.
 
 - [ ] The client **reads `meta`, not only the HTTP status**: it logs `meta.requestId` on every
       failure and surfaces `errorType: deprecated` on a 200 loudly, that being the only notice
@@ -1017,7 +860,8 @@ excluded from refresh.
   decides what `checked_in_at` means. See "The periodic fetch takes a window, not a cursor".
 - **The push URL has to be reachable over HTTPS from the internet**, which a self-hosted
   instance behind a reverse proxy can do but a laptop cannot. Until then the fetch path alone
-  collects check-ins, just with a delay. Step 18 says so in the README when it adds the route.
+  collects check-ins, just with a delay. The README already says so, in the check-in
+  configuration section the push webhook opened.
 - **The push secret belongs to the Foursquare application, not to a user.** Keep the split it
   implies: the secret is server configuration, and identifying whose check-in arrived is
   `foursquare_user_id`'s job. Deriving a user from the secret would break the moment a second
