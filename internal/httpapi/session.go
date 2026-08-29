@@ -13,7 +13,7 @@ import (
 )
 
 // sessionUserIDKey is the scs session key the signed-in user's id is stored
-// under, once a later step starts writing one.
+// under. loginSubmit is what writes it.
 const sessionUserIDKey = "user_id"
 
 // newSessionManager builds the scs.SessionManager the browser group loads and

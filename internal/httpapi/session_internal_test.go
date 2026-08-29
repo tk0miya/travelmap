@@ -15,9 +15,9 @@ import (
 )
 
 // plantSession writes a session naming userID directly through a
-// SessionManager wired the way New wires one, without a login form to drive
-// it — a later step builds one. It returns the token a client presents as
-// the session cookie's value.
+// SessionManager wired the way New wires one, bypassing the login form so a
+// test can isolate session/expiry behaviour from the login flow itself. It
+// returns the token a client presents as the session cookie's value.
 func plantSession(t *testing.T, st store.Store, userID int64) string {
 	t.Helper()
 

@@ -85,6 +85,7 @@ type api struct {
 	trackBreak           time.Duration
 	foursquarePushSecret string
 	sessions             *scs.SessionManager
+	csrf                 *http.CrossOriginProtection
 }
 
 // New builds the server's HTTP handler.
@@ -117,6 +118,7 @@ func New(opts Options) http.Handler {
 		trackBreak:           trackBreak,
 		foursquarePushSecret: opts.FoursquarePushSecret,
 		sessions:             newSessionManager(opts.Store, sessionLifetime, opts.SessionCookieSecure),
+		csrf:                 http.NewCrossOriginProtection(),
 	}
 
 	r := chi.NewRouter()
@@ -148,13 +150,19 @@ func New(opts Options) http.Handler {
 		r.Post("/webhooks/foursquare", a.foursquareWebhook)
 	}
 
-	// The browser's own group, beside /api/v1 rather than under it: a later
-	// step attaches CSRF protection here too, which /api/v1 does not need.
+	// The browser's own group, beside /api/v1 rather than under it: CSRF
+	// protection is attached here and only here — /api/v1 is Bearer /
+	// api_key only, so nothing it serves can be driven by a cross-origin
+	// form.
 	r.Group(func(r chi.Router) {
 		r.Use(a.sessions.LoadAndSave)
 		r.Use(a.loadSessionUser)
+		r.Use(a.csrf.Handler)
 
 		r.Get("/", a.index)
+		r.Get("/login", a.loginPage)
+		r.Post("/login", a.loginSubmit)
+		r.Post("/logout", a.logout)
 	})
 
 	r.Handle("/static/*", http.StripPrefix("/static/", http.FileServerFS(staticFiles)))

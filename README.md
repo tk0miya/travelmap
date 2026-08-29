@@ -68,6 +68,9 @@ $ curl http://localhost:3000/api/v1/health
 {"status":"ok"}
 ```
 
+The same account made with `user create` also logs in at `http://localhost:3000/login`, in a
+browser.
+
 `SIGINT` or `SIGTERM` stops it: it stops accepting connections and gives the requests already
 running up to ten seconds to finish.
 
