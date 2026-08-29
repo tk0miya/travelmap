@@ -154,3 +154,44 @@ Clients probe with `HEAD` before fetching a GET route's body — for example, re
 route this server serves therefore also answers HEAD, with the same status and headers.
 
 Verified in the community Android client.
+
+## travelmap's own extensions
+
+Functionality with no Dawarich equivalent, at routes outside `/api/v1` — see "Keeping the two
+parts apart" above for why. None of the rules above apply to this part: no Dawarich headers, no
+`api_key`, and none of it answers a bare `{"error": "..."}`, since there is no Dawarich client
+reading these responses to keep the shape of.
+
+### `POST /webhooks/foursquare`
+
+A Swarm User Push notification. Registered only when `TRAVELMAP_FOURSQUARE_PUSH_SECRET` is set;
+an unconfigured server answers 404 like any endpoint it does not implement, rather than 401 to
+every request — consistent with "An endpoint this server does not implement answers 404" above
+even though this route is outside the Dawarich-compatible surface that rule was written for.
+
+The status codes and their (always empty) response bodies are in `docs/openapi.yaml`; what
+follows is why they are what they are.
+
+Neither 200 case is an error. A User Push notification is not documented to ever omit `checkin`,
+so a request that lacks it, or carries something that does not parse as JSON, is handled rather
+than refused — the same form shape is shared with the Venue Push API, whose second parameter is
+one of `like`, `tip` or `photo` instead, so such a request simply has no `checkin` parameter to
+find. A `checkin.user.id` this server has no linked account for is likewise not an error: the
+check-in is not this server's to store. Foursquare does not document what a non-2xx reply does —
+only that a push not answered `200 OK` quickly enough "will timeout ... and this will be recorded
+as a push failure", with no stated retry or disable behaviour either way — so neither case is
+refused. A 200 here means the check-in has already been stored, not merely accepted for later
+processing. Delivering the same check-in more than once updates the same stored row rather than
+creating a duplicate.
+
+The payload's shape and its quirks — which fields are actually optional, what is localised and
+what is not, what a quoted-looking-numeric id means — are on the `FoursquareCheckin` schema and
+the schemas it references.
+
+There is no IP allowlist. Foursquare publishes one (`199.38.176.0/22`), but an observed push
+arrived from an AWS us-east-1 address, not from it — inconclusive, since the push was captured
+through a webhook recorder whose own egress could equally explain it. `secret` already
+authenticates the push against forgery, which an address-based filter would not strengthen.
+
+The secret is compared in constant time, so a request cannot learn anything about it from how
+long the comparison takes.

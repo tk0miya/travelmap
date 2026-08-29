@@ -49,17 +49,23 @@ type Options struct {
 	// [config.Config.TrackBreak] — passed to internal/ingest for the same
 	// reason as Location. Left zero, it defaults to [defaultTrackBreak].
 	TrackBreak time.Duration
+
+	// FoursquarePushSecret is TRAVELMAP_FOURSQUARE_PUSH_SECRET — see
+	// [config.Config.FoursquarePushSecret] for why it defaults to unset.
+	// Left empty, POST /webhooks/foursquare is not registered at all.
+	FoursquarePushSecret string
 }
 
 // api holds the dependencies shared by the handlers. Handlers are methods on
 // it rather than free functions, so a new dependency is added in one place
 // instead of being threaded through every signature.
 type api struct {
-	logger     *slog.Logger
-	store      store.Store
-	timezone   string
-	loc        *time.Location
-	trackBreak time.Duration
+	logger               *slog.Logger
+	store                store.Store
+	timezone             string
+	loc                  *time.Location
+	trackBreak           time.Duration
+	foursquarePushSecret string
 }
 
 // New builds the server's HTTP handler.
@@ -80,11 +86,12 @@ func New(opts Options) http.Handler {
 	}
 
 	a := &api{
-		logger:     opts.Logger,
-		store:      opts.Store,
-		timezone:   timezone,
-		loc:        loc,
-		trackBreak: trackBreak,
+		logger:               opts.Logger,
+		store:                opts.Store,
+		timezone:             timezone,
+		loc:                  loc,
+		trackBreak:           trackBreak,
+		foursquarePushSecret: opts.FoursquarePushSecret,
 	}
 
 	r := chi.NewRouter()
@@ -106,6 +113,15 @@ func New(opts Options) http.Handler {
 
 	r.NotFound(a.notFound)
 	r.MethodNotAllowed(a.methodNotAllowed(r))
+
+	// Registered at the top level rather than under /api/v1: this is not a
+	// Dawarich-compatible endpoint, so it carries none of that group's
+	// middleware — no Dawarich headers, no api_key, no requireUser. It
+	// authenticates the caller with its own shared secret instead, and only
+	// exists at all once one is configured.
+	if a.foursquarePushSecret != "" {
+		r.Post("/webhooks/foursquare", a.foursquareWebhook)
+	}
 
 	r.Route("/api/v1", func(r chi.Router) {
 		// authenticate first, for the reason on dawarichHeaders.

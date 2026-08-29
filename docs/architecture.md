@@ -49,3 +49,9 @@ r.Group(func(r chi.Router) {
     r.Handle("/*", webui.Handler())
 })
 ```
+
+A travelmap-only route with its own authentication follows the same shape: registered directly
+on `r`, outside `r.Route("/api/v1", ...)`, so it carries none of that group's middleware —
+`POST /webhooks/foursquare` is the first of these. Its body carries a credential like
+`auth/login`'s, which is already why the request logger never reads one at all (see
+`internal/httpapi/requestlog.go`), route grouping aside.

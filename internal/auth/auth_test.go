@@ -208,6 +208,33 @@ func TestCheckAbsentPasswordCostsWhatCheckPasswordCosts(t *testing.T) {
 	}
 }
 
+// TestCheckSecret covers the comparison the Foursquare push webhook
+// authenticates with, in place of a per-user digest.
+func TestCheckSecret(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		secret, want string
+		wantMatch    bool
+	}{
+		"matching secrets":      {secret: "shh-its-a-secret", want: "shh-its-a-secret", wantMatch: true},
+		"a wrong secret":        {secret: "not-the-secret", want: "shh-its-a-secret"},
+		"an empty guess":        {secret: "", want: "shh-its-a-secret"},
+		"a longer guess":        {secret: "shh-its-a-secret-extra", want: "shh-its-a-secret"},
+		"both empty is a match": {secret: "", want: "", wantMatch: true},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := auth.CheckSecret(tt.secret, tt.want); got != tt.wantMatch {
+				t.Errorf("CheckSecret(%q, %q) = %v, want %v", tt.secret, tt.want, got, tt.wantMatch)
+			}
+		})
+	}
+}
+
 // timeCall reports how long f took.
 func timeCall(f func()) time.Duration {
 	start := time.Now()

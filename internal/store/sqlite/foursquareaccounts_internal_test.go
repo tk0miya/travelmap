@@ -64,7 +64,7 @@ func TestFoursquareAccountCreate(t *testing.T) {
 
 // TestFoursquareAccountByFoursquareUserIDReportsMissing pins ErrNotFound
 // rather than a zero account, since the push webhook turns exactly this into
-// "log and drop", per "Webhook responses" in TODO.md.
+// a check-in it logs and drops rather than one it stores.
 func TestFoursquareAccountByFoursquareUserIDReportsMissing(t *testing.T) {
 	t.Parallel()
 
