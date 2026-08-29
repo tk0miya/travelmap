@@ -20,8 +20,8 @@ maps / fog of war, and areas, places, notes, tags, digests and insights. See "No
 
 There is no tagged release yet. The
 [`nightly` release](https://github.com/tk0miya/travelmap/releases/tag/nightly) carries prebuilt
-binaries for Linux, macOS and Windows, rebuilt from `main` on every merge — pick one of those to
-skip building from source, or build it yourself:
+binaries for Linux and macOS (Apple Silicon), rebuilt from `main` on every merge — pick one of
+those to skip building from source, or build it yourself:
 
 A checkout and a Go toolchain are all it takes. The Go version comes from `go.mod`, so nothing
 else has to be installed.
