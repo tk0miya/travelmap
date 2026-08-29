@@ -30,50 +30,10 @@ change it — after updating this file.
 ## Data Model
 
 Columns and indexes for the tables already migrated (`users`, `points`, `daily_stats`, `checkins`,
-`foursquare_accounts`) are in `internal/store/sqlite/schema.sql`, kept current by `TestSchema`;
-the rationale for how a column or index is shaped is a comment in the migration that adds it.
-Behaviour that spans tables or does not attach to a single column — invariants, algorithms,
-config effects — is in `docs/database.md`.
-
-### `sessions`
-
-Not migrated yet — Step 23 adds it, and this is where its shape lives until then. **Everything
-after this paragraph is written as the migration's own text**: the prose becomes `sessions`'
-leading comment and the SQL becomes the statements, so Step 23 copies rather than rewrites, and
-this entry goes when it does.
-
-It holds the browser sessions `scs` hands out, which are a different credential from
-`users.api_key`: a session expires, `POST /logout` destroys it, and one account may hold several
-at once while the API key is one per user and never expires.
-
-```sql
-CREATE TABLE sessions (
-    -- What scs keys a session by.
-    token  TEXT PRIMARY KEY,
-
-    -- scs's gob-encoded session data.
-    data   BLOB NOT NULL,
-
-    -- Unix seconds, UTC, per users.created_at. Its index serves the sweep, not reads.
-    expiry INTEGER NOT NULL
-) STRICT;
-
-CREATE INDEX sessions_expiry_idx ON sessions (expiry);
-```
-
-**What lands in `token` is a digest, not the token the browser holds** — `scs` is configured with
-`HashTokenInStore`, so a copy of the database file hands out no live session. That is Step 25's
-setting rather than this table's, which is why the column's own comment does not claim it: a
-comment inside a statement cannot be edited once the migration is merged, and this one would go
-false the day that setting changed. The leading comment can be edited, so it is where the claim
-belongs, alongside the paragraph below.
-
-**There is no `user_id` column, and the absence is the design.** `scs` writes this row and knows
-nothing about one, so the user id lives inside `data` where only `scs` can read it. The cost is
-that "log out every session of this user" is not a query — it would have to iterate through
-`scs.IterableStore` and decode each row — and nothing needs it yet, there being no password change
-to invalidate sessions after. Adding the column would mean writing the row twice, once by `scs` and
-once by this server, with no writer owning it.
+`foursquare_accounts`, `sessions`) are in `internal/store/sqlite/schema.sql`, kept current by
+`TestSchema`; the rationale for how a column or index is shaped is a comment in the migration that
+adds it. Behaviour that spans tables or does not attach to a single column — invariants,
+algorithms, config effects — is in `docs/database.md`.
 
 ## Dawarich API Compatibility Notes
 
@@ -591,10 +551,11 @@ All independent of each other; take them in whatever order the need arises.
 Start once the API has settled. What the screens still need a library for is in "Library Choices
 for the Web UI"; sessions, CSRF and HTML rendering are already settled under "Technical Decisions".
 
-Steps 23 to 31 are the browser's way in: a session, a login screen, a sign-up screen, and the
-Swarm link, which a browser is the only sensible place to start from. **They add no data
-endpoint**, which is what leaves "Open question: how the browser authenticates against `/api/v1`"
-for the map screen to answer rather than this half.
+Steps 24 to 31 are the browser's way in: a session, a login screen, a sign-up screen, and the
+Swarm link, which a browser is the only sensible place to start from — the `sessions` table and
+its repository are already in place. **They add no data endpoint**, which is what leaves "Open
+question: how the browser authenticates against `/api/v1`" for the map screen to answer rather
+than this half.
 
 The map, statistics and settings screens keep their bullet form below. They are not planned yet,
 and writing a checklist for a screen whose rendering approach is undecided would be inventing the
@@ -603,57 +564,22 @@ plan rather than recording it.
 ### Ordering
 
 ```
-Step 23 (store) ─┐
-                 ├─→ Step 25 (session middleware) ─→ Step 26 (login) ─┐
-Step 24 (HTML)  ─┘                                                    ├─→ Step 29 (sign-up)
-Step 28 (auth.Register) ──────────────────────────────────────────────┘
-
-Step 23 ─→ Step 27 (the session sweep), which nothing else waits on
+The sessions store ─┐
+                     ├─→ Step 25 (session middleware) ─→ Step 26 (login) ─┐
+Step 24 (HTML)      ─┘                                                    ├─→ Step 29 (sign-up)
+Step 28 (auth.Register) ──────────────────────────────────────────────────┘
 
 Step 26 + Milestone I's Step 20 ─→ Step 30 (Swarm over a session) ─→ Step 31 (the Swarm page)
 ```
 
-**Steps 23, 24 and 28 are independent of each other and can run in parallel.** Step 27 can be
-taken any time after Step 23. The shortest path to logging in from a browser is 23, 24, 25, 26;
-everything else hangs off that.
-
-### Step 23: The `sessions` table and its repository
-
-The store layer only — no HTTP, no `scs`. What a reviewer reads here is SQL and one repository.
-
-- [ ] Migration `0006_sessions.sql` per "Data Model", then regenerate the schema snapshot with
-      `go test ./internal/store/sqlite/... -update`
-- [ ] **"Data Model"'s prose around the table is the migration's leading comment**, copied in the
-      words already written there: what a session is and how it differs from an API key, what lands
-      in `token`, and why there is no `user_id` column. None of the three can live inside a
-      statement — one is about the table as a whole, one about an absence, one about a setting
-      Step 25 makes that a merged migration could not follow — and this entry is deleted when the
-      step is done
-- [ ] `store.SessionRepository` — `ByToken`, `Upsert`, `Delete`, `DeleteExpired` — reached through
-      a new `store.Store.Sessions()`. **The names are this package's, not `scs`'s**: `ByToken` is
-      the shape of `ByEmail` / `ByAPIKey` / `ByFoursquareUserID`, and `Upsert` is what
-      `CheckinRepository` already calls a write matched against an existing row. `scs` calls them
-      `Find` and `Commit`, and `Commit` in particular would collide with what `Store.Tx` does
-- [ ] `store.UserRepository.ByID`. A session names its user by id and **nothing today can look a
-      user up by one**: that interface has only `ByEmail` and `ByAPIKey`, because until now a
-      request arrived carrying one or the other. Its doc comment says so in as many words — "the
-      lookups are the two the API authenticates with" — so that comment is rewritten here, this
-      being the lookup that is not one of them
-- [ ] `ByToken` filters on `expiry` itself rather than trusting the sweep. Step 27's ticker is a
-      housekeeping job, so an expired session must already be no session between two of its runs —
-      otherwise the sweep's interval silently becomes part of how long a session lasts
-- [ ] Tests in `internal/store/sqlite` on a real temporary database, and whatever `storetest`
-      needs to break this table for the 500 paths later steps answer
-
-**Settles**: how a `scs` session is persisted — in particular that there is **no `user_id`
-column**, and the trade that comes with it, both argued under "Data Model".
-
-**Done when**: `make test` passes, `schema.sql` carries `sessions`, and `travelmap migrate`
-against a database created before this step applies it without error.
+**Steps 24 and 28 are independent of each other and can run in parallel.** Step 27 (the session
+sweep) can be taken at any time, needing nothing but the sessions store already in place. The
+shortest path to logging in from a browser is now 24, 25, 26; everything else hangs off that.
 
 ### Step 24: HTML rendering and the browser route group
 
-Independent of Step 23; the two can run in parallel. No session yet.
+Independent of the sessions store and of Step 28; any of the three can run in parallel. No session
+yet.
 
 - [ ] A second top-level group beside `r.Route("/api/v1", …)`, serving one page at `GET /`.
       **It needs no credential at this step** — it is the page that will later say who you are
@@ -679,8 +605,9 @@ startup rather than per request.
 
 ### Step 25: The session middleware
 
-Follows Steps 23 and 24. This is the `scs` wiring on its own; the login form is Step 26, so what
-is verifiable here is a session planted by a test rather than one a person can create.
+Follows Step 24, needing nothing else but the sessions store already in place. This is the `scs`
+wiring on its own; the login form is Step 26, so what is verifiable here is a session planted by a
+test rather than one a person can create.
 
 - [ ] `github.com/alexedwards/scs/v2` as a direct dependency, and **not `scs/sqlite3store`**.
       Why neither costs a dependency and why the bundled store is unusable is settled in the
@@ -747,18 +674,18 @@ protection is attached to the browser group rather than the whole server.
 
 ### Step 27: The expired-session sweep
 
-Any time after Step 23; it does not wait for a login to exist. Small, but it answers the same
-question Step 21 answers for Milestone I — how a background worker in this server starts and
-stops — so whichever of the two lands first is the one that settles it, and the second follows it
-rather than deciding again.
+Can be taken any time, needing nothing but the sessions store already in place; it does not wait
+for a login to exist. Small, but it answers the same question Step 21 answers for Milestone I —
+how a background worker in this server starts and stops — so whichever of the two lands first is
+the one that settles it, and the second follows it rather than deciding again.
 
 - [ ] A ticker calling `store.Sessions().DeleteExpired`, started from `cmd/travelmap/serve.go` —
       the only place holding both the signal-cancelled context and the concrete store, which is
       why Step 21's worker starts there too
 - [ ] It stops with the server, on the same cancelled context, so a sweep in flight is not left
       writing into a closing database
-- [ ] The interval is a constant, **not a setting**, and the code says why: Step 23 makes `ByToken`
-      filter on `expiry`, so a late sweep leaves no session usable — only rows on disk. There is
+- [ ] The interval is a constant, **not a setting**, and the code says why: `ByToken` already
+      filters on `expiry`, so a late sweep leaves no session usable — only rows on disk. There is
       nothing for an operator to tune that would change behaviour
 - [ ] Tests: an expired row is deleted and an unexpired one is not; a cancelled context stops the
       ticker. **Not Step 21's "a restart loses no tick"** — that test exists because a fetch window

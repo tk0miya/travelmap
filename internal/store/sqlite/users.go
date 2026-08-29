@@ -71,6 +71,11 @@ func (r userRepository) ByAPIKey(ctx context.Context, apiKey string) (model.User
 	return r.one(ctx, `SELECT `+userColumns+` FROM users WHERE api_key = ?`, apiKey)
 }
 
+// ByID implements [store.UserRepository].
+func (r userRepository) ByID(ctx context.Context, id int64) (model.User, error) {
+	return r.one(ctx, `SELECT `+userColumns+` FROM users WHERE id = ?`, id)
+}
+
 // one runs a lookup expected to match at most one user.
 func (r userRepository) one(ctx context.Context, query string, args ...any) (model.User, error) {
 	user, err := scanUser(r.q.QueryRowContext(ctx, query, args...))
