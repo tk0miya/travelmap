@@ -21,7 +21,6 @@ it lands.
 | Scheduling | A ticker goroutine plus a fixed lookback window, and **no job table** | The periodic fetch is one cron-like task with no queue of items, so the job table in the "Background work" row above would be scaffolding with nothing in it. Step 13's track splitting is the first genuine per-item consumer; the decision stands, its first use just is not here |
 | Browser sessions | `github.com/alexedwards/scs/v2` over a `sessions` table of this project's own | scs brings no dependencies of its own: its `go.mod` has no `require` entries at all, the same property chi was checked for. Its bundled `sqlite3store` is **not** usable — that module requires the CGO `github.com/mattn/go-sqlite3` — so the store is written here against `internal/store` instead. Chosen over a JWT, which has no defensible default for its signing key (one generated at startup logs every user out on restart, so it becomes a required setting) and which cannot be revoked, leaving `POST /logout` able only to clear the cookie while the token stays valid until it expires. That is not a cost saved but a part of the feature missing |
 | Browser CSRF | Standard `net/http.CrossOriginProtection`, on the browser routes only | Present in the toolchain `go.mod` already names (`go 1.26.6`), and its `Handler` is a plain `func(http.Handler) http.Handler`, so this costs no dependency, which is what needed confirming before it could be chosen. `/api/v1` keeps Bearer / `api_key` only and needs none |
-| HTML rendering | `html/template`, parsed once at startup, with the templates and the CSS in an `embed.FS` | Keeps deployment a single binary, and adds neither a code-generation step nor a Node build chain to a checkout that today needs nothing installed but Go |
 | Sign-up | `GET/POST /signup`, open to anyone: no environment variable, no invite code, no first-user-only rule | A gate is one more setting to get wrong before the first login works, on a server whose first account is the operator's own. What open sign-up means for an instance reachable from the internet is recorded under "Risks and Open Questions" rather than answered here with a default nobody asked for |
 
 These are the defaults as of planning. If any turns out to be wrong during implementation,
@@ -331,10 +330,11 @@ a push fires for one.
 
 ## Library Choices for the Web UI
 
-Sessions, CSRF and HTML rendering are **settled** — each has a row under "Technical Decisions"
-above, carrying the measurement that settled it, and Steps 23 to 26 implement them. What is left
-undecided is what the remaining screens need. `docs/architecture.md` covers the one thing already
-implemented (the router), for the reasoning that also applies here.
+Sessions and CSRF are **settled** — each has a row under "Technical Decisions" above, carrying
+the measurement that settled it, and Steps 25 and 26 implement them. HTML rendering is settled
+too, and already implemented; its row moved to `docs/architecture.md`, which also covers the
+router, for the reasoning that applies here as well. What is left undecided is what the
+remaining screens need.
 
 **Still open, for Milestone H's remaining screens**
 
@@ -548,13 +548,13 @@ All independent of each other; take them in whatever order the need arises.
 ## Milestone H — Web UI
 
 Start once the API has settled. What the screens still need a library for is in "Library Choices
-for the Web UI"; sessions, CSRF and HTML rendering are already settled under "Technical Decisions".
+for the Web UI"; sessions and CSRF are already settled under "Technical Decisions".
 
-Steps 24 to 31 are the browser's way in: a session, a login screen, a sign-up screen, and the
+Steps 25 to 31 are the browser's way in: a session, a login screen, a sign-up screen, and the
 Swarm link, which a browser is the only sensible place to start from — the `sessions` table and
-its repository are already in place. **They add no data endpoint**, which is what leaves "Open
-question: how the browser authenticates against `/api/v1`" for the map screen to answer rather
-than this half.
+its repository, and the HTML route group and its one page, are already in place. **They add no
+data endpoint**, which is what leaves "Open question: how the browser authenticates against
+`/api/v1`" for the map screen to answer rather than this half.
 
 The map, statistics and settings screens keep their bullet form below. They are not planned yet,
 and writing a checklist for a screen whose rendering approach is undecided would be inventing the
@@ -563,48 +563,20 @@ plan rather than recording it.
 ### Ordering
 
 ```
-The sessions store ─┐
-                     ├─→ Step 25 (session middleware) ─→ Step 26 (login) ─┐
-Step 24 (HTML)      ─┘                                                    ├─→ Step 29 (sign-up)
-Step 28 (auth.Register) ──────────────────────────────────────────────────┘
+The sessions store and the HTML route group ─→ Step 25 (session middleware) ─→ Step 26 (login) ─┐
+                                                                                                ├─→ Step 29 (sign-up)
+Step 28 (auth.Register) ────────────────────────────────────────────────────────────────────────┘
 
 Step 26 + Milestone I's Step 20 ─→ Step 30 (Swarm over a session) ─→ Step 31 (the Swarm page)
 ```
 
-**Steps 24 and 28 are independent of each other and can run in parallel.** Step 27 (the session
-sweep) can be taken at any time, needing nothing but the sessions store already in place. The
-shortest path to logging in from a browser is now 24, 25, 26; everything else hangs off that.
-
-### Step 24: HTML rendering and the browser route group
-
-Independent of the sessions store and of Step 28; any of the three can run in parallel. No session
-yet.
-
-- [ ] A second top-level group beside `r.Route("/api/v1", …)`, serving one page at `GET /`.
-      **It needs no credential at this step** — it is the page that will later say who you are
-- [ ] `html/template` in an `embed.FS`: a base layout plus that page. **Parsed once at startup**,
-      so a template that does not compile stops the server rather than turning one route into a
-      500 nobody visits until later
-- [ ] A small stylesheet under `static/`, served from the same `embed.FS`. **Deployment stays one
-      binary plus one SQLite file**, which is what rules out reading templates off disk
-- [ ] `docs/api-notes.md`: that `docs/openapi.yaml` is the contract for the machine API, so an
-      HTML route is not added to it. Decided here rather than left to whoever adds the next page
-- [ ] The 404 for an unknown path keeps answering with the JSON error body. The 404 rule in
-      `docs/api-notes.md` is about `/api/v1` and is not in question here; whether a browser
-      deserves an HTML 404 is **deliberately not decided at this step**, there being no second
-      HTML page yet to make it a real choice
-- [ ] Tests through `httptest` against the real router: `GET /` answers 200 with
-      `text/html; charset=utf-8`, and the stylesheet is served
-
-**Settles**: where HTML routes, templates and static assets live, and that templates are parsed at
-startup rather than per request.
-
-**Done when**: `make run`, then `http://localhost:3000/` in a browser renders the page, and
-`make build` still produces a single file.
+Step 27 (the session sweep) can be taken at any time, needing nothing but the sessions store
+already in place. Step 28 is independent of everything above it and can be taken in parallel. The
+shortest path to logging in from a browser is now 25, 26; everything else hangs off that.
 
 ### Step 25: The session middleware
 
-Follows Step 24, needing nothing else but the sessions store already in place. This is the `scs`
+Follows the sessions store and the HTML route group, both already in place. This is the `scs`
 wiring on its own; the login form is Step 26, so what is verifiable here is a session planted by a
 test rather than one a person can create.
 
@@ -630,7 +602,7 @@ test rather than one a person can create.
       user id through `store.Users().ByID` and puts the user on the context **with the existing
       `withUser`**. Handlers then read it with `userFrom` whichever chain they sit behind, and
       `/api/v1` is not touched
-- [ ] Step 24's `GET /` names the account when a session carries one
+- [ ] `GET /` names the account when a session carries one
 - [ ] README: both settings, and that a plain-HTTP LAN needs `TRAVELMAP_SESSION_COOKIE_SECURE=0`
 - [ ] Tests: a session holding a user id reaches `GET /` and the page names them; no session and
       it does not; the row lands in `sessions` and the cookie carries `HttpOnly` and
@@ -845,9 +817,9 @@ check-ins already collected remain.
       first to read data from it
 - [ ] Statistics screen (using `daily_stats`)
 - [ ] Settings screen. An import screen only if Milestone G's `/api/v1/imports` was implemented
-- [ ] Vendor the map library into `embed.FS` to preserve the single binary. Step 24 does this for
-      the templates and the stylesheet; what is left is the one dependency that has to be fetched
-      rather than written
+- [ ] Vendor the map library into `embed.FS` to preserve the single binary, alongside the
+      templates and the stylesheet already there; what is left is the one dependency that has to
+      be fetched rather than written
 
 **Done when**: logging in from a browser shows the user's history on a map, and deployment is
 still one binary plus one SQLite file.
