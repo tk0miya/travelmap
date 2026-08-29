@@ -142,6 +142,11 @@ type DailyStatsRepository interface {
 	// points at all — the state Rebuild represents by deleting the row
 	// rather than storing one at zero.
 	Get(ctx context.Context, userID int64, day time.Time) (model.DailyStat, error)
+
+	// All returns every daily_stats row recorded for userID, ordered by day
+	// ascending — what GET /api/v1/stats and GET /api/v1/points/tracked_months
+	// aggregate, rather than reading points directly.
+	All(ctx context.Context, userID int64) ([]model.DailyStat, error)
 }
 
 // CheckinRepository stores Swarm check-ins — travelmap's own extension, not a

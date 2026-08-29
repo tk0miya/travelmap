@@ -58,6 +58,21 @@ func UnavailablePoints(t *testing.T, users ...model.User) store.Store {
 	return open(t, path)
 }
 
+// UnavailableDailyStats returns a store holding users whose daily_stats
+// table has been dropped, so that authenticating and reading points still
+// work but a daily_stats read fails.
+func UnavailableDailyStats(t *testing.T, users ...model.User) store.Store {
+	t.Helper()
+
+	path := prepare(t, users)
+
+	// Dropped before the store is opened, for the same reason as
+	// UnavailablePoints.
+	exec(t, path, `DROP TABLE daily_stats`)
+
+	return open(t, path)
+}
+
 // NewWithPoints is [New], plus points seeded directly with their own ID,
 // CreatedAt and UpdatedAt — not [store.PointRepository.Create]'s, which
 // stamps the timestamps with the current time — so a caller can pin what a

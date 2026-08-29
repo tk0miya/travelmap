@@ -151,6 +151,37 @@ ignored rather than acted on, the same as any other endpoint here, and every fie
 asks for is already present in the full one, so a client that requested `slim` still gets
 everything it parses.
 
+### `GET /api/v1/points/tracked_months`
+
+Answers `[{"year": 2024, "months": ["Jan", "Feb", ...]}]`, read from `daily_stats` rather than
+aggregating `points` directly — the same source `/stats` uses, and the reason both can be wrong
+together if `daily_stats` itself ever drifts. Years are most-recent-first; within a year, months
+are in calendar order, matching upstream's own `years_tracked` SQL, which walks backward from the
+latest point one month at a time.
+
+No known client actually calls this endpoint: the community Android client defines the URL as a
+constant but never issues a request to it, so its own behaviour rests on the published spec's
+example rather than observed traffic.
+
+### `GET /api/v1/stats`
+
+The only endpoint using **camelCase** (`totalDistanceKm`, `totalPointsTracked`,
+`totalReverseGeocodedPoints`, `totalCountriesVisited`, `totalCitiesVisited`,
+`yearlyStats[].monthlyDistanceKm.january`, …) — everything else here is snake_case. All five
+top-level totals, and the yearly/monthly breakdown, are aggregated from `daily_stats` alone; see
+`docs/database.md` for why `daily_stats` is the only thing allowed to feed them.
+
+**Every distance is a whole number of kilometres, not a fractional one, despite the published
+schema declaring `number`.** Upstream stores distance in metres as a Ruby `Integer` column, and
+`Integer / Integer` division in Ruby floors rather than rounds — so `totalDistanceKm` and its
+yearly and monthly counterparts are always upstream's own metres-to-kilometres floor division,
+never a precise float. The community Android client's `StatsDTO` (and `YearlyStatsDTO`,
+`MonthlyStatsDTO`) declare these fields as a Dart `int`; Dart's JSON decoder produces a `double`
+for any number carrying a decimal point, and assigning that to a declared `int` field throws at
+parse time. Sending the fractional kilometre total `daily_stats.km` actually stores would crash
+that client's stats screen, so travelmap truncates to `int64` at the response boundary instead of
+rounding — matching upstream's own precision loss, not just avoiding the crash by coincidence.
+
 ### Every response carries `Content-Type: application/json; charset=utf-8`
 
 Upstream sends the charset, and it is worth copying rather than sending a bare

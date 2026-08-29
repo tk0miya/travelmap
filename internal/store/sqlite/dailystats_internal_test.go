@@ -250,3 +250,54 @@ func TestDailyStatsDeleteAll(t *testing.T) {
 		t.Errorf("Get returned %v, want ErrNotFound", err)
 	}
 }
+
+// TestDailyStatsAll pins that All returns every row for the user, ordered by
+// day ascending, and none of another user's — the input GET /api/v1/stats
+// and GET /api/v1/points/tracked_months aggregate.
+func TestDailyStatsAll(t *testing.T) {
+	t.Parallel()
+
+	db := newTestDB(t)
+	userID := dailyStatsTestUser(t, db, "all@example.com")
+	otherID := dailyStatsTestUser(t, db, "all-other@example.com")
+
+	first := time.Date(2026, time.June, 1, 0, 0, 0, 0, time.UTC)
+	second := time.Date(2026, time.July, 15, 0, 0, 0, 0, time.UTC)
+
+	insertPoint(t, db, userID, first.Add(time.Hour), 35.6812, 139.7671)
+	insertPoint(t, db, userID, second.Add(time.Hour), 34.7025, 135.4959)
+	insertPoint(t, db, otherID, first.Add(time.Hour), 35.6812, 139.7671)
+
+	for _, day := range []time.Time{first, second} {
+		if err := db.DailyStats().Rebuild(t.Context(), userID, day, 30*time.Minute); err != nil {
+			t.Fatalf("Rebuild returned %v", err)
+		}
+	}
+
+	if err := db.DailyStats().Rebuild(t.Context(), otherID, first, 30*time.Minute); err != nil {
+		t.Fatalf("Rebuild returned %v", err)
+	}
+
+	got, err := db.DailyStats().All(t.Context(), userID)
+	if err != nil {
+		t.Fatalf("All returned %v", err)
+	}
+
+	if len(got) != 2 {
+		t.Fatalf("len(got) = %d, want 2", len(got))
+	}
+
+	if !got[0].Day.Equal(first) || !got[1].Day.Equal(second) {
+		t.Errorf("Day = %v, %v, want %v, %v (ascending)", got[0].Day, got[1].Day, first, second)
+	}
+
+	for _, stat := range got {
+		if stat.UserID != userID {
+			t.Errorf("UserID = %d, want %d", stat.UserID, userID)
+		}
+
+		if stat.Points != 1 {
+			t.Errorf("Points = %d, want 1", stat.Points)
+		}
+	}
+}
