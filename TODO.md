@@ -349,7 +349,7 @@ browser will also call `/api/v1/points` and friends — but `/api/v1` accepts on
 - (c) Hand the api_key to the UI at login and call with Bearer — not recommended, since XSS
   would leak the API key.
 
-**Steps 27 to 31 do not settle this and do not need to**: none of them adds a data endpoint, so
+**Steps 27 to 33 do not settle this and do not need to**: none of them adds a data endpoint, so
 `/api/v1` is left exactly as it is and keeps needing no CSRF protection. It is the first screen
 that reads a point — the map — that has to answer it. The session middleware already in place is
 what makes (a) cheap when that day comes: accepting the cookie there is one more branch in
@@ -394,7 +394,7 @@ can run in parallel. Parallelism is noted where it applies.
 Milestones group the steps and state a user-visible outcome. Individual steps have a completion
 condition that can be verified by running something.
 
-**A step's number says when it was planned, not when to take it.** Milestone H's Steps 23 to 31
+**A step's number says when it was planned, not when to take it.** Milestone H's Steps 23 to 33
 were planned after Milestone I's 18 to 22 and so carry higher numbers while appearing earlier in
 this file, and one of them (Step 30) depends on a step in the other milestone. What order to take
 them in is what each milestone's own ordering note says, never the numbers.
@@ -486,16 +486,6 @@ All independent of each other; take them in whatever order the need arises.
 - [ ] `Dockerfile`, `docker-compose.yml`, and an example systemd unit (see "Distribution")
 - [ ] Backups (`VACUUM INTO`)
 - [ ] `GET /metrics`, structured access logs
-- [ ] **An echo-off password prompt for `travelmap user create`** (`golang.org/x/term`, whose only
-      requirement `golang.org/x/sys` is already an indirect dependency — so it brings no dependency
-      fan-out, adding its own two lines to `go.sum` and a `require` line and nothing else;
-      measured). Ask twice, since nothing verifies the password afterwards: the API key the command
-      prints works whatever the password is, so a typo surfaces later as a login that fails for an
-      account that has to be created again. Prompts go to stderr, leaving stdout to the API key a
-      setup script reads; standard input keeps its current meaning when there is no terminal.
-      **Rewrite `user create`'s own `--help` text with it**, which recommends standard input today.
-      This is what lets the README stop documenting `--password`, which puts the password in `ps`
-      output
 
 ---
 
@@ -504,7 +494,7 @@ All independent of each other; take them in whatever order the need arises.
 Start once the API has settled. What the screens still need a library for is in "Library Choices
 for the Web UI".
 
-Steps 29 to 31 are the rest of the browser's way in: a sign-up screen and the Swarm link, which a
+Steps 29 to 33 are the rest of the browser's way in: a sign-up screen and the Swarm link, which a
 browser is the only sensible place to start from — the `sessions` table and its repository, the
 HTML route group and its one page, the session middleware, the login screen and `auth.Register`
 are already in place. **They add no data endpoint**, which is what leaves "Open question: how the
@@ -518,10 +508,10 @@ plan rather than recording it.
 
 ```
 The login screen ──────────┐
-                           ├─→ Step 29 (sign-up)
+                           ├─→ Step 29 (sign-up) ─→ Step 32 (remove user create)
 auth.Register ─────────────┘
 
-The login screen + Milestone I's Step 20 ─→ Step 30 (Swarm over a session) ─→ Step 31 (the Swarm page)
+The login screen + Milestone I's Step 20 ─→ Step 30 (Swarm over a session) ─→ Step 31 (the Swarm page) ─→ Step 33 (remove foursquare connect)
 ```
 
 Step 27 (the session sweep) can be taken at any time, needing nothing but the sessions store
@@ -668,6 +658,73 @@ Follows Step 30. The page that makes the link visible and repeatable, rather tha
 **Done when**: the page shows a fresh account as not connected, the button completes the flow and
 the page then names the Swarm account, and disconnecting returns it to not connected while the
 check-ins already collected remain.
+
+### Step 32: Remove `travelmap user create`
+
+Follows Step 29. Once the browser can sign up on an empty database, the CLI path settles nothing
+a browser cannot: unlike Foursquare's OAuth exchange, nothing about creating a travelmap account
+needs a redirect to reach the operator's own server from the outside, so there is no deployment
+where sign-up is reachable and `user create` is not. Kept only as long as it takes to prove sign-up
+out; this step is what removes it rather than leaving two paths that can drift.
+
+- [ ] Delete the `user create` subcommand and its own tests
+- [ ] `docs/architecture.md`'s "User management" row drops the CLI entirely: issued via browser
+      sign-up, full stop
+- [ ] `0001_users.sql`'s leading comment on `users` and `model.User`'s doc comment — both rewritten
+      once already by Step 29 to say the CLI is one path rather than the path — are rewritten again
+      to say there is no command-line path at all
+- [ ] README: the `user create` walkthrough in "Build and run" is replaced with signing up at
+      `/signup`; `travelmap foursquare connect --email …` keeps working unchanged, since it only
+      ever needed an existing account's address, not the command that created it. Two places in
+      its own `--help` text name the command being removed here, both rewritten to point at
+      `/signup` instead: the `--email` flag's own description ("created with `travelmap user
+      create`") and the "no user with the email …, run `travelmap user create` first" error
+      message. A third comment there, on `readToken`, names `userCreate` itself ("the same concern
+      `userCreate`'s password reading answers") — rewritten too, since that function stops
+      existing here
+- [ ] Tests: `travelmap --help` no longer lists `user create`; whatever this repository's own
+      tests use to seed a user for another command's tests (`foursquare connect`, `recalculate`)
+      does not go through it either, and is checked here rather than assumed
+
+**Settles**: that a travelmap account has exactly one way to be created.
+
+**Done when**: `travelmap user create` no longer exists, and the README's setup walkthrough signs
+up at `/signup` instead.
+
+### Step 33: Remove `travelmap foursquare connect`
+
+Follows Step 31. Once a logged-in session can link a Swarm account from its own page, the CLI path
+settles nothing a browser cannot: getting an access token out of Foursquare's own developer
+console takes exactly the same human-at-a-browser step as clicking through its OAuth consent
+screen, so the command enables no automation the browser flow does not already offer. Kept only as
+long as it takes to prove that flow out; this step is what removes it rather than leaving two paths
+that can drift.
+
+- [ ] Delete the `foursquare connect` subcommand and its own tests. What that leaves of the
+      `foursquare` dispatcher depends on whether Step 19 has been taken by then — Step 30 already
+      notes it may not have been, and nothing orders it before this step: with `foursquare sync` in
+      place, it becomes the dispatcher's one remaining subcommand; without it, `foursquare` itself
+      has no subcommand left, and removing the now-empty dispatcher is part of this step too
+- [ ] `docs/database.md`'s `foursquare_accounts` entry ("Created by `travelmap foursquare
+      connect`") is rewritten to say created from the Swarm connection page instead. Three more
+      places say the same thing and go with it: `internal/model.FoursquareAccount`'s doc comment,
+      `store.FoursquareAccountRepository`'s doc comment, and `0005_checkins.sql`'s leading comment
+      on `foursquare_accounts`, which already reads "created by `travelmap foursquare connect` or,
+      once it lands, a browser-driven OAuth flow" — sitting outside every statement, so still
+      editable after the fact — and now drops the CLI half entirely
+- [ ] README: the `foursquare connect` walkthrough under "Swarm (Foursquare) check-ins" is replaced
+      with signing in and visiting the Swarm connection page; the "until the OAuth flow exists, get
+      an access token from the Foursquare application's own console" caveat is dropped along with
+      it, since nothing here still needs that console
+- [ ] Tests: neither `travelmap --help` nor `travelmap foursquare --help` lists `connect` any more;
+      `internal/httpapi`'s own `linkFoursquareAccount` test helper already seeds a
+      `foursquare_accounts` row through the store directly rather than the CLI, and is checked here
+      rather than assumed
+
+**Settles**: that a Swarm account links to a travelmap account through exactly one path.
+
+**Done when**: `travelmap foursquare connect` no longer exists, and the README documents the Swarm
+connection page as the only way to link an account.
 
 ### Still to plan
 
@@ -999,7 +1056,7 @@ excluded from refresh.
   bites on one published to the internet, which the Swarm push webhook — already shipped — is a
   reason to do. If a gate is ever wanted, the cheapest one is an environment variable read at route
   registration, exactly as `POST /webhooks/foursquare` is registered only when
-  `TRAVELMAP_FOURSQUARE_PUSH_SECRET` is set — which is why nothing in Steps 27 to 31 has to be
+  `TRAVELMAP_FOURSQUARE_PUSH_SECRET` is set — which is why nothing in Steps 27 to 33 has to be
   designed for it now.
 - **No brute-force protection on login: neither `POST /api/v1/auth/login` nor the browser's own
   `/login` limits how many attempts an email address or an IP gets.** Both already spend one
