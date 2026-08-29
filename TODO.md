@@ -19,7 +19,6 @@ it lands.
 | Swarm check-ins | Collected by webhook push, with a periodic API fetch as the backstop | Push is immediate but nothing documented makes it reliable: Foursquare publishes no retry, records a timed-out push as a failure, and reaches only a public HTTPS endpoint. What it does after a failure is not documented at all. Fetching alone would lag every check-in by up to a poll interval. **What each path does and does not see is only partly known** — whether a push fires for a check-in added after the fact, or for an edit to one already stored, is undocumented — which is itself a reason to run both (Milestone I) |
 | Foursquare API version | v2 (`/v2/users/self/checkins`), with `v=` pinned as a constant and `m=swarm` | v2 is what returns Swarm check-ins, and it is current rather than abandoned: it is documented today as the "Personalization APIs", and the pricing change of 1 June 2026 names the checkins and users endpoints as remaining free while putting the venues endpoints behind paid tiers. `v=` is a date Foursquare uses to freeze response shape, so it is a constant raised deliberately after checking behaviour, never "today". `m` asks for the Swarm perspective rather than the Foursquare one; what it changes on this endpoint is untested, and its documented "required" status is contradicted by working clients — see "Fetching check-ins" |
 | Scheduling | A ticker goroutine plus a fixed lookback window, and **no job table** | The periodic fetch is one cron-like task with no queue of items, so the job table in the "Background work" row above would be scaffolding with nothing in it. Step 13's track splitting is the first genuine per-item consumer; the decision stands, its first use just is not here |
-| Browser CSRF | Standard `net/http.CrossOriginProtection`, on the browser routes only | Present in the toolchain `go.mod` already names (`go 1.26.6`), and its `Handler` is a plain `func(http.Handler) http.Handler`, so this costs no dependency, which is what needed confirming before it could be chosen. `/api/v1` keeps Bearer / `api_key` only and needs none |
 | Sign-up | `GET/POST /signup`, open to anyone: no environment variable, no invite code, no first-user-only rule | A gate is one more setting to get wrong before the first login works, on a server whose first account is the operator's own. What open sign-up means for an instance reachable from the internet is recorded under "Risks and Open Questions" rather than answered here with a default nobody asked for |
 
 These are the defaults as of planning. If any turns out to be wrong during implementation,
@@ -323,11 +322,9 @@ a push fires for one.
 
 ## Library Choices for the Web UI
 
-CSRF is **settled** — it has a row under "Technical Decisions" above, carrying the measurement
-that settled it, and Step 26 implements it. Sessions and HTML rendering are settled too, and
-already implemented; their rows moved to `docs/architecture.md`, which also covers the router,
-for the reasoning that applies here as well. What is left undecided is what the remaining screens
-need.
+Sessions, CSRF and HTML rendering are settled and already implemented; their rows moved to
+`docs/architecture.md`, which also covers the router, for the reasoning that applies here as
+well. What is left undecided is what the remaining screens need.
 
 **Still open, for Milestone H's remaining screens**
 
@@ -356,7 +353,7 @@ browser will also call `/api/v1/points` and friends — but `/api/v1` accepts on
 - (c) Hand the api_key to the UI at login and call with Bearer — not recommended, since XSS
   would leak the API key.
 
-**Steps 26 to 31 do not settle this and do not need to**: none of them adds a data endpoint, so
+**Steps 27 to 31 do not settle this and do not need to**: none of them adds a data endpoint, so
 `/api/v1` is left exactly as it is and keeps needing no CSRF protection. It is the first screen
 that reads a point — the map — that has to answer it. The session middleware already in place is
 what makes (a) cheap when that day comes: accepting the cookie there is one more branch in
@@ -532,11 +529,11 @@ All independent of each other; take them in whatever order the need arises.
 ## Milestone H — Web UI
 
 Start once the API has settled. What the screens still need a library for is in "Library Choices
-for the Web UI"; CSRF is already settled under "Technical Decisions".
+for the Web UI".
 
-Steps 26 to 31 are the browser's way in: a login screen, a sign-up screen, and the Swarm link,
-which a browser is the only sensible place to start from — the `sessions` table and its
-repository, the HTML route group and its one page, and the session middleware are already in
+Steps 28 to 31 are the rest of the browser's way in: a sign-up screen and the Swarm link, which a
+browser is the only sensible place to start from — the `sessions` table and its repository, the
+HTML route group and its one page, the session middleware, and the login screen are already in
 place. **They add no data endpoint**, which is what leaves "Open question: how the browser
 authenticates against `/api/v1`" for the map screen to answer rather than this half.
 
@@ -547,45 +544,15 @@ plan rather than recording it.
 ### Ordering
 
 ```
-The session middleware ─→ Step 26 (login) ─┐
-                                           ├─→ Step 29 (sign-up)
-Step 28 (auth.Register) ───────────────────┘
+The login screen ──────────┐
+                           ├─→ Step 29 (sign-up)
+Step 28 (auth.Register) ───┘
 
-Step 26 + Milestone I's Step 20 ─→ Step 30 (Swarm over a session) ─→ Step 31 (the Swarm page)
+The login screen + Milestone I's Step 20 ─→ Step 30 (Swarm over a session) ─→ Step 31 (the Swarm page)
 ```
 
 Step 27 (the session sweep) can be taken at any time, needing nothing but the sessions store
-already in place. Step 28 is independent of everything above it and can be taken in parallel. The
-shortest path to logging in from a browser is now Step 26 alone; everything else hangs off that.
-
-### Step 26: The login screen
-
-Follows the session middleware, already in place. The first step a person can act on.
-
-- [ ] `GET /login` renders the form, `POST /login` submits it, `POST /logout` ends the session.
-      **Logout is a POST**, so an `<img>` on another page cannot end someone's session
-- [ ] `net/http.CrossOriginProtection` on the browser group, and **only** there: `/api/v1` is
-      Bearer / `api_key` only, so nothing it serves can be driven by a cross-origin form. Whether
-      CSRF costs a dependency is already settled under "Technical Decisions"; what this step
-      settles is where the protection is attached
-- [ ] `RenewToken` on a successful login, **before** the user id goes into the session. A session
-      token minted before the browser authenticated must not still be the one it holds afterwards
-- [ ] `POST /logout` calls `Destroy`, deleting the row. Clearing the cookie alone would leave a
-      session anyone holding the old token could still present
-- [ ] A refused login says what `POST /api/v1/auth/login` says and **takes as long**, through the
-      existing `auth.CheckAbsentPassword`. It re-renders the form and sets no cookie
-- [ ] README: `/login`, and that it accepts an account made with `travelmap user create`
-- [ ] Tests: a good login sets a cookie that then names the account on `GET /`; a wrong password
-      re-renders the form and sets none; after logout the old cookie is refused **and its row is
-      gone**; a `POST /login` carrying `Sec-Fetch-Site: cross-site` is refused; and the session
-      token differs before and after login, which is the only way to see `RenewToken` worked
-
-**Settles**: how a form reports a field error, where a successful post redirects to, and that CSRF
-protection is attached to the browser group rather than the whole server.
-
-**Done when**: an account made with `travelmap user create` logs in at
-`http://localhost:3000/login` and lands on a page naming it; the cookie still works after
-`travelmap serve` is restarted; `POST /logout` returns the browser to the form.
+already in place. Step 28 is independent of everything above it and can be taken in parallel.
 
 ### Step 27: The expired-session sweep
 
@@ -639,7 +606,7 @@ from being a second way of creating an account.
 
 ### Step 29: The sign-up screen
 
-Follows Steps 26 and 28.
+Follows the login screen, already in place, and Step 28.
 
 - [ ] `GET /signup` and `POST /signup` on the browser group. **Open to anyone** — no environment
       variable, no invite code, no first-user-only rule, per the "Sign-up" row under "Technical
@@ -681,15 +648,15 @@ browser, and the API key that page shows authenticates `GET /api/v1/users/me`.
 
 ### Step 30: Starting the Swarm flow from a browser session
 
-Follows Step 26, and Milestone I's **Step 20**, which builds the OAuth exchange itself. This step
-adds no new exchange — it changes what names the travelmap user on the way in and on the way back,
-and it is what Step 20's "A limitation to accept knowingly" promises.
+Follows the login screen, already in place, and Milestone I's **Step 20**, which builds the OAuth
+exchange itself. This step adds no new exchange — it changes what names the travelmap user on the
+way in and on the way back, and it is what Step 20's "A limitation to accept knowingly" promises.
 
-**If Step 20 was taken after Step 26**, as Milestone I's own ordering note suggests, it wrote the
-session version directly and there is no `api_key` leg to move or README line to delete. What is
-left of this step is then the callback checking the session and `state` against each other, and the
-tests for it — a much smaller change. Take that reading rather than looking for an `api_key` route
-that was never built.
+**If Step 20 is taken now that the login screen already exists**, as Milestone I's own ordering
+note suggests, it writes the session version directly and there is no `api_key` leg to move or
+README line to delete. What is left of this step is then the callback checking the session and
+`state` against each other, and the tests for it — a much smaller change. Take that reading rather
+than looking for an `api_key` route that was never built.
 
 - [ ] Move `GET /foursquare/oauth/start` off `authenticate` / `requireUser` and onto the browser
       group's session. **The API key stops travelling in a query string**: Step 20 accepts that
@@ -808,11 +775,11 @@ Step 19 can be taken at any time now that the push webhook already collects chec
 Step 21 follows Step 19, and Step 20 can be taken at any point or left until last, needing nothing
 this milestone has not already shipped. **Milestone H's Steps 30 and 31 then finish it from the
 browser** — the session that replaces its `api_key` URL, and the page that shows and undoes the
-link — so taking Step 20 after Milestone H's Step 26 saves building the credential it already
-accepts as a limitation. `travelmap foursquare connect` exists precisely so the collecting steps
-can be finished and run for real before the OAuth flow is written. Until it is, the access token
-comes out of the Foursquare application's own console, which issues one for the account that owns
-the application; that is the whole of what Step 20 later automates.
+link — so taking Step 20 now that Milestone H's login screen already exists saves building the
+credential it already accepts as a limitation. `travelmap foursquare connect` exists precisely so
+the collecting steps can be finished and run for real before the OAuth flow is written. Until it
+is, the access token comes out of the Foursquare application's own console, which issues one for
+the account that owns the application; that is the whole of what Step 20 later automates.
 
 **Step 19 grew a second step rather than one long checklist.** Calling the endpoint and knowing a
 page-walk succeeded is one decision; how that client copes with a rate limit, an ambiguous error
@@ -927,18 +894,18 @@ row count.
 - [ ] README: those three, and how to start the flow. Write the URL that actually works once the
       middleware question above is settled, not the one planned here
 
-**Settles**: how a browser-facing route outside `/api/v1` identifies a travelmap user before
-Milestone H exists.
+**Settles**: how `GET /foursquare/oauth/start`, a browser-facing route outside `/api/v1`,
+identifies a travelmap user.
 
-**A limitation to accept knowingly**: there is no way to establish a browser session until
-Milestone H's Step 26, the login form, so the only way `start` can name a user is the `api_key`
-query parameter. That is consistent —
-every endpoint here accepts it — but **it puts the API key in browser history and in the `Referer`
-of the redirect**. **Milestone H's Step 30 is what removes it**, moving both legs of the flow onto
-the session. If the exposure is not acceptable meanwhile, **hold this step until Step 26** and keep
-using `travelmap foursquare connect` — taken after a browser can log in, this step writes the
-session version directly and there is no `api_key` leg to remove afterwards. The rest of the
-milestone does not depend on it either way.
+**A limitation to accept knowingly**: the checklist above still names a user with the `api_key`
+query parameter rather than Milestone H's login screen, which already exists by the time this
+step is taken — see Step 30's own note for the alternative that reading opens up. That is
+consistent — every endpoint here accepts `api_key` — but **it puts the API key in browser history
+and in the `Referer` of the redirect**. **Milestone H's Step 30 is what removes it**, moving both
+legs of the flow onto the session. If the exposure is not acceptable meanwhile, take Step 20
+against the session directly instead, per Step 30's note, and keep using
+`travelmap foursquare connect` until then — this step's own `api_key` leg is then never built
+rather than removed afterwards.
 
 ### Step 21: The periodic fetch worker
 
@@ -1076,14 +1043,27 @@ excluded from refresh.
   account can write points into **the same SQLite file**, so somebody else's history is on the
   operator's disk and inside their backups. `travelmap recalculate` walks every user with points,
   so it gets slower with each account that is not the operator's. And `/signup` and `/login` each
-  spend one bcrypt hash per request, which is CPU an unauthenticated caller chooses to spend —
-  `POST /api/v1/auth/login` already has that property, but it is not currently advertised by a
-  form. **None of this bites on a LAN or behind a reverse proxy that authenticates first**, which
-  is how a personal instance is normally run; it bites on one published to the internet, which the
-  Swarm push webhook — already shipped — is a reason to do. If a gate is ever wanted, the cheapest
-  one is an environment variable read at route registration, exactly as `POST /webhooks/foursquare`
-  is registered only when `TRAVELMAP_FOURSQUARE_PUSH_SECRET` is set — which is why nothing in
-  Steps 23 to 31 has to be designed for it now.
+  spend one bcrypt hash per request, which is CPU an unauthenticated caller chooses to spend — both
+  `POST /api/v1/auth/login` and the browser's own `/login` form now have that property, the second
+  advertising it to anyone who can reach the page. **None of this bites on a LAN or behind a
+  reverse proxy that authenticates first**, which is how a personal instance is normally run; it
+  bites on one published to the internet, which the Swarm push webhook — already shipped — is a
+  reason to do. If a gate is ever wanted, the cheapest one is an environment variable read at route
+  registration, exactly as `POST /webhooks/foursquare` is registered only when
+  `TRAVELMAP_FOURSQUARE_PUSH_SECRET` is set — which is why nothing in Steps 27 to 31 has to be
+  designed for it now.
+- **No brute-force protection on login: neither `POST /api/v1/auth/login` nor the browser's own
+  `/login` limits how many attempts an email address or an IP gets.** Both already spend one
+  bcrypt hash per attempt and refuse a wrong password at the same cost as a right one, which
+  narrows the attack to throughput rather than timing, but nothing here bounds that throughput
+  itself — a caller can simply keep asking. Unmitigated today; the same "None of this bites on a
+  LAN or behind a reverse proxy that authenticates first" reasoning above applies, so it matters
+  once more on an internet-reachable instance. Adding a per-address or per-account attempt limiter
+  is new work with no home in the current plan.
+- **No security-related HTTP headers on the browser routes** — no `Strict-Transport-Security`,
+  `X-Content-Type-Options`, `X-Frame-Options` or `Content-Security-Policy`. `/api/v1` carries only
+  the Dawarich compatibility headers, which are a different thing. Left for a later Milestone H
+  step if a browser surface reachable from the internet turns out to need them.
 - **Revisit whether `internal/ingest` should be named `internal/usecase` (or `service`) instead.**
   `usecase`/`service` are the more familiar names for this layer in most Go codebases; `ingest`
   was picked because this milestone's whole job is literally ingesting device locations, which

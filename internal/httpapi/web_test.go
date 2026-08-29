@@ -30,6 +30,10 @@ func TestIndex(t *testing.T) {
 	if !bytes.Contains(resp.body, []byte("Not signed in.")) {
 		t.Errorf("body = %q, want it to say not signed in with no session", resp.body)
 	}
+
+	if !bytes.Contains(resp.body, []byte(`href="/login"`)) {
+		t.Errorf("body = %q, want a link to /login with no session", resp.body)
+	}
 }
 
 // TestStaticStylesheet covers that the stylesheet is served out of the same

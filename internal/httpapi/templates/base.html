@@ -2,11 +2,17 @@
 <html lang="en">
   <head>
     <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>travelmap</title>
     <link rel="stylesheet" href="/static/style.css">
   </head>
   <body>
-    {{template "content" .}}
+    <header class="site-header">
+      <a href="/" class="brand">travelmap</a>
+    </header>
+    <main>
+      {{template "content" .}}
+    </main>
   </body>
 </html>
 {{end}}
