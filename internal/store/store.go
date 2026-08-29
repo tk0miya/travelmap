@@ -46,6 +46,9 @@ type Store interface {
 	// FoursquareAccounts returns the Foursquare account repository.
 	FoursquareAccounts() FoursquareAccountRepository
 
+	// Sessions returns the browser session repository.
+	Sessions() SessionRepository
+
 	// Tx runs fn inside a transaction, committing when it returns nil and
 	// rolling back when it returns an error, which Tx then returns.
 	//
@@ -59,8 +62,10 @@ type Store interface {
 
 // UserRepository stores and looks up users.
 //
-// The lookups are the two the API authenticates with: by API key for every
-// request from a device, and by email for POST /api/v1/auth/login.
+// ByEmail and ByAPIKey are the two the API authenticates with: by API key for
+// every request from a device, and by email for POST /api/v1/auth/login.
+// ByID is a third lookup, for a browser session, which names its user by id
+// rather than by either credential.
 type UserRepository interface {
 	// Create stores user and returns it as stored, with ID, CreatedAt and
 	// UpdatedAt filled in. It returns [ErrConflict] if the email or the API key
@@ -75,6 +80,10 @@ type UserRepository interface {
 	// none. The comparison is exact: an API key is a credential, not something
 	// a human types.
 	ByAPIKey(ctx context.Context, apiKey string) (model.User, error)
+
+	// ByID finds a user by id and returns [ErrNotFound] if there is none — how
+	// the session middleware resolves the user id held inside a session.
+	ByID(ctx context.Context, id int64) (model.User, error)
 }
 
 // PointRepository stores the points ingested from a device.
@@ -173,4 +182,32 @@ type FoursquareAccountRepository interface {
 	// returns [ErrNotFound] if there is none — how an incoming push resolves
 	// checkin.user.id to a travelmap user.
 	ByFoursquareUserID(ctx context.Context, foursquareUserID string) (model.FoursquareAccount, error)
+}
+
+// SessionRepository stores the browser sessions scs hands out, keyed by the
+// token scs generates.
+//
+// Its method names are this package's own, not scs's: ByToken is the shape
+// ByEmail / ByAPIKey / ByFoursquareUserID already take, and Upsert is what
+// CheckinRepository already calls a write matched against an existing row.
+// scs itself calls these Find and Commit, and Commit in particular would
+// collide with what [Store.Tx] does.
+type SessionRepository interface {
+	// ByToken finds a session by token and returns [ErrNotFound] if there is
+	// none, or if it has expired. Filtering on expiry here, rather than
+	// trusting a periodic sweep to have already removed the row, is what
+	// stops a sweep's own interval from silently extending how long a
+	// session lasts.
+	ByToken(ctx context.Context, token string) (model.Session, error)
+
+	// Upsert stores session, replacing any existing row with the same token.
+	Upsert(ctx context.Context, session model.Session) error
+
+	// Delete removes the session for token. Deleting a token with no row is
+	// not an error.
+	Delete(ctx context.Context, token string) error
+
+	// DeleteExpired removes every session whose expiry has passed, for the
+	// periodic sweep.
+	DeleteExpired(ctx context.Context) error
 }

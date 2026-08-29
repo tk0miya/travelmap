@@ -71,6 +71,12 @@ func TestUserLookups(t *testing.T) {
 				return db.Users().ByAPIKey(ctx, created.APIKey)
 			},
 		},
+		// The lookup a session resolves its user id through.
+		"by id": {
+			lookup: func(ctx context.Context) (model.User, error) {
+				return db.Users().ByID(ctx, created.ID)
+			},
+		},
 	}
 
 	for name, tt := range tests {
@@ -108,6 +114,11 @@ func TestUserLookupsReportMissing(t *testing.T) {
 		"by API key": {
 			lookup: func(ctx context.Context) (model.User, error) {
 				return db.Users().ByAPIKey(ctx, "not-a-key")
+			},
+		},
+		"by id": {
+			lookup: func(ctx context.Context) (model.User, error) {
+				return db.Users().ByID(ctx, 999999)
 			},
 		},
 	}

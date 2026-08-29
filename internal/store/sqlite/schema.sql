@@ -143,3 +143,16 @@ CREATE TABLE foursquare_accounts (
 ) STRICT;
 
 CREATE UNIQUE INDEX foursquare_accounts_foursquare_user_id_key ON foursquare_accounts (foursquare_user_id);
+
+CREATE TABLE sessions (
+    -- What scs keys a session by.
+    token  TEXT PRIMARY KEY,
+
+    -- scs's gob-encoded session data.
+    data   BLOB NOT NULL,
+
+    -- Unix seconds, UTC, per users.created_at. Its index serves the sweep, not reads.
+    expiry INTEGER NOT NULL
+) STRICT;
+
+CREATE INDEX sessions_expiry_idx ON sessions (expiry);
