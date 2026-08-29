@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/alexedwards/scs/v2"
 	"github.com/go-chi/chi/v5"
 
 	"github.com/tk0miya/travelmap/internal/store"
@@ -14,6 +15,10 @@ import (
 // defaultTrackBreak is what [Options.TrackBreak] defaults to when left zero,
 // matching config's own TRAVELMAP_TRACK_BREAK_MINUTES default.
 const defaultTrackBreak = 30 * time.Minute
+
+// defaultSessionLifetime is what [Options.SessionLifetime] defaults to when
+// left zero, matching config's own TRAVELMAP_SESSION_LIFETIME default.
+const defaultSessionLifetime = 720 * time.Hour
 
 // Options carries what the HTTP surface needs from its caller. Later steps add
 // the ingest layer here; cmd/travelmap is the only place that fills it in.
@@ -54,6 +59,19 @@ type Options struct {
 	// [config.Config.FoursquarePushSecret] for why it defaults to unset.
 	// Left empty, POST /webhooks/foursquare is not registered at all.
 	FoursquarePushSecret string
+
+	// SessionLifetime is TRAVELMAP_SESSION_LIFETIME as a [time.Duration] —
+	// [config.Config.SessionLifetime]. Left zero, it defaults to
+	// [defaultSessionLifetime].
+	SessionLifetime time.Duration
+
+	// SessionCookieSecure is TRAVELMAP_SESSION_COOKIE_SECURE —
+	// [config.Config.SessionCookieSecure], which defaults to true. Unlike
+	// Timezone or TrackBreak this field's own zero value is not that
+	// default: cmd/travelmap always passes config's already-resolved value,
+	// and a caller building Options directly gets the cookie sent over
+	// plain HTTP too unless it sets this itself.
+	SessionCookieSecure bool
 }
 
 // api holds the dependencies shared by the handlers. Handlers are methods on
@@ -66,6 +84,7 @@ type api struct {
 	loc                  *time.Location
 	trackBreak           time.Duration
 	foursquarePushSecret string
+	sessions             *scs.SessionManager
 }
 
 // New builds the server's HTTP handler.
@@ -85,6 +104,11 @@ func New(opts Options) http.Handler {
 		trackBreak = defaultTrackBreak
 	}
 
+	sessionLifetime := opts.SessionLifetime
+	if sessionLifetime == 0 {
+		sessionLifetime = defaultSessionLifetime
+	}
+
 	a := &api{
 		logger:               opts.Logger,
 		store:                opts.Store,
@@ -92,6 +116,7 @@ func New(opts Options) http.Handler {
 		loc:                  loc,
 		trackBreak:           trackBreak,
 		foursquarePushSecret: opts.FoursquarePushSecret,
+		sessions:             newSessionManager(opts.Store, sessionLifetime, opts.SessionCookieSecure),
 	}
 
 	r := chi.NewRouter()
@@ -124,9 +149,11 @@ func New(opts Options) http.Handler {
 	}
 
 	// The browser's own group, beside /api/v1 rather than under it: a later
-	// step attaches a session and CSRF protection here, neither of which
-	// /api/v1 needs. No session yet, so GET / is all it serves so far.
+	// step attaches CSRF protection here too, which /api/v1 does not need.
 	r.Group(func(r chi.Router) {
+		r.Use(a.sessions.LoadAndSave)
+		r.Use(a.loadSessionUser)
+
 		r.Get("/", a.index)
 	})
 

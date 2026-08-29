@@ -23,6 +23,9 @@ const (
 	// GET /api/v1/users/me and the daily_stats rebuild fall back to.
 	defaultTimezone          = "UTC"
 	defaultTrackBreakMinutes = 30
+
+	defaultSessionLifetime     = 720 * time.Hour
+	defaultSessionCookieSecure = true
 )
 
 // Config is the server configuration.
@@ -79,6 +82,17 @@ type Config struct {
 	// in docs/api-notes.md, which this route follows even though it is not a
 	// Dawarich-compatible one).
 	FoursquarePushSecret string
+
+	// SessionLifetime is how long a browser session lasts before it needs a
+	// fresh login. Defaults to 30 days.
+	SessionLifetime time.Duration
+
+	// SessionCookieSecure sets the session cookie's Secure attribute.
+	// Defaults to on: over plain HTTP a login then visibly bounces back to
+	// the form, where off would let the cookie cross a plain-HTTP LAN
+	// unreported. Browsers treat http://localhost as a secure context, so
+	// the default costs a developer nothing there.
+	SessionCookieSecure bool
 }
 
 // Load reads the configuration from the TRAVELMAP_* environment variables,
@@ -95,6 +109,8 @@ func Load(getenv func(string) string) (Config, error) {
 		Timezone:             lookup(getenv, "TIMEZONE", defaultTimezone),
 		TrackBreakMinutes:    defaultTrackBreakMinutes,
 		FoursquarePushSecret: lookup(getenv, "FOURSQUARE_PUSH_SECRET", ""),
+		SessionLifetime:      defaultSessionLifetime,
+		SessionCookieSecure:  defaultSessionCookieSecure,
 	}
 
 	if raw := lookup(getenv, "LOG_LEVEL", ""); raw != "" {
@@ -142,6 +158,24 @@ func Load(getenv func(string) string) (Config, error) {
 		}
 
 		cfg.TrackBreakMinutes = minutes
+	}
+
+	if raw := lookup(getenv, "SESSION_LIFETIME", ""); raw != "" {
+		lifetime, err := time.ParseDuration(raw)
+		if err != nil || lifetime <= 0 {
+			return Config{}, fmt.Errorf("%sSESSION_LIFETIME: must be a positive duration", prefix)
+		}
+
+		cfg.SessionLifetime = lifetime
+	}
+
+	if raw := lookup(getenv, "SESSION_COOKIE_SECURE", ""); raw != "" {
+		on, err := strconv.ParseBool(raw)
+		if err != nil {
+			return Config{}, fmt.Errorf("%sSESSION_COOKIE_SECURE: %w", prefix, err)
+		}
+
+		cfg.SessionCookieSecure = on
 	}
 
 	return cfg, nil

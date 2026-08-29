@@ -19,7 +19,6 @@ it lands.
 | Swarm check-ins | Collected by webhook push, with a periodic API fetch as the backstop | Push is immediate but nothing documented makes it reliable: Foursquare publishes no retry, records a timed-out push as a failure, and reaches only a public HTTPS endpoint. What it does after a failure is not documented at all. Fetching alone would lag every check-in by up to a poll interval. **What each path does and does not see is only partly known** — whether a push fires for a check-in added after the fact, or for an edit to one already stored, is undocumented — which is itself a reason to run both (Milestone I) |
 | Foursquare API version | v2 (`/v2/users/self/checkins`), with `v=` pinned as a constant and `m=swarm` | v2 is what returns Swarm check-ins, and it is current rather than abandoned: it is documented today as the "Personalization APIs", and the pricing change of 1 June 2026 names the checkins and users endpoints as remaining free while putting the venues endpoints behind paid tiers. `v=` is a date Foursquare uses to freeze response shape, so it is a constant raised deliberately after checking behaviour, never "today". `m` asks for the Swarm perspective rather than the Foursquare one; what it changes on this endpoint is untested, and its documented "required" status is contradicted by working clients — see "Fetching check-ins" |
 | Scheduling | A ticker goroutine plus a fixed lookback window, and **no job table** | The periodic fetch is one cron-like task with no queue of items, so the job table in the "Background work" row above would be scaffolding with nothing in it. Step 13's track splitting is the first genuine per-item consumer; the decision stands, its first use just is not here |
-| Browser sessions | `github.com/alexedwards/scs/v2` over a `sessions` table of this project's own | scs brings no dependencies of its own: its `go.mod` has no `require` entries at all, the same property chi was checked for. Its bundled `sqlite3store` is **not** usable — that module requires the CGO `github.com/mattn/go-sqlite3` — so the store is written here against `internal/store` instead. Chosen over a JWT, which has no defensible default for its signing key (one generated at startup logs every user out on restart, so it becomes a required setting) and which cannot be revoked, leaving `POST /logout` able only to clear the cookie while the token stays valid until it expires. That is not a cost saved but a part of the feature missing |
 | Browser CSRF | Standard `net/http.CrossOriginProtection`, on the browser routes only | Present in the toolchain `go.mod` already names (`go 1.26.6`), and its `Handler` is a plain `func(http.Handler) http.Handler`, so this costs no dependency, which is what needed confirming before it could be chosen. `/api/v1` keeps Bearer / `api_key` only and needs none |
 | Sign-up | `GET/POST /signup`, open to anyone: no environment variable, no invite code, no first-user-only rule | A gate is one more setting to get wrong before the first login works, on a server whose first account is the operator's own. What open sign-up means for an instance reachable from the internet is recorded under "Risks and Open Questions" rather than answered here with a default nobody asked for |
 
@@ -324,11 +323,11 @@ a push fires for one.
 
 ## Library Choices for the Web UI
 
-Sessions and CSRF are **settled** — each has a row under "Technical Decisions" above, carrying
-the measurement that settled it, and Steps 25 and 26 implement them. HTML rendering is settled
-too, and already implemented; its row moved to `docs/architecture.md`, which also covers the
-router, for the reasoning that applies here as well. What is left undecided is what the
-remaining screens need.
+CSRF is **settled** — it has a row under "Technical Decisions" above, carrying the measurement
+that settled it, and Step 26 implements it. Sessions and HTML rendering are settled too, and
+already implemented; their rows moved to `docs/architecture.md`, which also covers the router,
+for the reasoning that applies here as well. What is left undecided is what the remaining screens
+need.
 
 **Still open, for Milestone H's remaining screens**
 
@@ -357,11 +356,12 @@ browser will also call `/api/v1/points` and friends — but `/api/v1` accepts on
 - (c) Hand the api_key to the UI at login and call with Bearer — not recommended, since XSS
   would leak the API key.
 
-**Steps 23 to 31 do not settle this and do not need to**: none of them adds a data endpoint, so
+**Steps 26 to 31 do not settle this and do not need to**: none of them adds a data endpoint, so
 `/api/v1` is left exactly as it is and keeps needing no CSRF protection. It is the first screen
-that reads a point — the map — that has to answer it. Step 25's session middleware is what makes
-(a) cheap when that day comes: accepting the cookie there is one more branch in `authenticate`,
-and `CrossOriginProtection` can then be moved from the browser group up to the whole server.
+that reads a point — the map — that has to answer it. The session middleware already in place is
+what makes (a) cheap when that day comes: accepting the cookie there is one more branch in
+`authenticate`, and `CrossOriginProtection` can then be moved from the browser group up to the
+whole server.
 
 ## Distribution
 
@@ -532,13 +532,13 @@ All independent of each other; take them in whatever order the need arises.
 ## Milestone H — Web UI
 
 Start once the API has settled. What the screens still need a library for is in "Library Choices
-for the Web UI"; sessions and CSRF are already settled under "Technical Decisions".
+for the Web UI"; CSRF is already settled under "Technical Decisions".
 
-Steps 25 to 31 are the browser's way in: a session, a login screen, a sign-up screen, and the
-Swarm link, which a browser is the only sensible place to start from — the `sessions` table and
-its repository, and the HTML route group and its one page, are already in place. **They add no
-data endpoint**, which is what leaves "Open question: how the browser authenticates against
-`/api/v1`" for the map screen to answer rather than this half.
+Steps 26 to 31 are the browser's way in: a login screen, a sign-up screen, and the Swarm link,
+which a browser is the only sensible place to start from — the `sessions` table and its
+repository, the HTML route group and its one page, and the session middleware are already in
+place. **They add no data endpoint**, which is what leaves "Open question: how the browser
+authenticates against `/api/v1`" for the map screen to answer rather than this half.
 
 The map, statistics and settings screens keep their bullet form below. They are not planned yet,
 and writing a checklist for a screen whose rendering approach is undecided would be inventing the
@@ -547,60 +547,20 @@ plan rather than recording it.
 ### Ordering
 
 ```
-The sessions store and the HTML route group ─→ Step 25 (session middleware) ─→ Step 26 (login) ─┐
-                                                                                                ├─→ Step 29 (sign-up)
-Step 28 (auth.Register) ────────────────────────────────────────────────────────────────────────┘
+The session middleware ─→ Step 26 (login) ─┐
+                                           ├─→ Step 29 (sign-up)
+Step 28 (auth.Register) ───────────────────┘
 
 Step 26 + Milestone I's Step 20 ─→ Step 30 (Swarm over a session) ─→ Step 31 (the Swarm page)
 ```
 
 Step 27 (the session sweep) can be taken at any time, needing nothing but the sessions store
 already in place. Step 28 is independent of everything above it and can be taken in parallel. The
-shortest path to logging in from a browser is now 25, 26; everything else hangs off that.
-
-### Step 25: The session middleware
-
-Follows the sessions store and the HTML route group, both already in place. This is the `scs`
-wiring on its own; the login form is Step 26, so what is verifiable here is a session planted by a
-test rather than one a person can create.
-
-- [ ] `github.com/alexedwards/scs/v2` as a direct dependency, and **not `scs/sqlite3store`**.
-      Why neither costs a dependency and why the bundled store is unusable is settled in the
-      "Browser sessions" row under "Technical Decisions"
-- [ ] An adapter in `internal/httpapi` implementing **`scs.CtxStore`** over
-      `store.SessionRepository`. The three methods of `scs.Store` it also has to carry delegate
-      with a background context; the point of the `Ctx` variants is that the request's own context
-      reaches the query, so a cancelled request does not leave one running
-- [ ] `HashTokenInStore` on. The store then holds a digest, so a copy of the database file — a
-      backup, a support tarball — hands out no live session
-- [ ] Cookie: `HttpOnly`, `SameSite=Lax`, `Path=/`, and `Secure` from
-      `TRAVELMAP_SESSION_COOKIE_SECURE`, **defaulting to on**. The two defaults fail differently
-      and that is what decides it: on, over plain HTTP, the login visibly bounces back to the
-      form; off, the session cookie crosses a plain-HTTP LAN and nothing reports it. Browsers
-      treat `http://localhost` as a secure context, so the safe default costs a developer nothing
-- [ ] `internal/config`: `TRAVELMAP_SESSION_LIFETIME` (default `720h`) and
-      `TRAVELMAP_SESSION_COOKIE_SECURE`. `TrackBreak` is minutes as an int today, so there is no
-      duration parsing in that package yet — **Step 21 says the same thing about its own interval**,
-      so whichever lands first adds it and the second reuses it
-- [ ] `scs`'s `LoadAndSave` on the browser group, and a middleware that resolves the session's
-      user id through `store.Users().ByID` and puts the user on the context **with the existing
-      `withUser`**. Handlers then read it with `userFrom` whichever chain they sit behind, and
-      `/api/v1` is not touched
-- [ ] `GET /` names the account when a session carries one
-- [ ] README: both settings, and that a plain-HTTP LAN needs `TRAVELMAP_SESSION_COOKIE_SECURE=0`
-- [ ] Tests: a session holding a user id reaches `GET /` and the page names them; no session and
-      it does not; the row lands in `sessions` and the cookie carries `HttpOnly` and
-      `SameSite=Lax`; an expired session is no session
-
-**Settles**: how a browser carries an identity, the cookie's attributes and lifetime, and that
-both authentication schemes hand the handler its user the same way.
-
-**Done when**: `make test` passes, including a test that writes a session and then reaches `GET /`
-with that cookie and reads the account's name back.
+shortest path to logging in from a browser is now Step 26 alone; everything else hangs off that.
 
 ### Step 26: The login screen
 
-Follows Step 25. The first step a person can act on.
+Follows the session middleware, already in place. The first step a person can act on.
 
 - [ ] `GET /login` renders the form, `POST /login` submits it, `POST /logout` ends the session.
       **Logout is a POST**, so an `<img>` on another page cannot end someone's session
@@ -970,8 +930,9 @@ row count.
 **Settles**: how a browser-facing route outside `/api/v1` identifies a travelmap user before
 Milestone H exists.
 
-**A limitation to accept knowingly**: there are no browser sessions until Milestone H's Step 25,
-so the only way `start` can name a user is the `api_key` query parameter. That is consistent —
+**A limitation to accept knowingly**: there is no way to establish a browser session until
+Milestone H's Step 26, the login form, so the only way `start` can name a user is the `api_key`
+query parameter. That is consistent —
 every endpoint here accepts it — but **it puts the API key in browser history and in the `Referer`
 of the redirect**. **Milestone H's Step 30 is what removes it**, moving both legs of the flow onto
 the session. If the exposure is not acceptable meanwhile, **hold this step until Step 26** and keep
@@ -985,8 +946,8 @@ Follows Step 19, whose sync run this repeats on a timer; nothing in Step 20 is i
 Step 22's hardening is not required first either — see that step's note on why.
 
 - [ ] `internal/config`: `TRAVELMAP_FOURSQUARE_SYNC_INTERVAL` (default `1h`, `0` disabling the
-      fetch). That package parses no duration today — **Milestone H's Step 25 says the same of its
-      session lifetime**, so whichever lands first adds it and the second reuses it
+      fetch), parsed with the duration parsing Milestone H's session lifetime setting already
+      added to that package
 - [ ] `internal/checkin`: the worker — a ticker on that interval calling Step 19's sync run,
       nothing more. Started from `cmd/travelmap/serve.go`, the only place
       holding both the signal-cancelled context and the concrete store
