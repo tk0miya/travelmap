@@ -1,0 +1,79 @@
+name: Nightly build
+
+# There is no tagged release yet, so this publishes a rolling "nightly"
+# GitHub Release built from main HEAD on every merge, instead of waiting on
+# a schedule or a version tag.
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: nightly
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+          - goos: windows
+            goarch: amd64
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+    - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      with:
+        go-version-file: go.mod
+    - name: Build
+      env:
+        GOOS: ${{ matrix.goos }}
+        GOARCH: ${{ matrix.goarch }}
+        CGO_ENABLED: "0"
+      run: |
+        ext=""
+        if [ "$GOOS" = "windows" ]; then ext=".exe"; fi
+        mkdir -p dist
+        go build -trimpath -ldflags="-s -w" -o "dist/travelmap-${GOOS}-${GOARCH}${ext}" ./cmd/travelmap
+    - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: travelmap-${{ matrix.goos }}-${{ matrix.goarch }}
+        path: dist/*
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+    - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      with:
+        path: dist
+        merge-multiple: true
+    - name: Publish the nightly release
+      env:
+        GH_TOKEN: ${{ github.token }}
+        GH_REPO: ${{ github.repository }}
+        SHA: ${{ github.sha }}
+      run: |
+        gh release delete nightly --yes --cleanup-tag || true
+        gh release create nightly dist/* \
+          --target "$SHA" \
+          --title "Nightly build ($(echo "$SHA" | cut -c1-7))" \
+          --notes "Built from $SHA." \
+          --prerelease
