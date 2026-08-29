@@ -1043,14 +1043,27 @@ excluded from refresh.
   account can write points into **the same SQLite file**, so somebody else's history is on the
   operator's disk and inside their backups. `travelmap recalculate` walks every user with points,
   so it gets slower with each account that is not the operator's. And `/signup` and `/login` each
-  spend one bcrypt hash per request, which is CPU an unauthenticated caller chooses to spend —
-  `POST /api/v1/auth/login` already has that property, but it is not currently advertised by a
-  form. **None of this bites on a LAN or behind a reverse proxy that authenticates first**, which
-  is how a personal instance is normally run; it bites on one published to the internet, which the
-  Swarm push webhook — already shipped — is a reason to do. If a gate is ever wanted, the cheapest
-  one is an environment variable read at route registration, exactly as `POST /webhooks/foursquare`
-  is registered only when `TRAVELMAP_FOURSQUARE_PUSH_SECRET` is set — which is why nothing in
-  Steps 23 to 31 has to be designed for it now.
+  spend one bcrypt hash per request, which is CPU an unauthenticated caller chooses to spend — both
+  `POST /api/v1/auth/login` and the browser's own `/login` form now have that property, the second
+  advertising it to anyone who can reach the page. **None of this bites on a LAN or behind a
+  reverse proxy that authenticates first**, which is how a personal instance is normally run; it
+  bites on one published to the internet, which the Swarm push webhook — already shipped — is a
+  reason to do. If a gate is ever wanted, the cheapest one is an environment variable read at route
+  registration, exactly as `POST /webhooks/foursquare` is registered only when
+  `TRAVELMAP_FOURSQUARE_PUSH_SECRET` is set — which is why nothing in Steps 27 to 31 has to be
+  designed for it now.
+- **No brute-force protection on login: neither `POST /api/v1/auth/login` nor the browser's own
+  `/login` limits how many attempts an email address or an IP gets.** Both already spend one
+  bcrypt hash per attempt and refuse a wrong password at the same cost as a right one, which
+  narrows the attack to throughput rather than timing, but nothing here bounds that throughput
+  itself — a caller can simply keep asking. Unmitigated today; the same "None of this bites on a
+  LAN or behind a reverse proxy that authenticates first" reasoning above applies, so it matters
+  once more on an internet-reachable instance. Adding a per-address or per-account attempt limiter
+  is new work with no home in the current plan.
+- **No security-related HTTP headers on the browser routes** — no `Strict-Transport-Security`,
+  `X-Content-Type-Options`, `X-Frame-Options` or `Content-Security-Policy`. `/api/v1` carries only
+  the Dawarich compatibility headers, which are a different thing. Left for a later Milestone H
+  step if a browser surface reachable from the internet turns out to need them.
 - **Revisit whether `internal/ingest` should be named `internal/usecase` (or `service`) instead.**
   `usecase`/`service` are the more familiar names for this layer in most Go codebases; `ingest`
   was picked because this milestone's whole job is literally ingesting device locations, which
