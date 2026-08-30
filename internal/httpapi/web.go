@@ -25,8 +25,9 @@ func pageTemplate(name string) *template.Template {
 }
 
 var (
-	indexTemplate = pageTemplate("index.html")
-	loginTemplate = pageTemplate("login.html")
+	indexTemplate  = pageTemplate("index.html")
+	loginTemplate  = pageTemplate("login.html")
+	signupTemplate = pageTemplate("signup.html")
 )
 
 // staticFiles is staticFS with its own "static" directory peeled off, so a
