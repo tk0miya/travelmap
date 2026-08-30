@@ -55,6 +55,19 @@ func (r foursquareAccountRepository) ByFoursquareUserID(ctx context.Context, fou
 	return account, nil
 }
 
+// ByUserID implements [store.FoursquareAccountRepository].
+func (r foursquareAccountRepository) ByUserID(ctx context.Context, userID int64) (model.FoursquareAccount, error) {
+	account, err := scanFoursquareAccount(r.q.QueryRowContext(ctx,
+		`SELECT `+foursquareAccountColumns+` FROM foursquare_accounts WHERE user_id = ?`,
+		userID,
+	))
+	if err != nil {
+		return model.FoursquareAccount{}, fmt.Errorf("sqlite: looking up user %d's Foursquare account: %w", userID, err)
+	}
+
+	return account, nil
+}
+
 // All implements [store.FoursquareAccountRepository].
 func (r foursquareAccountRepository) All(ctx context.Context) ([]model.FoursquareAccount, error) {
 	rows, err := r.q.QueryContext(ctx,
@@ -95,6 +108,15 @@ func (r foursquareAccountRepository) UpdateSyncedThrough(ctx context.Context, us
 
 	if affected == 0 {
 		return fmt.Errorf("sqlite: recording the sync of user %d: %w", userID, store.ErrNotFound)
+	}
+
+	return nil
+}
+
+// Delete implements [store.FoursquareAccountRepository].
+func (r foursquareAccountRepository) Delete(ctx context.Context, userID int64) error {
+	if _, err := r.q.ExecContext(ctx, `DELETE FROM foursquare_accounts WHERE user_id = ?`, userID); err != nil {
+		return fmt.Errorf("sqlite: disconnecting user %d's Foursquare account: %w", userID, translate(err))
 	}
 
 	return nil

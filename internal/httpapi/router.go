@@ -63,15 +63,15 @@ type Options struct {
 	// FoursquareClientID and FoursquareClientSecret are
 	// TRAVELMAP_FOURSQUARE_CLIENT_ID and _CLIENT_SECRET — see
 	// [config.Config.FoursquareClientID] for why both default to unset.
-	// Left empty, GET /foursquare/oauth/start and its callback are not
+	// Left empty, GET /settings/foursquare/connect and its callback are not
 	// registered at all, the same reasoning as FoursquarePushSecret.
 	FoursquareClientID     string
 	FoursquareClientSecret string
 
 	// BaseURL is TRAVELMAP_BASE_URL — see [config.Config.BaseURL] for what
 	// it is and why it is named generally rather than for its one current
-	// reader. Left empty, GET /foursquare/oauth/start and its callback are
-	// not registered at all, the same reasoning as FoursquarePushSecret.
+	// reader. Left empty, GET /settings/foursquare/connect and its callback
+	// are not registered at all, the same reasoning as FoursquarePushSecret.
 	BaseURL string
 
 	// FoursquareAPIURL is TRAVELMAP_FOURSQUARE_API_URL —
@@ -208,8 +208,15 @@ func (a *api) newRouter() http.Handler {
 
 			r.Get("/", a.index)
 
+			// Always registered, the same way index is — see settingsPage's
+			// own doc comment for why.
+			r.Get("/settings", a.settingsPage)
+
+			// The Foursquare OAuth flow, gated on its own: a button on the
+			// settings page that would 404 is worse than no button.
 			if a.foursquareOAuth.configured() {
-				r.Get("/foursquare/oauth/start", a.foursquareOAuthStart)
+				r.Get("/settings/foursquare/connect", a.foursquareOAuthStart)
+				r.Post("/settings/foursquare/disconnect", a.foursquareDisconnect)
 			}
 		})
 

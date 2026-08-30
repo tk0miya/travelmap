@@ -234,8 +234,8 @@ condition that can be verified by running something.
 
 **A step's number says when it was planned, not when to take it.** Milestone H's Steps 23 to 34
 were planned after Milestone I's 18 to 22 and so carry higher numbers while appearing earlier in
-this file, and one of them (Step 31) depends on work from the other milestone. What order to take
-them in is what each milestone's own ordering note says, never the numbers.
+this file, and some of them depended on work from the other milestone that has since landed. What
+order to take them in is what each milestone's own ordering note says, never the numbers.
 
 ---
 
@@ -332,12 +332,14 @@ All independent of each other; take them in whatever order the need arises.
 Start once the API has settled. What the screens still need a library for is in "Library Choices
 for the Web UI".
 
-Steps 31, 32 and 33 are the rest of the browser's way in, and the CLI paths it replaces. The
-Swarm link itself already runs on the browser session — `GET /foursquare/oauth/start` and its
-callback, in `internal/httpapi` — built directly against it rather than against `api_key`, since
-the `sessions` table and its repository, the HTML route group and its one page, the session
+Steps 32 and 33 are the rest of the browser's way in, and the CLI paths it replaces. The Swarm
+link itself already runs on the browser session, with its own section on the settings page —
+`/settings`, its connect at `/settings/foursquare/connect` and its OAuth callback, and its
+disconnect at `/settings/foursquare/disconnect`, all in `internal/httpapi` — built directly
+against the session rather than against `api_key`, since the
+`sessions` table and its repository, the HTML route group and its one page, the session
 middleware, the login screen, `auth.Register` and the sign-up screen were all already in place
-when it was taken. **None of the three adds a data endpoint**, which is what leaves "Open
+when it was taken. **Neither of the two adds a data endpoint**, which is what leaves "Open
 question: how the browser authenticates against `/api/v1`" for the map screen to answer rather
 than this half.
 
@@ -350,42 +352,8 @@ plan rather than recording it.
 ```
 The sign-up screen ─→ Step 32 (remove user create)
 
-The Swarm OAuth flow (session-based, already built) ─→ Step 31 (the Swarm page) ─→ Step 33 (remove foursquare connect)
+The settings page (already built) ─→ Step 33 (remove foursquare connect)
 ```
-
-### Step 31: The Swarm connection page
-
-Follows the Swarm OAuth flow (`GET /foursquare/oauth/start` and its callback), already built
-directly against the browser session rather than `api_key`: the login screen already existed by
-the time it was taken, so there was no reason to build the weaker credential first and replace it
-later. The page that makes the link visible and repeatable, rather than a URL to type.
-
-- [ ] `store.FoursquareAccountRepository.ByUserID`. The repository has only `Create` and
-      `ByFoursquareUserID` today, because until now a push arriving from Foursquare was the only
-      thing that asked — **a page showing "connected as …" asks the other way round**
-- [ ] A page showing whether a Swarm account is linked, which one, and how current it is, with a
-      button starting the OAuth flow at `/foursquare/oauth/start`. The last of those reads
-      `foursquare_accounts.synced_through`, which is **the use "foursquare_accounts" in
-      docs/database.md reserves that column for** — reporting how current an account is, rather
-      than resuming a fetch from it. This step is that column's first reader
-- [ ] Disconnecting: a `Delete` on that repository behind a POST, so the flow can be run again
-      against a different Swarm account. **Say on the page what it does not do** — check-ins
-      already collected stay, because they are the user's history and not the link's
-- [ ] Whether a re-link should be a `Delete` plus `Create` or an upsert is decided here, since
-      this step is the first thing able to reach the same row twice
-- [ ] README: the page, next to the sentence Milestone I's README section already carries about
-      nothing being collected until an account is linked. **Replace the raw-URL walkthrough**
-      (visiting `/foursquare/oauth/start` by hand) with pointing at the page's own button — the
-      URL was only ever a stand-in for a page that did not exist yet
-- [ ] Tests: the page reports not-linked on a fresh account and linked after the row exists;
-      disconnecting removes the row and leaves `checkins` untouched; one user cannot see or
-      disconnect another's link
-
-**Settles**: how a travelmap account's external links are presented and undone.
-
-**Done when**: the page shows a fresh account as not connected, the button completes the flow and
-the page then names the Swarm account, and disconnecting returns it to not connected while the
-check-ins already collected remain.
 
 ### Step 32: Remove `travelmap user create`
 
@@ -422,26 +390,26 @@ up at `/signup` instead.
 
 ### Step 33: Remove `travelmap foursquare connect`
 
-Follows Step 31. Once a logged-in session can link a Swarm account from its own page, the CLI path
-settles nothing a browser cannot: getting an access token out of Foursquare's own developer
-console takes exactly the same human-at-a-browser step as clicking through its OAuth consent
-screen, so the command enables no automation the browser flow does not already offer. Kept only as
-long as it takes to prove that flow out; this step is what removes it rather than leaving two paths
-that can drift.
+Follows the settings page, already in place. Once a logged-in session can link a Swarm
+account from its own page, the CLI path settles nothing a browser cannot: getting an access token
+out of Foursquare's own developer console takes exactly the same human-at-a-browser step as
+clicking through its OAuth consent screen, so the command enables no automation the browser flow
+does not already offer. Kept only as long as it takes to prove that flow out; this step is what
+removes it rather than leaving two paths that can drift.
 
 - [ ] Delete the `foursquare connect` subcommand and its own tests. What that leaves of the
       `foursquare` dispatcher is `foursquare sync`, its one remaining subcommand
 - [ ] `docs/database.md`'s `foursquare_accounts` entry ("Created by `travelmap foursquare
-      connect`") is rewritten to say created from the Swarm connection page instead. Three more
+      connect`") is rewritten to say created from the settings page instead. Three more
       places say the same thing and go with it: `internal/model.FoursquareAccount`'s doc comment,
       `store.FoursquareAccountRepository`'s doc comment, and `0005_checkins.sql`'s leading comment
-      on `foursquare_accounts`, which already reads "created by `travelmap foursquare connect` or,
-      once it lands, a browser-driven OAuth flow" — sitting outside every statement, so still
-      editable after the fact — and now drops the CLI half entirely
+      on `foursquare_accounts`, which already reads "created by `travelmap foursquare connect` or
+      a browser-driven OAuth flow" — sitting outside every statement, so still editable after the
+      fact — and now drops the CLI half entirely
 - [ ] README: the `foursquare connect` walkthrough under "Swarm (Foursquare) check-ins" is replaced
-      with signing in and visiting the Swarm connection page; the "until the OAuth flow exists, get
-      an access token from the Foursquare application's own console" caveat is dropped along with
-      it, since nothing here still needs that console
+      with signing in and visiting Settings; the "until the OAuth flow exists, get an access token
+      from the Foursquare application's own console" caveat is dropped along with it, since nothing
+      here still needs that console
 - [ ] Tests: neither `travelmap --help` nor `travelmap foursquare --help` lists `connect` any more;
       `internal/httpapi`'s own `linkFoursquareAccount` test helper already seeds a
       `foursquare_accounts` row through the store directly rather than the CLI, and is checked here
@@ -449,8 +417,8 @@ that can drift.
 
 **Settles**: that a Swarm account links to a travelmap account through exactly one path.
 
-**Done when**: `travelmap foursquare connect` no longer exists, and the README documents the Swarm
-connection page as the only way to link an account.
+**Done when**: `travelmap foursquare connect` no longer exists, and the README documents the
+settings page as the only way to link an account.
 
 ### Still to plan
 
@@ -459,7 +427,9 @@ connection page as the only way to link an account.
       to answer "Open question: how the browser authenticates against `/api/v1`"**, being the
       first to read data from it
 - [ ] Statistics screen (using `daily_stats`)
-- [ ] Settings screen. An import screen only if Milestone G's `/api/v1/imports` was implemented
+- [ ] Settings screen: more sections beyond the Swarm connection already there — timezone, track
+      break, etc. — on the page and header link this milestone already built. An import screen
+      only if Milestone G's `/api/v1/imports` was implemented
 - [ ] Vendor the map library into `embed.FS` to preserve the single binary, alongside the
       templates and the stylesheet already there; what is left is the one dependency that has to
       be fetched rather than written

@@ -101,7 +101,7 @@ type Config struct {
 	FoursquarePushSecret string
 
 	// FoursquareClientID and FoursquareClientSecret identify the Foursquare
-	// application the OAuth flow (GET /foursquare/oauth/start and its
+	// application the OAuth flow (GET /settings/foursquare/connect and its
 	// callback) runs against. Both empty by default, which is what keeps
 	// those routes unregistered, the same reasoning as FoursquarePushSecret
 	// above.
@@ -111,7 +111,7 @@ type Config struct {
 	// BaseURL is this server's own externally reachable URL, with no
 	// trailing path — e.g. "https://travelmap.example.com". Empty by
 	// default, which along with the two Foursquare settings above keeps
-	// GET /foursquare/oauth/start and its callback unregistered: deriving
+	// GET /settings/foursquare/connect and its callback unregistered: deriving
 	// the callback URL (BaseURL plus the fixed
 	// /foursquare/oauth/callback path) is its only consumer today, but the
 	// setting names this server rather than that one feature, so a second

@@ -210,6 +210,12 @@ type FoursquareAccountRepository interface {
 	// checkin.user.id to a travelmap user.
 	ByFoursquareUserID(ctx context.Context, foursquareUserID string) (model.FoursquareAccount, error)
 
+	// ByUserID finds the account linked to userID, and returns [ErrNotFound]
+	// if there is none — the settings page's own lookup, the first caller to
+	// resolve a travelmap user to their Foursquare account rather than the
+	// other way around.
+	ByUserID(ctx context.Context, userID int64) (model.FoursquareAccount, error)
+
 	// All returns every linked account, ordered by user id. The periodic
 	// fetch has no user to start from: it fetches for whoever is linked, and
 	// an empty result is the ordinary state of a server nobody has linked an
@@ -219,6 +225,13 @@ type FoursquareAccountRepository interface {
 	// UpdateSyncedThrough records the end of a successful fetch window for
 	// userID. It returns [ErrNotFound] if no account is linked to that user.
 	UpdateSyncedThrough(ctx context.Context, userID int64, syncedThrough time.Time) error
+
+	// Delete removes the account linked to userID, so the settings page can
+	// run the OAuth flow again against a different one. Deleting a
+	// userID with no row is not an error, the same reasoning as
+	// [SessionRepository.Delete]. The check-ins already collected are
+	// untouched: they are the user's own history, not the link's.
+	Delete(ctx context.Context, userID int64) error
 }
 
 // SessionRepository stores the browser sessions scs hands out, keyed by the

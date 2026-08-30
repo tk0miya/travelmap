@@ -9,9 +9,12 @@
   <body>
     <header class="site-header">
       <a href="/" class="brand">travelmap</a>
+      {{if .Header.SignedIn}}
+      <a href="/settings" class="header-link">Settings</a>
+      {{end}}
     </header>
     <main>
-      {{template "content" .}}
+      {{template "content" .Data}}
     </main>
   </body>
 </html>

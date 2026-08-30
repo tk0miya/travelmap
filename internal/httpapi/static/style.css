@@ -52,6 +52,9 @@ body {
 .site-header {
   width: 100%;
   padding: 1.25rem 1.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
 }
 
 .brand {
@@ -63,6 +66,16 @@ body {
 }
 
 .brand:hover {
+  color: var(--accent);
+}
+
+.header-link {
+  color: var(--muted);
+  font-size: 0.9rem;
+  text-decoration: none;
+}
+
+.header-link:hover {
   color: var(--accent);
 }
 
@@ -89,6 +102,12 @@ main {
   margin: 0 0 1.5rem;
   font-size: 1.4rem;
   text-align: center;
+}
+
+.card h2 {
+  margin: 0 0 1rem;
+  font-size: 1.05rem;
+  color: var(--muted);
 }
 
 .field {

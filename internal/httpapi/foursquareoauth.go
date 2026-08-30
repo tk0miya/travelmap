@@ -72,8 +72,8 @@ func newFoursquareOAuth(opts Options) *foursquareOAuth {
 
 // configured reports whether enough is set to run the OAuth flow at all:
 // the client id, the client secret, and BaseURL to derive the callback URL
-// from. GET /foursquare/oauth/start and its callback are registered only
-// when this is true, the same reasoning as FoursquarePushSecret.
+// from. GET /settings/foursquare/connect and its callback are registered
+// only when this is true, the same reasoning as FoursquarePushSecret.
 func (f *foursquareOAuth) configured() bool {
 	return f.clientID != "" && f.clientSecret != "" && f.baseURL != ""
 }

@@ -25,9 +25,10 @@ func pageTemplate(name string) *template.Template {
 }
 
 var (
-	indexTemplate  = pageTemplate("index.html")
-	loginTemplate  = pageTemplate("login.html")
-	signupTemplate = pageTemplate("signup.html")
+	indexTemplate    = pageTemplate("index.html")
+	loginTemplate    = pageTemplate("login.html")
+	signupTemplate   = pageTemplate("signup.html")
+	settingsTemplate = pageTemplate("settings.html")
 )
 
 // staticFiles is staticFS with its own "static" directory peeled off, so a
@@ -44,10 +45,31 @@ var staticFiles = func() fs.FS {
 	return sub
 }()
 
+// pageHeader is what base.html's own header renders, built the same way
+// regardless of which page is rendering: every page shares one header, so
+// this is computed once here rather than every page's own data carrying it.
+type pageHeader struct {
+	// SignedIn is whether the header shows a link to /settings, which always
+	// exists once a session does — settingsPage itself decides which
+	// sections a visitor sees, so the header does not need to know that too.
+	SignedIn bool
+}
+
+// pageData is what "base" actually renders: the shared header plus the
+// page's own content data, kept apart so a content template still receives
+// its own data directly rather than reaching through a wrapper.
+type pageData struct {
+	Header pageHeader
+	Data   any
+}
+
 // renderPage renders tmpl's "base" template with data as a 200 response.
 func (a *api) renderPage(w http.ResponseWriter, r *http.Request, tmpl *template.Template, data any) {
+	_, signedIn := userFrom(r.Context())
+	header := pageHeader{SignedIn: signedIn}
+
 	var buf bytes.Buffer
-	if err := tmpl.ExecuteTemplate(&buf, "base", data); err != nil {
+	if err := tmpl.ExecuteTemplate(&buf, "base", pageData{Header: header, Data: data}); err != nil {
 		a.logger.Error("rendering the page failed", "path", r.URL.Path, "error", err)
 		a.writeError(w, r, http.StatusInternalServerError, "internal server error")
 

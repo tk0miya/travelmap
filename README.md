@@ -122,14 +122,14 @@ developer nothing there. A server reachable only over a plain-HTTP LAN sets
 
 travelmap can collect your Swarm check-ins alongside the GPS trace the app records, as its own
 extension to the Dawarich API — see "Keeping the two parts apart" in
-[docs/api-notes.md](docs/api-notes.md). **Nothing is collected until an account is linked**,
-either from a browser or from the command line.
+[docs/api-notes.md](docs/api-notes.md). **Nothing is collected until an account is linked**, and
+every way of linking one starts from the same prerequisite: a Foursquare application of your own,
+registered at Foursquare's own developer console.
 
-To link one from a browser: log in at `http://localhost:3000/login`, then visit
-`http://localhost:3000/foursquare/oauth/start`. This needs a Foursquare application's OAuth
-credentials — its client id and secret — and `TRAVELMAP_BASE_URL` set so the redirect URL this
-server builds (`<TRAVELMAP_BASE_URL>/foursquare/oauth/callback`) matches the one registered on
-the application exactly:
+To link an account from a browser, once that application exists: set its client id and secret as
+`TRAVELMAP_FOURSQUARE_CLIENT_ID` and `TRAVELMAP_FOURSQUARE_CLIENT_SECRET`, its redirect URI to
+`<TRAVELMAP_BASE_URL>/foursquare/oauth/callback`, and `TRAVELMAP_BASE_URL` itself — this server's
+own externally reachable URL:
 
 ```sh
 TRAVELMAP_BASE_URL=http://localhost:3000 \
@@ -138,17 +138,20 @@ TRAVELMAP_FOURSQUARE_CLIENT_SECRET=<client secret> \
     ./bin/travelmap serve
 ```
 
-To link one from the command line instead — no browser, no OAuth application needed —
-`travelmap foursquare connect` reads a Foursquare access token from standard input rather than a
-flag, the same concern `user create`'s password reading answers:
+With those three settings in place, sign in and open the **Settings** page to connect your Swarm
+account with its "Connect your Swarm account" button. Without them, the settings page has no
+Swarm section to show, the same as the webhook below when `TRAVELMAP_FOURSQUARE_PUSH_SECRET` is
+unset.
+
+To link one from the command line instead — no browser, just the access token the same
+application's own console issues for the account that owns it —
+`travelmap foursquare connect` reads it from standard input rather than a flag, the same concern
+`user create`'s password reading answers:
 
 ```sh
 ./bin/travelmap foursquare connect --email you@example.com --foursquare-user-id <your Swarm user id> \
     < /run/secrets/foursquare-access-token
 ```
-
-Get that access token from the Foursquare application's own console — it issues one for the
-account that owns the application.
 
 Once an account is linked, the running server fetches its check-ins on its own, every
 `TRAVELMAP_FOURSQUARE_SYNC_INTERVAL` (an hour by default), from
@@ -168,8 +171,8 @@ than the routine window:
 ```
 
 `TRAVELMAP_FOURSQUARE_PUSH_SECRET` turns on `POST /webhooks/foursquare`, which receives your
-check-ins in real time via a Foursquare application's **"Push API notifications"** setting,
-reached from the app's page and its "Edit This App" button — **not** the similarly-named
+check-ins in real time via the same application's **"Push API notifications"** setting, reached
+from the app's page and its "Edit This App" button — **not** the similarly-named
 "Configure Server Webhooks" page, an unrelated product that will not deliver check-ins here. Set
 the variable to the same secret configured there, and give Foursquare a URL it can reach over
 **HTTPS on port 443** — a self-signed certificate is fine, but it has to run behind something
