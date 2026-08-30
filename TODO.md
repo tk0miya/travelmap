@@ -235,7 +235,7 @@ condition that can be verified by running something.
 
 **A step's number says when it was planned, not when to take it.** Milestone H's Steps 23 to 34
 were planned after Milestone I's 18 to 22 and so carry higher numbers while appearing earlier in
-this file, and one of them (Step 30) depends on a step in the other milestone. What order to take
+this file, and one of them (Step 31) depends on work from the other milestone. What order to take
 them in is what each milestone's own ordering note says, never the numbers.
 
 ---
@@ -333,12 +333,14 @@ All independent of each other; take them in whatever order the need arises.
 Start once the API has settled. What the screens still need a library for is in "Library Choices
 for the Web UI".
 
-Steps 30 to 33 are the rest of the browser's way in: the Swarm link, which a browser is the only
-sensible place to start from, and retiring the two CLI commands their browser equivalents make
-redundant — the `sessions` table and its repository, the HTML route group and its one page, the
-session middleware, the login screen, `auth.Register` and the sign-up screen are already in place.
-**They add no data endpoint**, which is what leaves "Open question: how the browser authenticates
-against `/api/v1`" for the map screen to answer rather than this half.
+Steps 31, 32 and 33 are the rest of the browser's way in, and the CLI paths it replaces. The
+Swarm link itself already runs on the browser session — `GET /foursquare/oauth/start` and its
+callback, in `internal/httpapi` — built directly against it rather than against `api_key`, since
+the `sessions` table and its repository, the HTML route group and its one page, the session
+middleware, the login screen, `auth.Register` and the sign-up screen were all already in place
+when it was taken. **None of the three adds a data endpoint**, which is what leaves "Open
+question: how the browser authenticates against `/api/v1`" for the map screen to answer rather
+than this half.
 
 The map, statistics and settings screens keep their bullet form below. They are not planned yet,
 and writing a checklist for a screen whose rendering approach is undecided would be inventing the
@@ -349,7 +351,7 @@ plan rather than recording it.
 ```
 The sign-up screen ─→ Step 32 (remove user create)
 
-The login screen + Milestone I's Step 20 ─→ Step 30 (Swarm over a session) ─→ Step 31 (the Swarm page) ─→ Step 33 (remove foursquare connect)
+The Swarm OAuth flow (session-based, already built) ─→ Step 31 (the Swarm page) ─→ Step 33 (remove foursquare connect)
 ```
 
 Step 27 (the session sweep) can be taken at any time, needing nothing but the sessions store
@@ -380,59 +382,18 @@ of itself. Whichever is second follows the first rather than deciding again, and
 
 **Done when**: with one expired row in `sessions`, starting the server removes it on the next tick.
 
-### Step 30: Starting the Swarm flow from a browser session
-
-Follows the login screen, already in place, and Milestone I's **Step 20**, which builds the OAuth
-exchange itself. This step adds no new exchange — it changes what names the travelmap user on the
-way in and on the way back, and it is what Step 20's "A limitation to accept knowingly" promises.
-
-**If Step 20 is taken now that the login screen already exists**, as Milestone I's own ordering
-note suggests, it writes the session version directly and there is no `api_key` leg to move or
-README line to delete. What is left of this step is then the callback checking the session and
-`state` against each other, and the tests for it — a much smaller change. Take that reading rather
-than looking for an `api_key` route that was never built.
-
-- [ ] Move `GET /foursquare/oauth/start` off `authenticate` / `requireUser` and onto the browser
-      group's session. **The API key stops travelling in a query string**: Step 20 accepts that
-      knowingly only because no session exists yet, and it puts the key in browser history and in
-      the `Referer` of the redirect to Foursquare. This step is the one that removes it
-- [ ] `GET /foursquare/oauth/callback` **also gets the session now**, which Step 20 could not
-      assume. The browser returns from Foursquare by a top-level GET navigation, and a
-      `SameSite=Lax` cookie is sent on exactly that — so the callback can require the session's
-      user and the user `state` names to be **the same user**, instead of resting on `state`
-      alone. Verify the cookie really does arrive before relying on it; if it does not, `state`
-      alone is still Step 20's design and nothing is lost
-- [ ] `state` keeps its single use and short expiry regardless. It is now a second factor rather
-      than the only one, and CSRF on the callback is what it still buys
-- [ ] Revisit the `dawarichHeaders` leak Step 20 has to solve: with `start` no longer reusing
-      `authenticate`, that route stops leaking a compatibility header. Record whether any caller
-      of that behaviour is left, so the workaround is removed rather than left in place unowned
-- [ ] README: the flow now starts from the browser while logged in. **Delete the `api_key` URL
-      Step 20 documented there** rather than leaving both — that URL is the exposure this step
-      exists to remove, and a README that still offers it keeps offering it. Step 20's own
-      "A limitation to accept knowingly" needs no deleting: CLAUDE.md has its whole entry go when
-      Step 20 is done, so by the time this step is reachable the paragraph is already gone
-- [ ] Tests: `start` without a session redirects to `/login` rather than 401; with one it
-      redirects to Foursquare with a `state` bound to that user; a callback whose `state` names a
-      different user than the session is refused; **no route in the flow accepts `api_key` any
-      more**
-
-**Settles**: that a browser-facing route outside `/api/v1` identifies its user by session, and
-that the same is true on the leg that comes back from a third party.
-
-**Done when**: with a browser logged in and no `api_key` anywhere in the URLs, the Swarm flow
-completes and writes the `foursquare_accounts` row. That the stored token then collects check-ins
-is `travelmap foursquare sync`'s to show, which this step does not repeat.
-
 ### Step 31: The Swarm connection page
 
-Follows Step 30. The page that makes the link visible and repeatable, rather than a URL to type.
+Follows the Swarm OAuth flow (`GET /foursquare/oauth/start` and its callback), already built
+directly against the browser session rather than `api_key`: the login screen already existed by
+the time it was taken, so there was no reason to build the weaker credential first and replace it
+later. The page that makes the link visible and repeatable, rather than a URL to type.
 
 - [ ] `store.FoursquareAccountRepository.ByUserID`. The repository has only `Create` and
       `ByFoursquareUserID` today, because until now a push arriving from Foursquare was the only
       thing that asked — **a page showing "connected as …" asks the other way round**
 - [ ] A page showing whether a Swarm account is linked, which one, and how current it is, with a
-      button starting Step 30's flow. The last of those reads
+      button starting the OAuth flow at `/foursquare/oauth/start`. The last of those reads
       `foursquare_accounts.synced_through`, which is **the use "foursquare_accounts" in
       docs/database.md reserves that column for** — reporting how current an account is, rather
       than resuming a fetch from it. This step is that column's first reader
@@ -442,7 +403,9 @@ Follows Step 30. The page that makes the link visible and repeatable, rather tha
 - [ ] Whether a re-link should be a `Delete` plus `Create` or an upsert is decided here, since
       this step is the first thing able to reach the same row twice
 - [ ] README: the page, next to the sentence Milestone I's README section already carries about
-      nothing being collected until an account is linked
+      nothing being collected until an account is linked. **Replace the raw-URL walkthrough**
+      (visiting `/foursquare/oauth/start` by hand) with pointing at the page's own button — the
+      URL was only ever a stand-in for a page that did not exist yet
 - [ ] Tests: the page reports not-linked on a fresh account and linked after the row exists;
       disconnecting removes the row and leaves `checkins` untouched; one user cannot see or
       disconnect another's link
@@ -544,14 +507,19 @@ here.
 
 Independent of the points/stats pipeline: it touches neither `points` nor `daily_stats`. What it
 does need is the store foundation and the authenticated router, both already in place — the push
-webhook already hangs a route off the same router, and Step 20 reuses the `api_key` credential.
-So the remaining steps can be taken at any time after Milestone B, like Step 16.
+webhook already hangs a route off the same router, and the OAuth flow hangs its own off the
+browser session's group. So the remaining steps can be taken at any time after Milestone B, like
+Step 16.
 
 External behaviour these steps rely on is in "Foursquare / Swarm Integration Notes"; the two
 tables are in `internal/store/sqlite/schema.sql` and docs/database.md, per "Data Model".
 
-Four `TRAVELMAP_FOURSQUARE_*` settings are still to add: the three OAuth ones in Step 20 and the
-interval in Step 21. A fifth joins whichever step needs it.
+There are five `TRAVELMAP_FOURSQUARE_*` settings already in place — `_PUSH_SECRET`, the two OAuth
+client settings (`_CLIENT_ID`, `_CLIENT_SECRET`), and the periodic fetch client's own
+`_SYNC_LOOKBACK_DAYS` and `_API_URL` — plus `TRAVELMAP_BASE_URL` (general-purpose, not
+Foursquare-prefixed, since the OAuth callback URL it derives is not the only thing that could ever
+need this server's own address). Step 21 adds a sixth `TRAVELMAP_FOURSQUARE_*` setting, the
+interval.
 
 **Each step documents its own settings in the README, in the same pull request.** The README is
 for someone about to run this server, so a knob that is listed there and does nothing yet is the
@@ -559,80 +527,23 @@ one kind of drift its reader cannot detect — and this milestone's settings com
 (an OAuth URL, a CLI invocation) that would invite a reader to try something not built. The
 settings and their defaults are recorded here in the meantime, which is what `TODO.md` is for.
 
-The README's check-in section says that **nothing is collected until an account is linked**, the
-one fact no single setting carries — without it a reader can set every variable, run `foursquare
-sync`, and be told nothing about why the result is empty. Step 20 adds its browser flow to that
-sentence when it lands, which is its own README item.
+The push webhook already opened a check-in section under the README's "Configuration", since it
+collects check-ins on its own; the periodic fetch client adds to what it wrote there rather than
+starting the section itself. That section carries the one fact no single setting does: **nothing
+is collected until an account is linked**, either with `travelmap foursquare connect` or by
+visiting `/foursquare/oauth/start` while signed in — both already documented there. Without
+either, a reader can set every variable, run `foursquare sync`, and be told nothing about why the
+result is empty.
 
-Step 21 follows the fetch path already in place, and Step 20 can be taken at any point or left
-until last, needing nothing this milestone has not already shipped. **Milestone H's Steps 30 and
-31 then finish it from the browser** — the session that replaces its `api_key` URL, and the page
-that shows and undoes the link — so taking Step 20 now that Milestone H's login screen already
-exists saves building the credential it already accepts as a limitation. `travelmap foursquare
-connect` exists precisely so the collecting steps can be finished and run for real before the
-OAuth flow is written. Until it is, the access token comes out of the Foursquare application's
-own console, which issues one for the account that owns the application; that is the whole of
-what Step 20 later automates.
-
-### Step 20: Server-side OAuth
-
-- [ ] `GET /foursquare/oauth/start` — **reuses `authenticate` and `requireUser` on its own
-      group, without `dawarichHeaders`**: those two run inside `r.Route("/api/v1", …)` today, so
-      a top-level route gets neither and `userFrom` would answer nothing. Attaching a different
-      chain per prefix is what chi was chosen for. It then mints a `state` bound to that user and
-      redirects to `https://foursquare.com/oauth2/authenticate`
-- [ ] Leaving `dawarichHeaders` off is not enough on its own: `authenticate` writes those headers
-      itself when the key lookup fails, because on that path the middleware it wraps never runs.
-      Reusing it outside `/api/v1` therefore leaks a compatibility header onto a route that is
-      not part of the compatibility surface, on exactly one response. Move that write out of
-      `authenticate` or make it conditional — either way, decide it here rather than at
-      implementation time
-- [ ] The **callback carries no credential** — the browser is coming back from Foursquare — so
-      it sits outside that group and `state` is the only thing naming the user. That is what
-      makes single use and a short expiry load-bearing rather than tidy
-- [ ] `GET /foursquare/oauth/callback` — verifies `state`, exchanges the code at
-      `https://foursquare.com/oauth2/access_token`, calls `/v2/users/self` for the Foursquare
-      user id, and writes the `foursquare_accounts` row. Both calls go in
-      `internal/foursquare` alongside the check-in client, so every request to Foursquare is
-      configured in one place; this handler imports it directly, since it writes an account
-      rather than a check-in
-- [ ] `state` stored **in process**, with a short expiry and single use. One process serves
-      this, and a `state` that does not survive a restart only costs the user a retry — which is
-      why this step adds no migration. **Foursquare's reference documents neither `state` nor
-      `scope`**, listing only `client_id`, `response_type` and `redirect_uri`. That it is echoed
-      is an inference from two working clients that assume it — perkeep's Swarm importer through
-      `golang.org/x/oauth2`, and Auth.js's Foursquare provider — not from an observation. Since
-      `state` is the only thing naming the user on the callback, **Step 20 verifies the echo
-      before anything depends on it**, and fails the flow closed if it is absent
-- [ ] The documented token response is `{"access_token": …}` and nothing else. **That is the
-      documentation's silence, not a fact**: whether a refresh token or an expiry comes back is
-      untested, and the notes for this milestone treat a reference's silence as unsettled rather
-      than as an absence. So **log the exchange response's field names** and record them here. The
-      decision meanwhile is to schedule no renewal — a token that stops working shows up as a 401
-      from the fetch path, which `travelmap foursquare connect` can already repair
-- [ ] `TRAVELMAP_FOURSQUARE_REDIRECT_URL` has to match the URL registered on the application
-      exactly, in both the redirect and the exchange
-- [ ] `TRAVELMAP_FOURSQUARE_CLIENT_ID`, `TRAVELMAP_FOURSQUARE_CLIENT_SECRET` and
-      `TRAVELMAP_FOURSQUARE_REDIRECT_URL` in `internal/config`
-- [ ] README: those three, and how to start the flow. Write the URL that actually works once the
-      middleware question above is settled, not the one planned here
-
-**Settles**: how `GET /foursquare/oauth/start`, a browser-facing route outside `/api/v1`,
-identifies a travelmap user.
-
-**A limitation to accept knowingly**: the checklist above still names a user with the `api_key`
-query parameter rather than Milestone H's login screen, which already exists by the time this
-step is taken — see Step 30's own note for the alternative that reading opens up. That is
-consistent — every endpoint here accepts `api_key` — but **it puts the API key in browser history
-and in the `Referer` of the redirect**. **Milestone H's Step 30 is what removes it**, moving both
-legs of the flow onto the session. If the exposure is not acceptable meanwhile, take Step 20
-against the session directly instead, per Step 30's note, and keep using
-`travelmap foursquare connect` until then — this step's own `api_key` leg is then never built
-rather than removed afterwards.
+Step 21 follows that client. The OAuth flow is done — built directly against the browser session,
+since the login screen already existed by the time it was taken, rather than against an `api_key`
+leg that would only have had to be replaced afterwards — and **Step 31 is what still finishes it
+from the browser**, with a page that shows and undoes the link instead of a raw URL.
+`travelmap foursquare connect` remains the way to link an account without a browser.
 
 ### Step 21: The periodic fetch worker
 
-Repeats `internal/checkin`'s sync run on a timer; nothing in Step 20 is in the way, and Step 22's
+Repeats `internal/checkin`'s sync run on a timer; the OAuth flow does not block it, and Step 22's
 hardening is not required first either — see that step's note on why.
 
 - [ ] `internal/config`: `TRAVELMAP_FOURSQUARE_SYNC_INTERVAL` (default `1h`, `0` disabling the

@@ -2,10 +2,15 @@ package httpapi
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/tk0miya/travelmap/internal/auth"
 	"github.com/tk0miya/travelmap/internal/checkin"
+	"github.com/tk0miya/travelmap/internal/foursquare"
+	"github.com/tk0miya/travelmap/internal/model"
+	"github.com/tk0miya/travelmap/internal/store"
 )
 
 // maxFoursquarePushBody bounds the webhook's form body. The observed push was
@@ -71,4 +76,123 @@ func (a *api) foursquareWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusOK)
+}
+
+// foursquareOAuthCallbackURL is baseURL trimmed of a trailing slash plus
+// foursquareOAuthCallbackPath — the redirect_uri both legs of the OAuth flow
+// send Foursquare, which has to match the one registered on the Foursquare
+// application exactly. Building this is the handlers' own job, not
+// foursquareOAuth's: it is a detail of what start and callback each send
+// Foursquare, not a fact about the flow's configuration itself.
+func foursquareOAuthCallbackURL(baseURL string) string {
+	return strings.TrimSuffix(baseURL, "/") + foursquareOAuthCallbackPath
+}
+
+// foursquareOAuthStart answers GET /foursquare/oauth/start: it sends the
+// browser to Foursquare to link the signed-in session's account to a Swarm
+// one. [requireSessionUser] guarantees a user is on the context.
+func (a *api) foursquareOAuthStart(w http.ResponseWriter, r *http.Request) {
+	user, _ := userFrom(r.Context())
+
+	state, err := a.foursquareOAuth.states.New(user.ID)
+	if err != nil {
+		a.logger.Error("minting a Foursquare OAuth state failed", "user_id", user.ID, "error", err)
+		a.writeError(w, r, http.StatusInternalServerError, "internal server error")
+
+		return
+	}
+
+	redirectURL := foursquareOAuthCallbackURL(a.foursquareOAuth.baseURL)
+
+	http.Redirect(w, r,
+		foursquare.AuthenticateURL(a.foursquareOAuth.clientID, redirectURL, state),
+		http.StatusFound)
+}
+
+// foursquareOAuthCallback answers GET /foursquare/oauth/callback: Foursquare
+// returns the browser here after the user accepts or refuses the link.
+//
+// It carries no credential of its own — the browser is coming back from
+// Foursquare — so state is what names the travelmap user the flow was
+// started for, and the session cookie (sent on this top-level GET
+// navigation by SameSite=Lax) is checked against it: a callback naming a
+// different signed-in user, or arriving with no session at all, is refused
+// the same way an unrecognised state is. Foursquare's own reference
+// documents neither state nor scope for this flow, so the echo is verified
+// here rather than assumed to work.
+func (a *api) foursquareOAuthCallback(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query()
+
+	stateUserID, ok := a.foursquareOAuth.states.Consume(query.Get("state"))
+	if !ok {
+		w.WriteHeader(http.StatusForbidden)
+
+		return
+	}
+
+	sessionUser, ok := userFrom(r.Context())
+	if !ok || sessionUser.ID != stateUserID {
+		w.WriteHeader(http.StatusForbidden)
+
+		return
+	}
+
+	code := query.Get("code")
+	if code == "" {
+		w.WriteHeader(http.StatusBadRequest)
+
+		return
+	}
+
+	token, err := foursquare.ExchangeCode(r.Context(), a.foursquareOAuth.httpClient, a.foursquareOAuth.tokenURL,
+		a.foursquareOAuth.clientID, a.foursquareOAuth.clientSecret,
+		foursquareOAuthCallbackURL(a.foursquareOAuth.baseURL), code)
+	if err != nil {
+		a.logger.Error("exchanging the Foursquare OAuth code failed", "user_id", sessionUser.ID, "error", err)
+		w.WriteHeader(http.StatusBadGateway)
+
+		return
+	}
+
+	// Whether a refresh token or an expiry also comes back is untested, so
+	// the field names are logged rather than assumed. No renewal is
+	// scheduled either way: a token that stops working shows up as a 401
+	// from the fetch path, which `travelmap foursquare connect` can already
+	// repair by replacing it.
+	a.logger.Info("Foursquare OAuth token exchange succeeded",
+		"user_id", sessionUser.ID, "fields", token.Fields)
+
+	foursquareUserID, err := foursquare.GetSelfUserID(r.Context(), a.foursquareOAuth.httpClient, a.foursquareOAuth.apiBaseURL, token.AccessToken)
+	if err != nil {
+		a.logger.Error("calling Foursquare users/self failed", "user_id", sessionUser.ID, "error", err)
+		w.WriteHeader(http.StatusBadGateway)
+
+		return
+	}
+
+	_, err = a.store.FoursquareAccounts().Create(r.Context(), model.FoursquareAccount{
+		UserID:           sessionUser.ID,
+		FoursquareUserID: foursquareUserID,
+		AccessToken:      token.AccessToken,
+	})
+
+	switch {
+	// The account or this Foursquare user id is already linked: an operator
+	// repeating themselves, or two accounts racing to claim the same Swarm
+	// id, not a server fault.
+	case errors.Is(err, store.ErrConflict):
+		a.logger.Warn("linking a Foursquare account that is already linked",
+			"user_id", sessionUser.ID, "foursquare_user_id", foursquareUserID)
+		w.WriteHeader(http.StatusConflict)
+
+		return
+	case err != nil:
+		a.logger.Error("linking the Foursquare account failed", "user_id", sessionUser.ID, "error", err)
+		w.WriteHeader(http.StatusInternalServerError)
+
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	fmt.Fprintf(w, "linked to Foursquare user %s\n", foursquareUserID)
 }

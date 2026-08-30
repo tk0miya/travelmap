@@ -60,6 +60,25 @@ type Options struct {
 	// Left empty, POST /webhooks/foursquare is not registered at all.
 	FoursquarePushSecret string
 
+	// FoursquareClientID and FoursquareClientSecret are
+	// TRAVELMAP_FOURSQUARE_CLIENT_ID and _CLIENT_SECRET — see
+	// [config.Config.FoursquareClientID] for why both default to unset.
+	// Left empty, GET /foursquare/oauth/start and its callback are not
+	// registered at all, the same reasoning as FoursquarePushSecret.
+	FoursquareClientID     string
+	FoursquareClientSecret string
+
+	// BaseURL is TRAVELMAP_BASE_URL — see [config.Config.BaseURL] for what
+	// it is and why it is named generally rather than for its one current
+	// reader. Left empty, GET /foursquare/oauth/start and its callback are
+	// not registered at all, the same reasoning as FoursquarePushSecret.
+	BaseURL string
+
+	// FoursquareAPIURL is TRAVELMAP_FOURSQUARE_API_URL —
+	// [config.Config.FoursquareAPIURL], the same setting the check-in fetch
+	// client uses. Left empty, it defaults to [foursquare.DefaultAPIBaseURL].
+	FoursquareAPIURL string
+
 	// SessionLifetime is TRAVELMAP_SESSION_LIFETIME as a [time.Duration] —
 	// [config.Config.SessionLifetime]. Left zero, it defaults to
 	// [defaultSessionLifetime].
@@ -83,13 +102,17 @@ type api struct {
 	timezone             string
 	loc                  *time.Location
 	trackBreak           time.Duration
+	debugLogRequests     bool
 	foursquarePushSecret string
 	sessions             *scs.SessionManager
 	csrf                 *http.CrossOriginProtection
+	foursquareOAuth      *foursquareOAuth
 }
 
-// New builds the server's HTTP handler.
-func New(opts Options) http.Handler {
+// newAPI builds the dependencies [New] wires into a router — split out so
+// that an internal test can override the Foursquare OAuth endpoint URLs
+// before calling [api.newRouter] itself, which New does not expose.
+func newAPI(opts Options) *api {
 	timezone := opts.Timezone
 	if timezone == "" {
 		timezone = defaultTimezone
@@ -110,23 +133,35 @@ func New(opts Options) http.Handler {
 		sessionLifetime = defaultSessionLifetime
 	}
 
-	a := &api{
+	return &api{
 		logger:               opts.Logger,
 		store:                opts.Store,
 		timezone:             timezone,
 		loc:                  loc,
 		trackBreak:           trackBreak,
+		debugLogRequests:     opts.DebugLogRequests,
 		foursquarePushSecret: opts.FoursquarePushSecret,
 		sessions:             newSessionManager(opts.Store, sessionLifetime, opts.SessionCookieSecure),
 		csrf:                 http.NewCrossOriginProtection(),
+		foursquareOAuth:      newFoursquareOAuth(opts),
 	}
+}
 
+// New builds the server's HTTP handler.
+func New(opts Options) http.Handler {
+	return newAPI(opts).newRouter()
+}
+
+// newRouter builds the router over a, split out of New so that an internal
+// test can build a over [newAPI] with its Foursquare OAuth URLs overridden
+// first — see the comment on those fields.
+func (a *api) newRouter() http.Handler {
 	r := chi.NewRouter()
 
 	// First, so that the line records what the client was actually answered:
 	// the 500 the recovery below writes for a panic, and the 404 for a route
 	// nothing matched. See [api.logRequests] for why that matters.
-	if opts.DebugLogRequests {
+	if a.debugLogRequests {
 		a.logger.Warn("logging every request, credentials redacted; " +
 			"unset TRAVELMAP_DEBUG_LOG_REQUESTS when the capture is done")
 
@@ -165,6 +200,21 @@ func New(opts Options) http.Handler {
 		r.Post("/logout", a.logout)
 		r.Get("/signup", a.signupPage)
 		r.Post("/signup", a.signupSubmit)
+
+		// The Foursquare OAuth flow, in the browser's own session group: the
+		// callback is a top-level GET navigation back from Foursquare, which
+		// carries the session cookie, so it can require the session's user
+		// and the state's own user to be the same one rather than resting on
+		// state alone.
+		if a.foursquareOAuth.configured() {
+			r.Group(func(r chi.Router) {
+				r.Use(requireSessionUser)
+
+				r.Get("/foursquare/oauth/start", a.foursquareOAuthStart)
+			})
+
+			r.Get(foursquareOAuthCallbackPath, a.foursquareOAuthCallback)
+		}
 	})
 
 	r.Handle("/static/*", http.StripPrefix("/static/", http.FileServerFS(staticFiles)))

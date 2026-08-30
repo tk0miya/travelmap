@@ -144,8 +144,9 @@ A check-in is neither a point nor a segment, so it contributes to no `/stats` to
 ## `foursquare_accounts`
 
 A row per user rather than an env var, since resolving an incoming webhook to a travelmap user
-needs a lookup an env var cannot provide (see below). Created by `travelmap foursquare connect`;
-nothing is collected for a user until this row exists.
+needs a lookup an env var cannot provide (see below). Created either by
+`travelmap foursquare connect` or by completing the browser OAuth flow; nothing is collected for
+a user until this row exists.
 
 `foursquare_user_id` is stored as **TEXT**: the payload sends it quoted (`"1709193"`). Its unique
 index is what lets an incoming push resolve to exactly one travelmap user — nothing else maps a

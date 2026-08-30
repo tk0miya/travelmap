@@ -48,15 +48,19 @@ func serve(getenv func(string) string, stderr io.Writer) error {
 	}
 
 	handler := httpapi.New(httpapi.Options{
-		Logger:               logger,
-		Store:                db,
-		DebugLogRequests:     cfg.DebugLogRequests,
-		Timezone:             cfg.Timezone,
-		Location:             loc,
-		TrackBreak:           cfg.TrackBreak(),
-		FoursquarePushSecret: cfg.FoursquarePushSecret,
-		SessionLifetime:      cfg.SessionLifetime,
-		SessionCookieSecure:  cfg.SessionCookieSecure,
+		Logger:                 logger,
+		Store:                  db,
+		DebugLogRequests:       cfg.DebugLogRequests,
+		Timezone:               cfg.Timezone,
+		Location:               loc,
+		TrackBreak:             cfg.TrackBreak(),
+		FoursquarePushSecret:   cfg.FoursquarePushSecret,
+		FoursquareClientID:     cfg.FoursquareClientID,
+		FoursquareClientSecret: cfg.FoursquareClientSecret,
+		BaseURL:                cfg.BaseURL,
+		FoursquareAPIURL:       cfg.FoursquareAPIURL,
+		SessionLifetime:        cfg.SessionLifetime,
+		SessionCookieSecure:    cfg.SessionCookieSecure,
 	})
 
 	return httpapi.Serve(ctx, cfg.Addr, handler, logger)
