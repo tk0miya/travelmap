@@ -365,7 +365,7 @@ it takes to prove sign-up out; this step is what removes it rather than leaving 
 drift.
 
 - [ ] Delete the `user create` subcommand and its own tests
-- [ ] `docs/architecture.md`'s "User management" row drops the CLI entirely: issued via browser
+- [ ] `docs/architecture.md`'s "User management" section drops the CLI entirely: issued via browser
       sign-up, full stop
 - [ ] `0001_users.sql`'s leading comment on `users` and `model.User`'s doc comment — both rewritten
       once already, by the sign-up screen, to say the CLI is one path rather than the path — are
@@ -528,7 +528,7 @@ matches on the five columns or has them recorded as excluded from refresh.
   `foursquare_user_id`'s job. Deriving a user from the secret would break the moment a second
   person connects.
 - **Sign-up is open, so on a reachable instance anyone can create an account.** This is the
-  decision recorded in the "User management" row of `docs/architecture.md`, not an oversight, and
+  decision recorded under "User management" in `docs/architecture.md`, not an oversight, and
   it is written down here because three of its consequences are real on a self-hosted box rather
   than hypothetical. Every
   account can write points into **the same SQLite file**, so somebody else's history is on the
