@@ -13,9 +13,9 @@ import (
 // stored, with ID, CreatedAt and UpdatedAt filled in, and [store.ErrConflict]
 // if the email is already taken.
 //
-// It is the one path that creates a user: `travelmap user create` and the
-// browser sign-up screen both call it, so an address or a password bound
-// only has to be validated once.
+// It is the one path that creates a user: the browser sign-up screen is its
+// only caller, so an address or a password bound only has to be validated
+// once.
 func Register(ctx context.Context, users store.UserRepository, email, password string) (model.User, error) {
 	address, err := model.NormalizeEmail(email)
 	if err != nil {

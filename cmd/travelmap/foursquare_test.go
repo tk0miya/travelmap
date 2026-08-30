@@ -9,23 +9,47 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/tk0miya/travelmap/internal/model"
 )
 
 // withFoursquareUser returns the environment of a migrated database holding
-// one user, created with `user create` — the account `foursquare connect`
-// expects to find.
+// one user, seeded directly — the account `foursquare connect` expects to
+// find.
 func withFoursquareUser(t *testing.T) (func(string) string, string) {
 	t.Helper()
 
 	env := migrated(t)
 	const email = "alice@example.com"
 
-	args := []string{"user", "create", "--email", email, "--password", password}
-	if err := run(args, env, noStdin(), &bytes.Buffer{}, &bytes.Buffer{}); err != nil {
-		t.Fatalf("user create returned %v", err)
-	}
+	seedUser(t, env, email)
 
 	return env, email
+}
+
+// seedUser inserts one user directly into env's already-migrated database —
+// the same reasoning as recalculate_test.go's own seedPoints, since there is
+// no CLI command left that creates a user: signing up needs a browser, which
+// these tests don't drive. The email doubles as the API key; nothing here
+// authenticates with it, so only uniqueness matters.
+func seedUser(t *testing.T, env func(string) string, email string) {
+	t.Helper()
+
+	ctx := t.Context()
+
+	db, _, err := openDatabase(ctx, env)
+	if err != nil {
+		t.Fatalf("opening the database: %v", err)
+	}
+	defer closeDatabase(db)
+
+	if _, err := db.Users().Create(ctx, model.User{
+		Email:        email,
+		PasswordHash: "$2a$10$notarealbcryptdigestnotarealbcryptdigestnotarealbcryptdig",
+		APIKey:       email,
+	}); err != nil {
+		t.Fatalf("creating the user %s: %v", email, err)
+	}
 }
 
 // TestFoursquareConnectCommand covers the command's own completion
@@ -64,8 +88,8 @@ func TestFoursquareConnectRequiresAnExistingUser(t *testing.T) {
 		t.Fatal("foursquare connect returned nil for an email with no user")
 	}
 
-	if !strings.Contains(err.Error(), `run "travelmap user create" first`) {
-		t.Errorf("foursquare connect failed with %v, want it to name the command to run", err)
+	if !strings.Contains(err.Error(), "sign up at /signup first") {
+		t.Errorf("foursquare connect failed with %v, want it to name where to sign up", err)
 	}
 }
 
@@ -284,12 +308,9 @@ func TestFoursquareSyncContinuesAfterOneAccountFails(t *testing.T) {
 	t.Cleanup(server.Close)
 
 	link := func(email, foursquareUserID, token string) {
-		args := []string{"user", "create", "--email", email, "--password", password}
-		if err := run(args, env, noStdin(), &bytes.Buffer{}, &bytes.Buffer{}); err != nil {
-			t.Fatalf("user create returned %v", err)
-		}
+		seedUser(t, env, email)
 
-		args = []string{"foursquare", "connect", "--email", email, "--foursquare-user-id", foursquareUserID}
+		args := []string{"foursquare", "connect", "--email", email, "--foursquare-user-id", foursquareUserID}
 		if err := run(args, env, strings.NewReader(token+"\n"), &bytes.Buffer{}, &bytes.Buffer{}); err != nil {
 			t.Fatalf("foursquare connect returned %v", err)
 		}

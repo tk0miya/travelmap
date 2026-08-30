@@ -70,14 +70,6 @@ func TestRunArguments(t *testing.T) {
 			wantErr:   errUsage,
 			wantUsage: true,
 		},
-		"user without a subcommand is a usage error": {
-			args:    []string{"user"},
-			wantErr: errUsage,
-		},
-		"an unknown user subcommand is a usage error": {
-			args:    []string{"user", "promote"},
-			wantErr: errUsage,
-		},
 		"foursquare without a subcommand is a usage error": {
 			args:    []string{"foursquare"},
 			wantErr: errUsage,

@@ -96,9 +96,8 @@ func (a *api) signupSubmit(w http.ResponseWriter, r *http.Request) {
 
 	a.sessions.Put(r.Context(), sessionUserIDKey, user.ID)
 
-	// Sign-up replaces travelmap user create, whose entire output is the API
-	// key, so the page it lands on shows it: without it, someone who signed
-	// up in a browser has no way to configure the phone app.
+	// The API key is what configures the phone app, and this is the only
+	// place it is ever shown, so the page sign-up lands on prints it.
 	a.renderPage(w, r, signupTemplate, signupData{Done: true, APIKey: user.APIKey})
 }
 

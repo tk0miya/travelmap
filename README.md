@@ -32,7 +32,6 @@ cd travelmap
 make build              # builds bin/travelmap
 
 ./bin/travelmap migrate                                          # creates travelmap.db
-./bin/travelmap user create --email you@example.com --password '<password>'
 ./bin/travelmap serve
 ```
 
@@ -43,23 +42,6 @@ into a server that comes up happily with none of your history in it. Running it 
 is nothing to do is a no-op, so it is safe from an upgrade script. `serve` refuses to start
 against a database that has not been migrated, and names this command when it does.
 
-`user create` issues an account and prints its API key, which is what a client authenticates
-with. Neither way of giving it the password is a good one yet, so pick by which exposure you
-mind less:
-
-- `--password` puts it in `ps` output, where every user on the host can read it while the
-  command runs, and in the shell history file.
-- Leaving `--password` out reads the first line of standard input, with no prompt — so at a
-  terminal the command simply waits in silence. It is there for a setup script or a systemd
-  unit, which should redirect a file rather than pipe from `printf` or `echo`:
-
-  ```sh
-  ./bin/travelmap user create --email you@example.com < /run/secrets/travelmap-password
-  ```
-
-An echo-off prompt is the fix for both, and it is planned rather than done — see "Milestone G"
-in [TODO.md](TODO.md).
-
 The server listens on port 3000 by default, the port upstream Dawarich uses. Ask it for its
 health to see that it came up:
 
@@ -67,9 +49,6 @@ health to see that it came up:
 $ curl http://localhost:3000/api/v1/health
 {"status":"ok"}
 ```
-
-The same account made with `user create` also logs in at `http://localhost:3000/login`, in a
-browser.
 
 `SIGINT` or `SIGTERM` stops it: it stops accepting connections and gives the requests already
 running up to ten seconds to finish.
@@ -145,8 +124,8 @@ unset.
 
 To link one from the command line instead — no browser, just the access token the same
 application's own console issues for the account that owns it —
-`travelmap foursquare connect` reads it from standard input rather than a flag, the same concern
-`user create`'s password reading answers:
+`travelmap foursquare connect` reads it from standard input rather than a flag, so it stays out of
+`ps` output and the shell history:
 
 ```sh
 ./bin/travelmap foursquare connect --email you@example.com --foursquare-user-id <your Swarm user id> \
