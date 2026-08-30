@@ -68,19 +68,24 @@ func (a *api) renderPage(w http.ResponseWriter, r *http.Request, tmpl *template.
 
 // indexData is what the index page's template renders.
 type indexData struct {
-	// Email is the signed-in account's address, or "" when no session names
-	// one.
+	// Email is the signed-in account's address. index only reaches the
+	// template once a session names one, so this is never "".
 	Email string
 }
 
 // index answers GET /, travelmap's own browser entry point. It takes no
 // credential of its own; loadSessionUser is what puts a user on the request
-// context for it to name.
+// context for it to name. An anonymous visitor is sent straight to the login
+// form with a plain GET redirect, not the 303 See Other a POST handler uses
+// after processing a form, since nothing here is converting a POST into a
+// GET.
 func (a *api) index(w http.ResponseWriter, r *http.Request) {
-	var data indexData
-	if user, ok := userFrom(r.Context()); ok {
-		data.Email = user.Email
+	user, ok := userFrom(r.Context())
+	if !ok {
+		http.Redirect(w, r, "/login", http.StatusFound)
+
+		return
 	}
 
-	a.renderPage(w, r, indexTemplate, data)
+	a.renderPage(w, r, indexTemplate, indexData{Email: user.Email})
 }

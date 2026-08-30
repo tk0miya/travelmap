@@ -352,8 +352,8 @@ The sign-up screen ─→ Step 32 (remove user create)
 The login screen + Milestone I's Step 20 ─→ Step 30 (Swarm over a session) ─→ Step 31 (the Swarm page) ─→ Step 33 (remove foursquare connect)
 ```
 
-Step 27 (the session sweep) and Step 34 (the `/` redirect) can each be taken at any time, needing
-nothing but the sessions store and the login screen, respectively, already in place.
+Step 27 (the session sweep) can be taken at any time, needing nothing but the sessions store
+already in place.
 
 ### Step 27: The expired-session sweep
 
@@ -379,27 +379,6 @@ the one that settles it, and the second follows it rather than deciding again.
 of itself. Whichever is second follows the first rather than deciding again, and moves nothing.
 
 **Done when**: with one expired row in `sessions`, starting the server removes it on the next tick.
-
-### Step 34: Redirect an anonymous `GET /` to `/login`
-
-Can be taken any time, needing nothing but the login screen already in place. Today `GET /`
-answers an anonymous visitor with a status page reading "Not signed in", plus a link to `/login`
-and one to `/signup` — a page that has to be read before it says what to do. A first-time visitor
-opening the server's URL should land on the thing to act on, not a landing page pointing at it.
-
-- [ ] `GET /` redirects an unauthenticated visitor to `/login` with a 302 Found — a plain GET
-      redirect, not the 303 See Other a POST handler uses after processing a form, since nothing
-      here is converting a POST into a GET
-- [ ] A signed-in visitor keeps seeing the current page (the signed-in status and the logout
-      button), unchanged
-- [ ] Tests: an anonymous `GET /` redirects to `/login`; a signed-in `GET /` still renders the
-      current page
-
-**Settles**: that `/` is not a dead end for a first-time visitor — the browser's own entry point
-sends them straight to the action they need, rather than a static message they have to read and
-click through first.
-
-**Done when**: opening `http://localhost:3000/` with no session lands directly on the login form.
 
 ### Step 30: Starting the Swarm flow from a browser session
 

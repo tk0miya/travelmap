@@ -75,6 +75,9 @@ func sessionCookie(t *testing.T, resp response) string {
 }
 
 // TestLoginPage covers the form itself: no credential is needed to reach it.
+// It also pins renderPage's own contract — the Content-Type it sets and the
+// base layout it renders through — since GET / needs a session to reach it
+// at all now.
 func TestLoginPage(t *testing.T) {
 	t.Parallel()
 
@@ -83,6 +86,14 @@ func TestLoginPage(t *testing.T) {
 
 	if resp.status != http.StatusOK {
 		t.Errorf("status = %d, want %d", resp.status, http.StatusOK)
+	}
+
+	if got, want := resp.header.Get("Content-Type"), "text/html; charset=utf-8"; got != want {
+		t.Errorf("Content-Type = %q, want %q", got, want)
+	}
+
+	if !bytes.Contains(resp.body, []byte("travelmap")) {
+		t.Errorf("body = %q, want it to mention travelmap", resp.body)
 	}
 
 	if !bytes.Contains(resp.body, []byte(`action="/login"`)) {
@@ -193,8 +204,13 @@ func TestLogout(t *testing.T) {
 		t.Errorf("Location = %q, want %q", got, want)
 	}
 
-	indexResp := do(t, srv, http.MethodGet, "/", withHeader("Cookie", "session="+token))
-	if !bytes.Contains(indexResp.body, []byte("Not signed in.")) {
-		t.Errorf("GET / with the old cookie = %q, want it treated as signed out", indexResp.body)
+	indexResp := doNoRedirect(t, srv, http.MethodGet, "/", withHeader("Cookie", "session="+token))
+	if indexResp.status != http.StatusFound {
+		t.Errorf("GET / with the old cookie: status = %d, want %d — treated as signed out", indexResp.status,
+			http.StatusFound)
+	}
+
+	if got, want := indexResp.header.Get("Location"), "/login"; got != want {
+		t.Errorf("GET / with the old cookie: Location = %q, want %q", got, want)
 	}
 }

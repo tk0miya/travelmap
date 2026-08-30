@@ -1,13 +1,8 @@
 {{define "content"}}
     <div class="status">
-    {{if .Email}}
         <p>Signed in as {{.Email}}.</p>
         <form method="post" action="/logout">
             <button type="submit" class="link-button">Log out</button>
         </form>
-    {{else}}
-        <p>Not signed in.</p>
-        <p><a href="/login">Log in</a> or <a href="/signup">sign up</a></p>
-    {{end}}
     </div>
 {{end}}
