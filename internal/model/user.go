@@ -10,9 +10,9 @@ import (
 
 // User is an account on this server.
 //
-// A self-hosted instance issues its users from the command line, so a User is
-// created once and then only read: the API key it carries is what every
-// request from a device authenticates with.
+// It is issued once, from the command line or the browser sign-up screen —
+// both go through auth.Register — and then only read: the API key it carries
+// is what every request from a device authenticates with.
 type User struct {
 	// ID is the primary key, and the `user_id` the API reports.
 	ID int64

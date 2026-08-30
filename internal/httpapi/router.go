@@ -163,6 +163,8 @@ func New(opts Options) http.Handler {
 		r.Get("/login", a.loginPage)
 		r.Post("/login", a.loginSubmit)
 		r.Post("/logout", a.logout)
+		r.Get("/signup", a.signupPage)
+		r.Post("/signup", a.signupSubmit)
 	})
 
 	r.Handle("/static/*", http.StripPrefix("/static/", http.FileServerFS(staticFiles)))

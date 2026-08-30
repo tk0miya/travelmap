@@ -1,0 +1,33 @@
+{{define "content"}}
+{{if .Done}}
+    <div class="card">
+        <h1>Account created</h1>
+        <p>Your API key, for configuring the phone app:</p>
+        <p class="api-key">{{.APIKey}}</p>
+        <p><a href="/">Continue</a></p>
+    </div>
+{{else}}
+    <div class="card">
+        <h1>Sign up</h1>
+        <form method="post" action="/signup">
+            <div class="field">
+                <label for="email">Email</label>
+                <input id="email" type="email" name="email" value="{{.Email}}" required autofocus>
+                {{if .EmailError}}<p class="field-error">{{.EmailError}}</p>{{end}}
+            </div>
+            <div class="field">
+                <label for="password">Password</label>
+                <input id="password" type="password" name="password" required>
+                {{if .PasswordError}}<p class="field-error">{{.PasswordError}}</p>{{end}}
+            </div>
+            <div class="field">
+                <label for="password_confirmation">Confirm password</label>
+                <input id="password_confirmation" type="password" name="password_confirmation" required>
+                {{if .ConfirmError}}<p class="field-error">{{.ConfirmError}}</p>{{end}}
+            </div>
+            <button type="submit">Sign up</button>
+        </form>
+        <p class="auth-links">Already have an account? <a href="/login">Log in</a></p>
+    </div>
+{{end}}
+{{end}}
