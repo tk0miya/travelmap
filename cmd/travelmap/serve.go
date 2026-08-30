@@ -47,6 +47,8 @@ func serve(getenv func(string) string, stderr io.Writer) error {
 		return err
 	}
 
+	go sweepExpiredSessions(ctx, db, sessionSweepInterval, logger)
+
 	handler := httpapi.New(httpapi.Options{
 		Logger:                 logger,
 		Store:                  db,
