@@ -1,7 +1,6 @@
 {{define "content"}}
     <div class="card">
         <h1>Settings</h1>
-        {{if .FoursquareAvailable}}
         <h2>Swarm connection</h2>
         {{if .FoursquareLinked}}
             <p>Connected as Swarm user {{.FoursquareUserID}}.</p>
@@ -18,9 +17,6 @@
         {{else}}
             <p>No Swarm account is connected yet.</p>
             <p><a href="/settings/foursquare/connect">Connect your Swarm account</a></p>
-        {{end}}
-        {{else}}
-        <p>No settings are available yet.</p>
         {{end}}
         <p class="auth-links"><a href="/">Back</a></p>
     </div>

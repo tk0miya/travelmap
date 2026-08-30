@@ -25,7 +25,7 @@ Usage:
 // `sync`, which fetches every linked account's check-ins once. The push
 // webhook needs none of its own, and nothing here supports linking, listing
 // or removing a link: that is the settings page's own job now.
-func foursquare(args []string, getenv func(string) string, _ io.Reader, stdout, stderr io.Writer) error {
+func foursquare(args []string, configPath string, _ io.Reader, stdout, stderr io.Writer) error {
 	if len(args) == 0 {
 		fmt.Fprint(stderr, foursquareUsage)
 
@@ -34,7 +34,7 @@ func foursquare(args []string, getenv func(string) string, _ io.Reader, stdout, 
 
 	switch sub := args[0]; sub {
 	case "sync":
-		return foursquareSync(args[1:], getenv, stdout, stderr)
+		return foursquareSync(args[1:], configPath, stdout, stderr)
 	case "-h", "--help":
 		fmt.Fprint(stderr, foursquareUsage)
 
@@ -53,7 +53,7 @@ Usage:
 
 Flags:
   --lookback-days   How far back to fetch, in days, for this run only.
-                     Defaults to TRAVELMAP_FOURSQUARE_SYNC_LOOKBACK_DAYS
+                     Defaults to the config file's foursquare.sync_lookback_days
 
 Every run re-reads its whole window rather than resuming where the last one
 stopped, because a check-in can be added or edited after the fact; a check-in
@@ -64,7 +64,7 @@ window a routine run takes.
 
 // foursquareSync fetches every linked account's recent check-ins once. It is
 // the manual run; the timer that repeats it is a later step.
-func foursquareSync(args []string, getenv func(string) string, stdout, stderr io.Writer) error {
+func foursquareSync(args []string, configPath string, stdout, stderr io.Writer) error {
 	fs := flag.NewFlagSet("travelmap foursquare sync", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	fs.Usage = func() { fmt.Fprint(stderr, foursquareSyncUsage) }
@@ -93,13 +93,13 @@ func foursquareSync(args []string, getenv func(string) string, stdout, stderr io
 
 	ctx := context.Background()
 
-	cfg, err := config.Load(getenv)
+	cfg, err := config.Load(configPath)
 	if err != nil {
 		return err
 	}
 
-	// Zero means the flag was not given, which is the same shape the
-	// environment variable's own absence takes: the configured window stands.
+	// Zero means the flag was not given, which is the same shape the config
+	// file's own absence takes: the configured window stands.
 	if *lookbackDays > 0 {
 		cfg.FoursquareSyncLookbackDays = *lookbackDays
 	}

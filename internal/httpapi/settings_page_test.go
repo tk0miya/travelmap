@@ -18,10 +18,10 @@ import (
 // reasoning as [testAPIKey].
 const otherUserAPIKey = "0f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c4b5a69788796a5b4c3d2e1f1" //nolint:gosec // see testAPIKey
 
-// settingsPageOptions is the Options every test in this file needs to have
-// the Swarm connection section available on the settings page: the same
-// three settings [foursquareOAuth.configured] gates
-// /settings/foursquare/connect on.
+// settingsPageOptions is the Options every test in this file needs for the
+// Swarm OAuth flow itself to work correctly, not just to exist: BaseURL and
+// the client credentials are what /settings/foursquare/connect builds the
+// Foursquare redirect from.
 func settingsPageOptions(st store.Store) httpapi.Options {
 	return httpapi.Options{
 		Store:                  st,
@@ -69,49 +69,6 @@ func loginCookie(t *testing.T, srv *httptest.Server, email string) string {
 
 func withSession(token string) requestOption {
 	return withHeader("Cookie", "session="+token)
-}
-
-// TestSettingsPageShowsEmptyStateWithoutConfiguration pins that the page
-// itself still answers 200 when Foursquare OAuth is not configured — a
-// settings page absent because its one section is unconfigured would be a
-// worse answer than a page saying there is nothing to configure yet.
-func TestSettingsPageShowsEmptyStateWithoutConfiguration(t *testing.T) {
-	t.Parallel()
-
-	srv := newTestServer(t)
-	token := loginCookie(t, srv, testEmail)
-
-	resp := do(t, srv, http.MethodGet, "/settings", withSession(token))
-	if resp.status != http.StatusOK {
-		t.Errorf("status = %d, want %d", resp.status, http.StatusOK)
-	}
-
-	if !bytes.Contains(resp.body, []byte("No settings are available yet")) {
-		t.Errorf("body = %q, want it to say there is nothing to configure", resp.body)
-	}
-
-	if bytes.Contains(resp.body, []byte("Swarm")) {
-		t.Errorf("body = %q, want no Swarm section when unconfigured", resp.body)
-	}
-}
-
-// TestFoursquareRoutesNotRegisteredWithoutConfiguration pins that the OAuth
-// routes themselves still answer 404 when unconfigured — a button on the
-// settings page that would 404 is worse than no button, so settingsPage
-// leaves the section out rather than linking to a route that would refuse
-// the request.
-func TestFoursquareRoutesNotRegisteredWithoutConfiguration(t *testing.T) {
-	t.Parallel()
-
-	srv := newTestServer(t)
-
-	if resp := do(t, srv, http.MethodGet, "/settings/foursquare/connect"); resp.status != http.StatusNotFound {
-		t.Errorf("GET /settings/foursquare/connect status = %d, want %d", resp.status, http.StatusNotFound)
-	}
-
-	if resp := do(t, srv, http.MethodPost, "/settings/foursquare/disconnect"); resp.status != http.StatusNotFound {
-		t.Errorf("POST /settings/foursquare/disconnect status = %d, want %d", resp.status, http.StatusNotFound)
-	}
 }
 
 // TestSettingsPageRequiresASession pins that an anonymous visitor is sent to

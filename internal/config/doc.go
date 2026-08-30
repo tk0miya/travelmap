@@ -1,2 +1,2 @@
-// Package config loads the server configuration from environment variables.
+// Package config loads the server configuration from a TOML file.
 package config

@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+
+	"github.com/tk0miya/travelmap/internal/config"
 )
 
 const usage = `travelmap tracks a journey from multiple sources and records it as a timeline.
@@ -17,7 +19,7 @@ It currently does that via a Dawarich-compatible location-history API and Swarm 
 collection.
 
 Usage:
-  travelmap <command> [flags]
+  travelmap [--config <path>] <command> [flags]
   travelmap --version
 
 Commands:
@@ -25,6 +27,11 @@ Commands:
   migrate          Bring the database schema up to date
   recalculate      Rebuild daily_stats from points
   foursquare sync  Fetch the linked accounts' Swarm check-ins once
+
+Flags:
+  --config   Path to the TOML config file. Defaults to travelmap.toml in the
+             current directory, if it exists; every setting otherwise falls
+             back to its own default.
 `
 
 // errUsage asks main for the exit status a misuse gets, which is not the same
@@ -32,7 +39,7 @@ Commands:
 var errUsage = errors.New("usage")
 
 func main() {
-	err := run(os.Args[1:], os.Getenv, os.Stdin, os.Stdout, os.Stderr)
+	err := run(os.Args[1:], os.Stdin, os.Stdout, os.Stderr)
 
 	switch {
 	case err == nil:
@@ -52,12 +59,13 @@ func main() {
 
 // run is main with the process taken out of it, so that the argument handling
 // can be tested without spawning a binary.
-func run(args []string, getenv func(string) string, stdin io.Reader, stdout, stderr io.Writer) error {
+func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	fs := flag.NewFlagSet("travelmap", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	fs.Usage = func() { fmt.Fprint(stderr, usage) }
 
 	showVersion := fs.Bool("version", false, "print the version and exit")
+	configPath := fs.String("config", "", "path to the TOML config file (default: "+config.DefaultPath+" if present)")
 
 	if err := fs.Parse(args); err != nil {
 		// flag has already written the usage text and, for a malformed flag,
@@ -89,21 +97,21 @@ func run(args []string, getenv func(string) string, stdin io.Reader, stdout, std
 			return err
 		}
 
-		return serve(getenv, stderr)
+		return serve(*configPath, stderr)
 	case "migrate":
 		if err := noArguments(fs, "migrate", cmdArgs); err != nil {
 			return err
 		}
 
-		return migrate(getenv, stdout)
+		return migrate(*configPath, stdout)
 	case "foursquare":
-		return foursquare(cmdArgs, getenv, stdin, stdout, stderr)
+		return foursquare(cmdArgs, *configPath, stdin, stdout, stderr)
 	case "recalculate":
 		if err := noArguments(fs, "recalculate", cmdArgs); err != nil {
 			return err
 		}
 
-		return recalculate(getenv, stdout)
+		return recalculate(*configPath, stdout)
 	case "":
 		fs.Usage()
 
@@ -117,8 +125,8 @@ func run(args []string, getenv func(string) string, stdin io.Reader, stdout, std
 
 // noArguments rejects anything following a command that takes none, so that
 // `travelmap serve --help` explains itself rather than starting a server and
-// `travelmap migrate somewhere.db` says that the path comes from the
-// environment instead of migrating the configured database.
+// `travelmap migrate somewhere.db` says that the path comes from the config
+// file's database.path instead of migrating the configured database.
 func noArguments(fs *flag.FlagSet, cmd string, args []string) error {
 	if len(args) == 0 {
 		return nil

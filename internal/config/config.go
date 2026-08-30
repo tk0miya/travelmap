@@ -1,16 +1,21 @@
 package config
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
-	"strconv"
-	"strings"
+	"os"
 	"time"
+
+	"github.com/pelletier/go-toml/v2"
 )
 
-// prefix is prepended to every environment variable this server reads.
-const prefix = "TRAVELMAP_"
+// DefaultPath is the config file [Load] reads when no path is given
+// explicitly. Its own absence is not an error, though a required setting
+// missing because of it still is; a path given explicitly must exist.
+const DefaultPath = "travelmap.toml"
 
 // Defaults for the settings below. Port 3000 matches the port upstream
 // Dawarich listens on, so an existing client configuration keeps working.
@@ -56,11 +61,12 @@ type Config struct {
 
 	// DatabasePath is the SQLite file holding everything this server stores.
 	//
-	// It defaults to a file in the working directory, which is what makes
-	// `travelmap serve` in a checkout work with nothing configured. A service
-	// running from a unit file wants an absolute path under a directory it
-	// owns: SQLite creates the file but not the directories above it, and a
-	// relative path would follow the process's working directory.
+	// It defaults to a file in the working directory, so a config file that
+	// only sets the settings that are required does not have to name it too.
+	// A service running from a unit file wants an absolute path under a
+	// directory it owns: SQLite creates the file but not the directories
+	// above it, and a relative path would follow the process's working
+	// directory.
 	DatabasePath string
 
 	// DebugLogRequests turns on the request log: one line per request,
@@ -92,32 +98,26 @@ type Config struct {
 	TrackBreakMinutes int
 
 	// FoursquarePushSecret is the shared secret a Swarm User Push notification
-	// carries in its own `secret` form field. Empty by default, which is what
-	// keeps POST /webhooks/foursquare unregistered: a route answering 401 to
-	// every request would still confirm the feature exists, where 404 says it
-	// does not (see "An endpoint this server does not implement answers 404"
-	// in docs/api-notes.md, which this route follows even though it is not a
-	// Dawarich-compatible one).
+	// carries in its own `secret` form field. Required: travelmap always
+	// runs with Swarm check-in collection active, so there is no state for
+	// this to default into.
 	FoursquarePushSecret string
 
 	// FoursquareClientID and FoursquareClientSecret identify the Foursquare
 	// application the OAuth flow (GET /settings/foursquare/connect and its
-	// callback) runs against. Both empty by default, which is what keeps
-	// those routes unregistered, the same reasoning as FoursquarePushSecret
-	// above.
+	// callback) runs against. Required, the same reasoning as
+	// FoursquarePushSecret above.
 	FoursquareClientID     string
 	FoursquareClientSecret string
 
 	// BaseURL is this server's own externally reachable URL, with no
-	// trailing path — e.g. "https://travelmap.example.com". Empty by
-	// default, which along with the two Foursquare settings above keeps
-	// GET /settings/foursquare/connect and its callback unregistered: deriving
-	// the callback URL (BaseURL plus the fixed
-	// /foursquare/oauth/callback path) is its only consumer today, but the
-	// setting names this server rather than that one feature, so a second
-	// consumer names the same setting instead of adding its own. The
-	// derived callback URL has to match the one registered on the
-	// Foursquare application exactly.
+	// trailing path — e.g. "https://travelmap.example.com". Required: it is
+	// what the Foursquare OAuth callback URL (this plus the fixed
+	// /foursquare/oauth/callback path) is derived from, and that flow is
+	// always registered. The setting names this server rather than that one
+	// feature, so a second consumer names the same setting instead of
+	// adding its own. The derived callback URL has to match the one
+	// registered on the Foursquare application exactly.
 	BaseURL string
 
 	// SessionLifetime is how long a browser session lasts before it needs a
@@ -146,62 +146,147 @@ type Config struct {
 
 	// FoursquareSyncInterval is how often the periodic check-in fetch repeats,
 	// once for every linked account. Defaults to an hour; 0 disables it
-	// entirely, leaving only the push webhook (if configured) to collect
-	// check-ins going forward — `travelmap foursquare sync` still runs the
-	// same fetch by hand regardless.
+	// entirely, leaving only the push webhook to collect check-ins going
+	// forward — `travelmap foursquare sync` still runs the same fetch by
+	// hand regardless.
 	FoursquareSyncInterval time.Duration
 }
 
-// Load reads the configuration from the TRAVELMAP_* environment variables,
-// filling in the default of every variable that is unset or empty.
+// fileConfig is the shape of the TOML config file. Every field is a pointer
+// so that Load can tell a key the file omits from one set to its zero value
+// — a distinction plain values cannot carry, and the one an overlay onto
+// Config's own defaults needs.
+type fileConfig struct {
+	Server struct {
+		Addr             *string `toml:"addr"`
+		BaseURL          *string `toml:"base_url"`
+		LogLevel         *string `toml:"log_level"`
+		DebugLogRequests *bool   `toml:"debug_log_requests"`
+	} `toml:"server"`
+
+	Database struct {
+		Path *string `toml:"path"`
+	} `toml:"database"`
+
+	Tracking struct {
+		Timezone          *string `toml:"timezone"`
+		TrackBreakMinutes *int    `toml:"track_break_minutes"`
+	} `toml:"tracking"`
+
+	Session struct {
+		Lifetime     *string `toml:"lifetime"`
+		CookieSecure *bool   `toml:"cookie_secure"`
+	} `toml:"session"`
+
+	Foursquare struct {
+		ClientID         *string `toml:"client_id"`
+		ClientSecret     *string `toml:"client_secret"`
+		PushSecret       *string `toml:"push_secret"`
+		APIURL           *string `toml:"api_url"`
+		SyncInterval     *string `toml:"sync_interval"`
+		SyncLookbackDays *int    `toml:"sync_lookback_days"`
+	} `toml:"foursquare"`
+}
+
+// Load reads the TOML configuration file at path, filling in the default of
+// every setting the file omits.
 //
-// The environment is read through getenv rather than [os.Getenv] so that tests
-// can supply one without mutating the process environment, which would stop
-// them from running in parallel. Callers outside tests pass [os.Getenv].
-func Load(getenv func(string) string) (Config, error) {
+// An empty path reads [DefaultPath] instead; that file's absence is not
+// itself an error, but every required setting still has to come from
+// somewhere, so a config file is effectively needed regardless. A path given
+// explicitly is expected to exist, so its absence is an error rather than a
+// silent fall-back to defaults: a mistyped --config should not be mistaken
+// for one that was never given.
+func Load(path string) (Config, error) {
 	cfg := Config{
-		Addr:                       lookup(getenv, "ADDR", defaultAddr),
+		Addr:                       defaultAddr,
 		LogLevel:                   defaultLogLevel,
-		DatabasePath:               lookup(getenv, "DATABASE", defaultDatabasePath),
-		Timezone:                   lookup(getenv, "TIMEZONE", defaultTimezone),
+		DatabasePath:               defaultDatabasePath,
+		Timezone:                   defaultTimezone,
 		TrackBreakMinutes:          defaultTrackBreakMinutes,
-		FoursquarePushSecret:       lookup(getenv, "FOURSQUARE_PUSH_SECRET", ""),
-		FoursquareClientID:         lookup(getenv, "FOURSQUARE_CLIENT_ID", ""),
-		FoursquareClientSecret:     lookup(getenv, "FOURSQUARE_CLIENT_SECRET", ""),
-		BaseURL:                    lookup(getenv, "BASE_URL", ""),
 		SessionLifetime:            defaultSessionLifetime,
 		SessionCookieSecure:        defaultSessionCookieSecure,
 		FoursquareSyncLookbackDays: defaultFoursquareSyncLookbackDays,
-		FoursquareAPIURL:           lookup(getenv, "FOURSQUARE_API_URL", defaultFoursquareAPIURL),
+		FoursquareAPIURL:           defaultFoursquareAPIURL,
 		FoursquareSyncInterval:     defaultFoursquareSyncInterval,
 	}
 
-	if raw := lookup(getenv, "LOG_LEVEL", ""); raw != "" {
-		if err := cfg.LogLevel.UnmarshalText([]byte(raw)); err != nil {
-			return Config{}, fmt.Errorf("%sLOG_LEVEL: %w", prefix, err)
-		}
+	explicit := path != ""
+	if !explicit {
+		path = DefaultPath
 	}
 
-	if raw := lookup(getenv, "DEBUG_LOG_REQUESTS", ""); raw != "" {
-		// A typo stops the server rather than leaving the setting off: this is
-		// switched on to capture traffic that has to be reproduced to be
-		// captured again, and finding out afterwards that the log was never on
-		// costs that whole session.
-		on, err := strconv.ParseBool(raw)
-		if err != nil {
-			return Config{}, fmt.Errorf("%sDEBUG_LOG_REQUESTS: %w", prefix, err)
-		}
+	var file fileConfig
 
-		cfg.DebugLogRequests = on
+	data, err := os.ReadFile(path)
+	switch {
+	case err == nil:
+		decoder := toml.NewDecoder(bytes.NewReader(data))
+		decoder.DisallowUnknownFields()
+
+		// An unrecognised table or key is refused rather than quietly kept at
+		// its default: the same typo that TIMEZONE guards against below, just
+		// one level up.
+		if err := decoder.Decode(&file); err != nil {
+			return Config{}, fmt.Errorf("parsing %s: %w", path, err)
+		}
+	case explicit || !errors.Is(err, os.ErrNotExist):
+		return Config{}, fmt.Errorf("reading %s: %w", path, err)
+	}
+	// The remaining case is the default path absent and no path given
+	// explicitly: file stays its zero value, and every setting below falls
+	// through to its own default — except the required ones, which have none
+	// to fall back to and are what turns this into an error further down.
+
+	if v := file.Server.Addr; v != nil {
+		cfg.Addr = *v
+	}
+
+	if v := file.Server.BaseURL; v != nil {
+		cfg.BaseURL = *v
+	}
+
+	if v := file.Database.Path; v != nil {
+		cfg.DatabasePath = *v
+	}
+
+	if v := file.Foursquare.PushSecret; v != nil {
+		cfg.FoursquarePushSecret = *v
+	}
+
+	if v := file.Foursquare.ClientID; v != nil {
+		cfg.FoursquareClientID = *v
+	}
+
+	if v := file.Foursquare.ClientSecret; v != nil {
+		cfg.FoursquareClientSecret = *v
+	}
+
+	if v := file.Foursquare.APIURL; v != nil {
+		cfg.FoursquareAPIURL = *v
+	}
+
+	if v := file.Server.DebugLogRequests; v != nil {
+		cfg.DebugLogRequests = *v
+	}
+
+	if v := file.Server.LogLevel; v != nil {
+		if err := cfg.LogLevel.UnmarshalText([]byte(*v)); err != nil {
+			return Config{}, fmt.Errorf("server.log_level: %w", err)
+		}
 	}
 
 	// The request log is written at Info, so a level above it would answer the
-	// switch with an empty capture — and two variables that have to agree is
+	// switch with an empty capture — and two settings that have to agree is
 	// the second switch that switch was meant not to be. It comes down only:
 	// a level below Info was asked for by someone debugging something else,
 	// and these lines come through it either way.
 	if cfg.DebugLogRequests && cfg.LogLevel > slog.LevelInfo {
 		cfg.LogLevel = slog.LevelInfo
+	}
+
+	if v := file.Tracking.Timezone; v != nil {
+		cfg.Timezone = *v
 	}
 
 	// Resolved and discarded rather than kept on Config: what daily_stats
@@ -211,52 +296,59 @@ func Load(getenv func(string) string) (Config, error) {
 	// Doing it here means a typo is refused at startup rather than the first
 	// time `travelmap recalculate` runs.
 	if _, err := time.LoadLocation(cfg.Timezone); err != nil {
-		return Config{}, fmt.Errorf("%sTIMEZONE: %w", prefix, err)
+		return Config{}, fmt.Errorf("tracking.timezone: %w", err)
 	}
 
-	if raw := lookup(getenv, "TRACK_BREAK_MINUTES", ""); raw != "" {
-		minutes, err := strconv.Atoi(raw)
-		if err != nil || minutes <= 0 {
-			return Config{}, fmt.Errorf("%sTRACK_BREAK_MINUTES: must be a positive number of minutes", prefix)
+	if v := file.Tracking.TrackBreakMinutes; v != nil {
+		if *v <= 0 {
+			return Config{}, errors.New("tracking.track_break_minutes: must be a positive number of minutes")
 		}
 
-		cfg.TrackBreakMinutes = minutes
+		cfg.TrackBreakMinutes = *v
 	}
 
-	if raw := lookup(getenv, "SESSION_LIFETIME", ""); raw != "" {
-		lifetime, err := time.ParseDuration(raw)
+	if v := file.Session.Lifetime; v != nil {
+		lifetime, err := time.ParseDuration(*v)
 		if err != nil || lifetime <= 0 {
-			return Config{}, fmt.Errorf("%sSESSION_LIFETIME: must be a positive duration", prefix)
+			return Config{}, errors.New("session.lifetime: must be a positive duration")
 		}
 
 		cfg.SessionLifetime = lifetime
 	}
 
-	if raw := lookup(getenv, "SESSION_COOKIE_SECURE", ""); raw != "" {
-		on, err := strconv.ParseBool(raw)
-		if err != nil {
-			return Config{}, fmt.Errorf("%sSESSION_COOKIE_SECURE: %w", prefix, err)
-		}
-
-		cfg.SessionCookieSecure = on
+	if v := file.Session.CookieSecure; v != nil {
+		cfg.SessionCookieSecure = *v
 	}
 
-	if raw := lookup(getenv, "FOURSQUARE_SYNC_LOOKBACK_DAYS", ""); raw != "" {
-		days, err := strconv.Atoi(raw)
-		if err != nil || days <= 0 {
-			return Config{}, fmt.Errorf("%sFOURSQUARE_SYNC_LOOKBACK_DAYS: must be a positive number of days", prefix)
+	if v := file.Foursquare.SyncLookbackDays; v != nil {
+		if *v <= 0 {
+			return Config{}, errors.New("foursquare.sync_lookback_days: must be a positive number of days")
 		}
 
-		cfg.FoursquareSyncLookbackDays = days
+		cfg.FoursquareSyncLookbackDays = *v
 	}
 
-	if raw := lookup(getenv, "FOURSQUARE_SYNC_INTERVAL", ""); raw != "" {
-		interval, err := time.ParseDuration(raw)
+	if v := file.Foursquare.SyncInterval; v != nil {
+		interval, err := time.ParseDuration(*v)
 		if err != nil || interval < 0 {
-			return Config{}, fmt.Errorf("%sFOURSQUARE_SYNC_INTERVAL: must be a non-negative duration", prefix)
+			return Config{}, errors.New("foursquare.sync_interval: must be a non-negative duration")
 		}
 
 		cfg.FoursquareSyncInterval = interval
+	}
+
+	// Required rather than defaulted: travelmap always runs with Swarm
+	// check-in collection active, so there is no meaningful empty value for
+	// any of these to fall back to.
+	switch {
+	case cfg.BaseURL == "":
+		return Config{}, errors.New("server.base_url: required")
+	case cfg.FoursquareClientID == "":
+		return Config{}, errors.New("foursquare.client_id: required")
+	case cfg.FoursquareClientSecret == "":
+		return Config{}, errors.New("foursquare.client_secret: required")
+	case cfg.FoursquarePushSecret == "":
+		return Config{}, errors.New("foursquare.push_secret: required")
 	}
 
 	return cfg, nil
@@ -277,7 +369,7 @@ func (c Config) FoursquareSyncLookback() time.Duration {
 func (c Config) Location() (*time.Location, error) {
 	loc, err := time.LoadLocation(c.Timezone)
 	if err != nil {
-		return nil, fmt.Errorf("%sTIMEZONE: %w", prefix, err)
+		return nil, fmt.Errorf("tracking.timezone: %w", err)
 	}
 
 	return loc, nil
@@ -296,17 +388,4 @@ func (c Config) TrackBreak() time.Duration {
 // somewhere else are a Milestone G concern.
 func (c Config) NewLogger(w io.Writer) *slog.Logger {
 	return slog.New(slog.NewTextHandler(w, &slog.HandlerOptions{Level: c.LogLevel}))
-}
-
-// lookup returns the value of the TRAVELMAP_-prefixed variable name, or
-// fallback when it is unset or empty. An empty value is treated as unset
-// because a shell wrapper blanks a variable it does not want to pass on, and
-// an empty address would send the server to an arbitrary port chosen by the
-// kernel rather than to the one a client is configured for.
-func lookup(getenv func(string) string, name, fallback string) string {
-	if v := strings.TrimSpace(getenv(prefix + name)); v != "" {
-		return v
-	}
-
-	return fallback
 }

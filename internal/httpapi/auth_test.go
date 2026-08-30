@@ -140,7 +140,7 @@ func TestUsersMe(t *testing.T) {
 }
 
 // TestUsersMeReportsTheConfiguredTimezone pins that settings.timezone comes
-// from Options.Timezone (TRAVELMAP_TIMEZONE) rather than a constant, which
+// from Options.Timezone (tracking.timezone) rather than a constant, which
 // [TestUsersMe]'s golden file — taken under the "UTC" default — cannot tell
 // apart from a hardcoded "UTC" on its own.
 func TestUsersMeReportsTheConfiguredTimezone(t *testing.T) {

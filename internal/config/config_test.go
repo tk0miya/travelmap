@@ -3,6 +3,8 @@ package config_test
 import (
 	"bytes"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -12,48 +14,90 @@ import (
 	"github.com/tk0miya/travelmap/internal/config"
 )
 
-// env turns a map into the getenv function Load takes, so that a test never
-// touches the process environment and every case can run in parallel.
-func env(vars map[string]string) func(string) string {
-	return func(name string) string { return vars[name] }
+// The values every test below uses for the settings [config.Load] requires:
+// their content does not matter to what each test is pinning, only that
+// they are present.
+const (
+	requiredBaseURL      = "https://travelmap.example"
+	requiredClientID     = "the-client-id"
+	requiredClientSecret = "the-client-secret"
+	requiredPushSecret   = "the-push-secret"
+)
+
+// requiredTOML is the required settings on their own, for a test whose
+// content does not otherwise touch [server] or [foursquare].
+const requiredTOML = `
+[server]
+base_url = "https://travelmap.example"
+
+[foursquare]
+client_id = "the-client-id"
+client_secret = "the-client-secret"
+push_secret = "the-push-secret"
+`
+
+// writeConfig writes content to a travelmap.toml in a fresh temporary
+// directory and returns its path.
+func writeConfig(t *testing.T, content string) string {
+	t.Helper()
+
+	path := filepath.Join(t.TempDir(), "travelmap.toml")
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatalf("writing %s: %v", path, err)
+	}
+
+	return path
 }
 
 func TestLoad(t *testing.T) {
 	t.Parallel()
 
 	tests := map[string]struct {
-		vars map[string]string
-		want config.Config
+		content string
+		want    config.Config
 	}{
-		"defaults when nothing is set": {
-			vars: nil,
+		"defaults when only the required settings are given": {
+			content: requiredTOML,
 			want: config.Config{
 				Addr: ":3000", LogLevel: slog.LevelInfo, DatabasePath: "travelmap.db",
 				Timezone: "UTC", TrackBreakMinutes: 30,
 				SessionLifetime: 720 * time.Hour, SessionCookieSecure: true,
 				FoursquareSyncLookbackDays: 14, FoursquareAPIURL: "https://api.foursquare.com",
 				FoursquareSyncInterval: time.Hour,
+
+				BaseURL:                requiredBaseURL,
+				FoursquareClientID:     requiredClientID,
+				FoursquareClientSecret: requiredClientSecret,
+				FoursquarePushSecret:   requiredPushSecret,
 			},
 		},
-		"every variable set": {
-			vars: map[string]string{
-				"TRAVELMAP_ADDR":                     "127.0.0.1:8080",
-				"TRAVELMAP_LOG_LEVEL":                "debug",
-				"TRAVELMAP_DATABASE":                 "/var/lib/travelmap/travelmap.db",
-				"TRAVELMAP_DEBUG_LOG_REQUESTS":       "1",
-				"TRAVELMAP_TIMEZONE":                 "Asia/Tokyo",
-				"TRAVELMAP_TRACK_BREAK_MINUTES":      "45",
-				"TRAVELMAP_FOURSQUARE_PUSH_SECRET":   "shh-its-a-secret",
-				"TRAVELMAP_FOURSQUARE_CLIENT_ID":     "the-client-id",
-				"TRAVELMAP_FOURSQUARE_CLIENT_SECRET": "the-client-secret",
-				"TRAVELMAP_BASE_URL":                 "https://travelmap.example",
-				"TRAVELMAP_SESSION_LIFETIME":         "168h",
-				"TRAVELMAP_SESSION_COOKIE_SECURE":    "0",
+		"every setting given": {
+			content: `
+[server]
+addr = "127.0.0.1:8080"
+base_url = "https://travelmap.example"
+log_level = "debug"
+debug_log_requests = true
 
-				"TRAVELMAP_FOURSQUARE_SYNC_LOOKBACK_DAYS": "30",
-				"TRAVELMAP_FOURSQUARE_API_URL":            "http://127.0.0.1:9999",
-				"TRAVELMAP_FOURSQUARE_SYNC_INTERVAL":      "30m",
-			},
+[database]
+path = "/var/lib/travelmap/travelmap.db"
+
+[tracking]
+timezone = "Asia/Tokyo"
+track_break_minutes = 45
+
+[session]
+lifetime = "168h"
+cookie_secure = false
+
+[foursquare]
+client_id = "the-client-id"
+client_secret = "the-client-secret"
+push_secret = "shh-its-a-secret"
+api_url = "http://127.0.0.1:9999"
+sync_interval = "30m"
+sync_lookback_days = 30
+`,
 			want: config.Config{
 				Addr:                   "127.0.0.1:8080",
 				LogLevel:               slog.LevelDebug,
@@ -73,32 +117,20 @@ func TestLoad(t *testing.T) {
 				FoursquareSyncInterval:     30 * time.Minute,
 			},
 		},
-		// Documented as =1, but a shell wrapper writes what it writes, and a
-		// server that ignored "true" would be capturing nothing while the
-		// operator watched the device.
-		"the request log accepts the other spellings of true": {
-			vars: map[string]string{"TRAVELMAP_DEBUG_LOG_REQUESTS": "true"},
-			want: config.Config{
-				Addr:              ":3000",
-				LogLevel:          slog.LevelInfo,
-				DatabasePath:      "travelmap.db",
-				DebugLogRequests:  true,
-				Timezone:          "UTC",
-				TrackBreakMinutes: 30,
-				SessionLifetime:   720 * time.Hour, SessionCookieSecure: true,
-
-				FoursquareSyncLookbackDays: 14,
-				FoursquareAPIURL:           "https://api.foursquare.com",
-				FoursquareSyncInterval:     time.Hour,
-			},
-		},
 		// Info is where the request log writes, so a level above it would
 		// have answered the switch with an empty capture.
 		"the request log holds the log level down to info": {
-			vars: map[string]string{
-				"TRAVELMAP_LOG_LEVEL":          "error",
-				"TRAVELMAP_DEBUG_LOG_REQUESTS": "1",
-			},
+			content: `
+[server]
+base_url = "https://travelmap.example"
+log_level = "error"
+debug_log_requests = true
+
+[foursquare]
+client_id = "the-client-id"
+client_secret = "the-client-secret"
+push_secret = "the-push-secret"
+`,
 			want: config.Config{
 				Addr:              ":3000",
 				LogLevel:          slog.LevelInfo,
@@ -111,15 +143,27 @@ func TestLoad(t *testing.T) {
 				FoursquareSyncLookbackDays: 14,
 				FoursquareAPIURL:           "https://api.foursquare.com",
 				FoursquareSyncInterval:     time.Hour,
+
+				BaseURL:                requiredBaseURL,
+				FoursquareClientID:     requiredClientID,
+				FoursquareClientSecret: requiredClientSecret,
+				FoursquarePushSecret:   requiredPushSecret,
 			},
 		},
 		// Down, not to: a level below Info is what an operator debugging
 		// something else asked for, and the request log comes through it.
 		"the request log leaves a lower level alone": {
-			vars: map[string]string{
-				"TRAVELMAP_LOG_LEVEL":          "debug",
-				"TRAVELMAP_DEBUG_LOG_REQUESTS": "1",
-			},
+			content: `
+[server]
+base_url = "https://travelmap.example"
+log_level = "debug"
+debug_log_requests = true
+
+[foursquare]
+client_id = "the-client-id"
+client_secret = "the-client-secret"
+push_secret = "the-push-secret"
+`,
 			want: config.Config{
 				Addr:              ":3000",
 				LogLevel:          slog.LevelDebug,
@@ -132,16 +176,28 @@ func TestLoad(t *testing.T) {
 				FoursquareSyncLookbackDays: 14,
 				FoursquareAPIURL:           "https://api.foursquare.com",
 				FoursquareSyncInterval:     time.Hour,
+
+				BaseURL:                requiredBaseURL,
+				FoursquareClientID:     requiredClientID,
+				FoursquareClientSecret: requiredClientSecret,
+				FoursquarePushSecret:   requiredPushSecret,
 			},
 		},
 		// The off switch is a setting an operator writes down, not just the
-		// absence of one: a unit file that turns the log off has to keep it
+		// absence of one: a config that turns the log off has to keep it
 		// off, and keep the level it asked for.
 		"the request log switched off explicitly": {
-			vars: map[string]string{
-				"TRAVELMAP_LOG_LEVEL":          "error",
-				"TRAVELMAP_DEBUG_LOG_REQUESTS": "0",
-			},
+			content: `
+[server]
+base_url = "https://travelmap.example"
+log_level = "error"
+debug_log_requests = false
+
+[foursquare]
+client_id = "the-client-id"
+client_secret = "the-client-secret"
+push_secret = "the-push-secret"
+`,
 			want: config.Config{
 				Addr:              ":3000",
 				LogLevel:          slog.LevelError,
@@ -153,28 +209,35 @@ func TestLoad(t *testing.T) {
 				FoursquareSyncLookbackDays: 14,
 				FoursquareAPIURL:           "https://api.foursquare.com",
 				FoursquareSyncInterval:     time.Hour,
+
+				BaseURL:                requiredBaseURL,
+				FoursquareClientID:     requiredClientID,
+				FoursquareClientSecret: requiredClientSecret,
+				FoursquarePushSecret:   requiredPushSecret,
 			},
 		},
 		"the log level is case-insensitive": {
-			vars: map[string]string{"TRAVELMAP_LOG_LEVEL": "WARN"},
+			content: `
+[server]
+base_url = "https://travelmap.example"
+log_level = "WARN"
+
+[foursquare]
+client_id = "the-client-id"
+client_secret = "the-client-secret"
+push_secret = "the-push-secret"
+`,
 			want: config.Config{
 				Addr: ":3000", LogLevel: slog.LevelWarn, DatabasePath: "travelmap.db",
 				Timezone: "UTC", TrackBreakMinutes: 30,
 				SessionLifetime: 720 * time.Hour, SessionCookieSecure: true,
 				FoursquareSyncLookbackDays: 14, FoursquareAPIURL: "https://api.foursquare.com",
 				FoursquareSyncInterval: time.Hour,
-			},
-		},
-		// A variable a wrapper script left blank is not a listen address; an
-		// unset one is covered by the first case, so this one is the trim.
-		"a blank value falls back to the default": {
-			vars: map[string]string{"TRAVELMAP_ADDR": "  "},
-			want: config.Config{
-				Addr: ":3000", LogLevel: slog.LevelInfo, DatabasePath: "travelmap.db",
-				Timezone: "UTC", TrackBreakMinutes: 30,
-				SessionLifetime: 720 * time.Hour, SessionCookieSecure: true,
-				FoursquareSyncLookbackDays: 14, FoursquareAPIURL: "https://api.foursquare.com",
-				FoursquareSyncInterval: time.Hour,
+
+				BaseURL:                requiredBaseURL,
+				FoursquareClientID:     requiredClientID,
+				FoursquareClientSecret: requiredClientSecret,
+				FoursquarePushSecret:   requiredPushSecret,
 			},
 		},
 		// Unlike the durations above, 0 is a valid value here: it switches the
@@ -182,13 +245,27 @@ func TestLoad(t *testing.T) {
 		// expires", which is why it gets its own case instead of a rejection
 		// test.
 		"a zero sync interval disables the periodic fetch": {
-			vars: map[string]string{"TRAVELMAP_FOURSQUARE_SYNC_INTERVAL": "0"},
+			content: `
+[server]
+base_url = "https://travelmap.example"
+
+[foursquare]
+client_id = "the-client-id"
+client_secret = "the-client-secret"
+push_secret = "the-push-secret"
+sync_interval = "0"
+`,
 			want: config.Config{
 				Addr: ":3000", LogLevel: slog.LevelInfo, DatabasePath: "travelmap.db",
 				Timezone: "UTC", TrackBreakMinutes: 30,
 				SessionLifetime: 720 * time.Hour, SessionCookieSecure: true,
 				FoursquareSyncLookbackDays: 14, FoursquareAPIURL: "https://api.foursquare.com",
 				FoursquareSyncInterval: 0,
+
+				BaseURL:                requiredBaseURL,
+				FoursquareClientID:     requiredClientID,
+				FoursquareClientSecret: requiredClientSecret,
+				FoursquarePushSecret:   requiredPushSecret,
 			},
 		},
 	}
@@ -197,7 +274,7 @@ func TestLoad(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			got, err := config.Load(env(tt.vars))
+			got, err := config.Load(writeConfig(t, tt.content))
 			if err != nil {
 				t.Fatalf("Load returned %v", err)
 			}
@@ -209,52 +286,130 @@ func TestLoad(t *testing.T) {
 	}
 }
 
+// TestLoadWithoutAnExplicitPathStillRequiresTheRequiredSettings pins that an
+// empty path with no default file present does not silently succeed: the
+// default path's own absence is not an error, but every required setting
+// still has to come from somewhere, so this fails just as an explicit,
+// incomplete file would.
+func TestLoadWithoutAnExplicitPathStillRequiresTheRequiredSettings(t *testing.T) {
+	t.Chdir(t.TempDir())
+
+	_, err := config.Load("")
+	if err == nil {
+		t.Fatal("Load returned nil with no config file and no required settings set")
+	}
+}
+
+// TestLoadReadsTheDefaultPathWhenPresent pins that a travelmap.toml sitting
+// in the current directory is read even though no path was given
+// explicitly.
+func TestLoadReadsTheDefaultPathWhenPresent(t *testing.T) {
+	t.Chdir(t.TempDir())
+
+	content := `
+[server]
+addr = ":9999"
+base_url = "https://travelmap.example"
+
+[foursquare]
+client_id = "the-client-id"
+client_secret = "the-client-secret"
+push_secret = "the-push-secret"
+`
+	if err := os.WriteFile(config.DefaultPath, []byte(content), 0o600); err != nil {
+		t.Fatalf("writing %s: %v", config.DefaultPath, err)
+	}
+
+	got, err := config.Load("")
+	if err != nil {
+		t.Fatalf("Load returned %v", err)
+	}
+
+	if got.Addr != ":9999" {
+		t.Errorf("Addr = %q, want the value from %s", got.Addr, config.DefaultPath)
+	}
+}
+
+// TestLoadRejectsAMissingExplicitPath pins that a path given explicitly is
+// expected to exist: a mistyped --config should be reported, not mistaken
+// for one that was never given.
+func TestLoadRejectsAMissingExplicitPath(t *testing.T) {
+	t.Parallel()
+
+	_, err := config.Load(filepath.Join(t.TempDir(), "does-not-exist.toml"))
+	if err == nil {
+		t.Fatal("Load returned nil for a missing explicit path")
+	}
+}
+
+// TestLoadRejectsInvalidTOML pins that a syntax error is reported rather than
+// silently falling back to defaults.
+func TestLoadRejectsInvalidTOML(t *testing.T) {
+	t.Parallel()
+
+	_, err := config.Load(writeConfig(t, "this is not toml"))
+	if err == nil {
+		t.Fatal("Load returned nil for a file that is not valid TOML")
+	}
+}
+
+// TestLoadRejectsAnUnknownKey pins that a misspelled table or key is refused
+// rather than silently kept at its default: a typo here is otherwise
+// indistinguishable from a setting nobody meant to change.
+func TestLoadRejectsAnUnknownKey(t *testing.T) {
+	t.Parallel()
+
+	content := "[trackingg]\ntimezone = \"Asia/Tokyo\"\n" + requiredTOML
+
+	_, err := config.Load(writeConfig(t, content))
+	if err == nil {
+		t.Fatal("Load returned nil for an unknown table")
+	}
+}
+
 // TestLoadRejectsAnInvalidLogLevel pins that a typo stops the server instead
 // of being silently ignored, which would leave the operator looking for logs
 // that never arrive.
 func TestLoadRejectsAnInvalidLogLevel(t *testing.T) {
 	t.Parallel()
 
-	_, err := config.Load(env(map[string]string{"TRAVELMAP_LOG_LEVEL": "chatty"}))
+	content := `
+[server]
+log_level = "chatty"
+base_url = "https://travelmap.example"
+
+[foursquare]
+client_id = "the-client-id"
+client_secret = "the-client-secret"
+push_secret = "the-push-secret"
+`
+
+	_, err := config.Load(writeConfig(t, content))
 	if err == nil {
 		t.Fatal("Load returned nil for an invalid log level")
 	}
 
-	if got := err.Error(); !strings.Contains(got, "TRAVELMAP_LOG_LEVEL") {
-		t.Errorf("error = %q, want it to name the variable at fault", got)
-	}
-}
-
-// TestLoadRejectsAnInvalidDebugLogRequests pins that this one fails loudly
-// too: a capture session that quietly logged nothing is a session to run
-// again, with the device back in hand.
-func TestLoadRejectsAnInvalidDebugLogRequests(t *testing.T) {
-	t.Parallel()
-
-	_, err := config.Load(env(map[string]string{"TRAVELMAP_DEBUG_LOG_REQUESTS": "yes please"}))
-	if err == nil {
-		t.Fatal("Load returned nil for an invalid TRAVELMAP_DEBUG_LOG_REQUESTS")
-	}
-
-	if got := err.Error(); !strings.Contains(got, "TRAVELMAP_DEBUG_LOG_REQUESTS") {
-		t.Errorf("error = %q, want it to name the variable at fault", got)
+	if got := err.Error(); !strings.Contains(got, "server.log_level") {
+		t.Errorf("error = %q, want it to name the key at fault", got)
 	}
 }
 
 // TestLoadRejectsAnInvalidTimezone pins that a typo is refused at startup —
-// travelmap recalculate is the only other place TRAVELMAP_TIMEZONE gets
+// travelmap recalculate is the only other place tracking.timezone gets
 // resolved, and finding out there means the mistake already looked like a
 // success.
 func TestLoadRejectsAnInvalidTimezone(t *testing.T) {
 	t.Parallel()
 
-	_, err := config.Load(env(map[string]string{"TRAVELMAP_TIMEZONE": "Nowhere/Nothing"}))
+	content := "[tracking]\ntimezone = \"Nowhere/Nothing\"\n" + requiredTOML
+
+	_, err := config.Load(writeConfig(t, content))
 	if err == nil {
-		t.Fatal("Load returned nil for an invalid TRAVELMAP_TIMEZONE")
+		t.Fatal("Load returned nil for an invalid timezone")
 	}
 
-	if got := err.Error(); !strings.Contains(got, "TRAVELMAP_TIMEZONE") {
-		t.Errorf("error = %q, want it to name the variable at fault", got)
+	if got := err.Error(); !strings.Contains(got, "tracking.timezone") {
+		t.Errorf("error = %q, want it to name the key at fault", got)
 	}
 }
 
@@ -265,20 +420,21 @@ func TestLoadRejectsAnInvalidTrackBreakMinutes(t *testing.T) {
 	t.Parallel()
 
 	for name, value := range map[string]string{
-		"not a number": "soon",
-		"zero":         "0",
-		"negative":     "-5",
+		"zero":     "0",
+		"negative": "-5",
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			_, err := config.Load(env(map[string]string{"TRAVELMAP_TRACK_BREAK_MINUTES": value}))
+			content := "[tracking]\ntrack_break_minutes = " + value + "\n" + requiredTOML
+
+			_, err := config.Load(writeConfig(t, content))
 			if err == nil {
-				t.Fatal("Load returned nil for an invalid TRAVELMAP_TRACK_BREAK_MINUTES")
+				t.Fatal("Load returned nil for an invalid track_break_minutes")
 			}
 
-			if got := err.Error(); !strings.Contains(got, "TRAVELMAP_TRACK_BREAK_MINUTES") {
-				t.Errorf("error = %q, want it to name the variable at fault", got)
+			if got := err.Error(); !strings.Contains(got, "tracking.track_break_minutes") {
+				t.Errorf("error = %q, want it to name the key at fault", got)
 			}
 		})
 	}
@@ -298,56 +454,46 @@ func TestLoadRejectsAnInvalidSessionLifetime(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			_, err := config.Load(env(map[string]string{"TRAVELMAP_SESSION_LIFETIME": value}))
+			content := "[session]\nlifetime = " + `"` + value + `"` + "\n" + requiredTOML
+
+			_, err := config.Load(writeConfig(t, content))
 			if err == nil {
-				t.Fatal("Load returned nil for an invalid TRAVELMAP_SESSION_LIFETIME")
+				t.Fatal("Load returned nil for an invalid session lifetime")
 			}
 
-			if got := err.Error(); !strings.Contains(got, "TRAVELMAP_SESSION_LIFETIME") {
-				t.Errorf("error = %q, want it to name the variable at fault", got)
+			if got := err.Error(); !strings.Contains(got, "session.lifetime") {
+				t.Errorf("error = %q, want it to name the key at fault", got)
 			}
 		})
 	}
 }
 
-// TestLoadRejectsAnInvalidSessionCookieSecure pins that a typo here fails
-// loudly too: silently keeping the insecure default on a server meant to run
-// behind HTTPS would go unnoticed until a session cookie leaked.
-func TestLoadRejectsAnInvalidSessionCookieSecure(t *testing.T) {
-	t.Parallel()
-
-	_, err := config.Load(env(map[string]string{"TRAVELMAP_SESSION_COOKIE_SECURE": "yes please"}))
-	if err == nil {
-		t.Fatal("Load returned nil for an invalid TRAVELMAP_SESSION_COOKIE_SECURE")
-	}
-
-	if got := err.Error(); !strings.Contains(got, "TRAVELMAP_SESSION_COOKIE_SECURE") {
-		t.Errorf("error = %q, want it to name the variable at fault", got)
-	}
-}
-
 // TestLoadRejectsAnInvalidFoursquareSyncLookback covers the same two shapes
-// as the track break above: a window that is not a number, and one that is
-// not positive — which would ask the API for a window ending before it
-// starts.
+// as the track break above: a window that is not positive, which would ask
+// the API for a window ending before it starts.
 func TestLoadRejectsAnInvalidFoursquareSyncLookback(t *testing.T) {
 	t.Parallel()
 
 	for name, value := range map[string]string{
-		"not a number": "a fortnight",
-		"zero":         "0",
-		"negative":     "-14",
+		"zero":     "0",
+		"negative": "-14",
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			_, err := config.Load(env(map[string]string{"TRAVELMAP_FOURSQUARE_SYNC_LOOKBACK_DAYS": value}))
+			content := "[foursquare]\nsync_lookback_days = " + value + "\n" +
+				"client_id = \"" + requiredClientID + "\"\n" +
+				"client_secret = \"" + requiredClientSecret + "\"\n" +
+				"push_secret = \"" + requiredPushSecret + "\"\n" +
+				"\n[server]\nbase_url = \"" + requiredBaseURL + "\"\n"
+
+			_, err := config.Load(writeConfig(t, content))
 			if err == nil {
-				t.Fatal("Load returned nil for an invalid TRAVELMAP_FOURSQUARE_SYNC_LOOKBACK_DAYS")
+				t.Fatal("Load returned nil for an invalid sync_lookback_days")
 			}
 
-			if got := err.Error(); !strings.Contains(got, "TRAVELMAP_FOURSQUARE_SYNC_LOOKBACK_DAYS") {
-				t.Errorf("error = %q, want it to name the variable at fault", got)
+			if got := err.Error(); !strings.Contains(got, "foursquare.sync_lookback_days") {
+				t.Errorf("error = %q, want it to name the key at fault", got)
 			}
 		})
 	}
@@ -367,13 +513,72 @@ func TestLoadRejectsAnInvalidFoursquareSyncInterval(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			_, err := config.Load(env(map[string]string{"TRAVELMAP_FOURSQUARE_SYNC_INTERVAL": value}))
+			content := "[foursquare]\nsync_interval = " + `"` + value + `"` + "\n" +
+				"client_id = \"" + requiredClientID + "\"\n" +
+				"client_secret = \"" + requiredClientSecret + "\"\n" +
+				"push_secret = \"" + requiredPushSecret + "\"\n" +
+				"\n[server]\nbase_url = \"" + requiredBaseURL + "\"\n"
+
+			_, err := config.Load(writeConfig(t, content))
 			if err == nil {
-				t.Fatal("Load returned nil for an invalid TRAVELMAP_FOURSQUARE_SYNC_INTERVAL")
+				t.Fatal("Load returned nil for an invalid sync_interval")
 			}
 
-			if got := err.Error(); !strings.Contains(got, "TRAVELMAP_FOURSQUARE_SYNC_INTERVAL") {
-				t.Errorf("error = %q, want it to name the variable at fault", got)
+			if got := err.Error(); !strings.Contains(got, "foursquare.sync_interval") {
+				t.Errorf("error = %q, want it to name the key at fault", got)
+			}
+		})
+	}
+}
+
+// TestLoadRejectsAMissingRequiredSetting covers each setting [config.Load]
+// treats as required on its own: an empty travelmap.toml has none of them,
+// so leaving one out of an otherwise-complete file is what each case here
+// pins.
+func TestLoadRejectsAMissingRequiredSetting(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		content string
+		wantKey string
+	}{
+		"base_url": {
+			content: "[foursquare]\nclient_id = \"" + requiredClientID + "\"\n" +
+				"client_secret = \"" + requiredClientSecret + "\"\n" +
+				"push_secret = \"" + requiredPushSecret + "\"\n",
+			wantKey: "server.base_url",
+		},
+		"client_id": {
+			content: "[server]\nbase_url = \"" + requiredBaseURL + "\"\n" +
+				"[foursquare]\nclient_secret = \"" + requiredClientSecret + "\"\n" +
+				"push_secret = \"" + requiredPushSecret + "\"\n",
+			wantKey: "foursquare.client_id",
+		},
+		"client_secret": {
+			content: "[server]\nbase_url = \"" + requiredBaseURL + "\"\n" +
+				"[foursquare]\nclient_id = \"" + requiredClientID + "\"\n" +
+				"push_secret = \"" + requiredPushSecret + "\"\n",
+			wantKey: "foursquare.client_secret",
+		},
+		"push_secret": {
+			content: "[server]\nbase_url = \"" + requiredBaseURL + "\"\n" +
+				"[foursquare]\nclient_id = \"" + requiredClientID + "\"\n" +
+				"client_secret = \"" + requiredClientSecret + "\"\n",
+			wantKey: "foursquare.push_secret",
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := config.Load(writeConfig(t, tt.content))
+			if err == nil {
+				t.Fatalf("Load returned nil with %s missing", tt.wantKey)
+			}
+
+			if got := err.Error(); !strings.Contains(got, tt.wantKey) {
+				t.Errorf("error = %q, want it to name %s", got, tt.wantKey)
 			}
 		})
 	}
@@ -385,7 +590,9 @@ func TestLoadRejectsAnInvalidFoursquareSyncInterval(t *testing.T) {
 func TestConfigLocation(t *testing.T) {
 	t.Parallel()
 
-	cfg, err := config.Load(env(map[string]string{"TRAVELMAP_TIMEZONE": "Asia/Tokyo"}))
+	content := "[tracking]\ntimezone = \"Asia/Tokyo\"\n" + requiredTOML
+
+	cfg, err := config.Load(writeConfig(t, content))
 	if err != nil {
 		t.Fatalf("Load returned %v", err)
 	}
@@ -401,12 +608,14 @@ func TestConfigLocation(t *testing.T) {
 }
 
 // TestConfigTrackBreak pins the unit conversion: TrackBreakMinutes is stored
-// in minutes because that is what the environment variable is documented in,
-// and TrackBreak is what the SQL rebuild query actually wants.
+// in minutes because that is what the config file is documented in, and
+// TrackBreak is what the SQL rebuild query actually wants.
 func TestConfigTrackBreak(t *testing.T) {
 	t.Parallel()
 
-	cfg, err := config.Load(env(map[string]string{"TRAVELMAP_TRACK_BREAK_MINUTES": "45"}))
+	content := "[tracking]\ntrack_break_minutes = 45\n" + requiredTOML
+
+	cfg, err := config.Load(writeConfig(t, content))
 	if err != nil {
 		t.Fatalf("Load returned %v", err)
 	}
@@ -422,7 +631,13 @@ func TestConfigTrackBreak(t *testing.T) {
 func TestConfigFoursquareSyncLookback(t *testing.T) {
 	t.Parallel()
 
-	cfg, err := config.Load(env(map[string]string{"TRAVELMAP_FOURSQUARE_SYNC_LOOKBACK_DAYS": "3"}))
+	content := "[foursquare]\nsync_lookback_days = 3\n" +
+		"client_id = \"" + requiredClientID + "\"\n" +
+		"client_secret = \"" + requiredClientSecret + "\"\n" +
+		"push_secret = \"" + requiredPushSecret + "\"\n" +
+		"\n[server]\nbase_url = \"" + requiredBaseURL + "\"\n"
+
+	cfg, err := config.Load(writeConfig(t, content))
 	if err != nil {
 		t.Fatalf("Load returned %v", err)
 	}
@@ -437,7 +652,14 @@ func TestNewLogger(t *testing.T) {
 
 	var out bytes.Buffer
 
-	cfg, err := config.Load(env(map[string]string{"TRAVELMAP_LOG_LEVEL": "warn"}))
+	content := "[server]\nlog_level = \"warn\"\nbase_url = \"" + requiredBaseURL + "\"\n" + `
+[foursquare]
+client_id = "the-client-id"
+client_secret = "the-client-secret"
+push_secret = "the-push-secret"
+`
+
+	cfg, err := config.Load(writeConfig(t, content))
 	if err != nil {
 		t.Fatalf("Load returned %v", err)
 	}

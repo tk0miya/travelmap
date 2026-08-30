@@ -94,7 +94,7 @@ func TestDailyStatsRebuildDeletesTheEmptiedDay(t *testing.T) {
 	day := time.Date(2026, time.June, 1, 0, 0, 0, 0, time.UTC)
 
 	// A stray row planted directly, standing in for what a full rebuild
-	// after a change of TRAVELMAP_TIMEZONE would otherwise leave behind: no
+	// after a change of tracking.timezone would otherwise leave behind: no
 	// point in this database maps to this day any more.
 	if _, err := db.q.ExecContext(t.Context(),
 		`INSERT INTO daily_stats (user_id, day, points, reverse_geocoded_points, km, countries, cities)
@@ -114,7 +114,7 @@ func TestDailyStatsRebuildDeletesTheEmptiedDay(t *testing.T) {
 }
 
 // TestDailyStatsRebuildTrackBreakBoundary pins the boundary of
-// TRAVELMAP_TRACK_BREAK_MINUTES: a segment of exactly the configured gap is
+// tracking.track_break_minutes: a segment of exactly the configured gap is
 // counted, and one second more is not, which is what catches a ">" versus
 // ">=" mix-up in the SQL.
 func TestDailyStatsRebuildTrackBreakBoundary(t *testing.T) {
@@ -227,7 +227,7 @@ func TestDailyStatsGetNotFound(t *testing.T) {
 
 // TestDailyStatsDeleteAll pins that DeleteAll clears every user's rows, which
 // a full recalculation relies on before rebuilding under a changed
-// TRAVELMAP_TIMEZONE or TRAVELMAP_TRACK_BREAK_MINUTES.
+// tracking.timezone or tracking.track_break_minutes.
 func TestDailyStatsDeleteAll(t *testing.T) {
 	t.Parallel()
 

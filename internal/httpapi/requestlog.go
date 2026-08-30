@@ -59,8 +59,8 @@ var urlValuedHeaders = []string{"Referer"}
 // being to capture a real device, the log has to be complete enough to plan
 // from and carry none of the credentials that device sends.
 //
-// It logs at Info and not Debug on purpose. TRAVELMAP_DEBUG_LOG_REQUESTS is
-// the switch; having to raise TRAVELMAP_LOG_LEVEL as well would be a second
+// It logs at Info and not Debug on purpose. server.debug_log_requests is
+// the switch; having to raise server.log_level as well would be a second
 // one, and a capture session that produced no log is a session to run again.
 // [config.Load] raises a level that would swallow these lines for the same
 // reason.

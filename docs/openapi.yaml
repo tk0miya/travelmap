@@ -342,10 +342,14 @@ paths:
     post:
       summary: Swarm (Foursquare) User Push notification
       description: >
-        travelmap's own extension, not a Dawarich endpoint — see "travelmap's
-        own extensions" in docs/api-notes.md. Registered only when
-        TRAVELMAP_FOURSQUARE_PUSH_SECRET is set; an unconfigured server
-        answers 404 here like any endpoint it does not implement. Every
+        Receives one check-in in real time, pushed by Foursquare's own "Push
+        API notifications" as the user checks in on Swarm — travelmap's own
+        extension, not a Dawarich endpoint. The secret field is checked
+        against foursquare.push_secret; checkin.user.id is looked up against
+        foursquare_accounts to find which travelmap user it belongs to, and
+        the check-in is stored (or updated in place, if already stored) for
+        that user. A Foursquare user id with no linked travelmap account is
+        not an error: there is simply nothing to store it against. Every
         response has an empty body.
       operationId: foursquareWebhook
       security: []

@@ -87,22 +87,6 @@ func probeCheckin(t *testing.T, st store.Store) model.Checkin {
 	return got
 }
 
-// TestFoursquareWebhookIsNotRegisteredWithoutASecret pins that an
-// unconfigured server answers 404 rather than 401 to every request, which is
-// what lets a server with the feature unconfigured be told apart from one
-// refusing a request — see "An endpoint this server does not implement
-// answers 404" in docs/api-notes.md.
-func TestFoursquareWebhookIsNotRegisteredWithoutASecret(t *testing.T) {
-	t.Parallel()
-
-	srv := newTestServer(t)
-	resp := do(t, srv, http.MethodPost, foursquareWebhookPath, withFormBody(foursquarePushBody(t)))
-
-	if resp.status != http.StatusNotFound {
-		t.Errorf("status = %d, want %d", resp.status, http.StatusNotFound)
-	}
-}
-
 // newFoursquareTestServer starts the router with the webhook configured,
 // over a store holding testUser.
 func newFoursquareTestServer(t *testing.T, st store.Store) *httptest.Server {

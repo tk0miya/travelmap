@@ -50,7 +50,7 @@ func TestRecalculateRebuildsEachDistinctDayOnce(t *testing.T) {
 }
 
 // TestRecalculateDeletesBeforeRebuilding pins that DeleteAll runs before any
-// Rebuild: changing TRAVELMAP_TIMEZONE reshuffles which days exist, and a
+// Rebuild: changing tracking.timezone reshuffles which days exist, and a
 // rebuild that ran first would leave the old grouping's rows behind.
 func TestRecalculateDeletesBeforeRebuilding(t *testing.T) {
 	t.Parallel()

@@ -17,8 +17,8 @@ import (
 )
 
 // serve runs the HTTP server until the process is asked to stop.
-func serve(getenv func(string) string, stderr io.Writer) error {
-	cfg, err := config.Load(getenv)
+func serve(configPath string, stderr io.Writer) error {
+	cfg, err := config.Load(configPath)
 	if err != nil {
 		return err
 	}
@@ -53,11 +53,11 @@ func serve(getenv func(string) string, stderr io.Writer) error {
 
 	go sweepExpiredSessions(ctx, db, sessionSweepInterval, logger)
 
-	// Zero is TRAVELMAP_FOURSQUARE_SYNC_INTERVAL's own way of switching the
-	// fetch off, and time.NewTicker panics on a non-positive duration, so
-	// this is where that setting decides whether the worker runs at all —
-	// the same shape POST /webhooks/foursquare's own registration takes for
-	// TRAVELMAP_FOURSQUARE_PUSH_SECRET.
+	// Zero is foursquare.sync_interval's own way of switching the fetch off,
+	// and time.NewTicker panics on a non-positive duration, so this is where
+	// that setting decides whether the worker runs at all — the same shape
+	// POST /webhooks/foursquare's own registration takes for
+	// foursquare.push_secret.
 	if cfg.FoursquareSyncInterval > 0 {
 		client := foursquareapi.NewClient(cfg.FoursquareAPIURL, logger)
 

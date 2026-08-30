@@ -13,11 +13,11 @@ import (
 )
 
 // defaultTrackBreak is what [Options.TrackBreak] defaults to when left zero,
-// matching config's own TRAVELMAP_TRACK_BREAK_MINUTES default.
+// matching config's own tracking.track_break_minutes default.
 const defaultTrackBreak = 30 * time.Minute
 
 // defaultSessionLifetime is what [Options.SessionLifetime] defaults to when
-// left zero, matching config's own TRAVELMAP_SESSION_LIFETIME default.
+// left zero, matching config's own session.lifetime default.
 const defaultSessionLifetime = 720 * time.Hour
 
 // Options carries what the HTTP surface needs from its caller. Later steps add
@@ -33,11 +33,11 @@ type Options struct {
 
 	// DebugLogRequests turns on the request log described on [api.logRequests]:
 	// every request, unmatched routes included, with the credentials taken out.
-	// Off unless TRAVELMAP_DEBUG_LOG_REQUESTS says otherwise.
+	// Off unless server.debug_log_requests says otherwise.
 	DebugLogRequests bool
 
 	// Timezone is what GET /api/v1/users/me reports in settings.timezone —
-	// TRAVELMAP_TIMEZONE, unvalidated here because config.Load already
+	// tracking.timezone, unvalidated here because config.Load already
 	// refused an invalid one at startup. Left empty, it defaults to "UTC",
 	// which is what every test in this package that does not set it gets.
 	Timezone string
@@ -50,41 +50,39 @@ type Options struct {
 	// default.
 	Location *time.Location
 
-	// TrackBreak is TRAVELMAP_TRACK_BREAK_MINUTES as a [time.Duration] —
+	// TrackBreak is tracking.track_break_minutes as a [time.Duration] —
 	// [config.Config.TrackBreak] — passed to internal/ingest for the same
 	// reason as Location. Left zero, it defaults to [defaultTrackBreak].
 	TrackBreak time.Duration
 
-	// FoursquarePushSecret is TRAVELMAP_FOURSQUARE_PUSH_SECRET — see
-	// [config.Config.FoursquarePushSecret] for why it defaults to unset.
-	// Left empty, POST /webhooks/foursquare is not registered at all.
+	// FoursquarePushSecret is foursquare.push_secret, the shared secret
+	// POST /webhooks/foursquare checks an incoming push against — see
+	// [config.Config.FoursquarePushSecret].
 	FoursquarePushSecret string
 
-	// FoursquareClientID and FoursquareClientSecret are
-	// TRAVELMAP_FOURSQUARE_CLIENT_ID and _CLIENT_SECRET — see
-	// [config.Config.FoursquareClientID] for why both default to unset.
-	// Left empty, GET /settings/foursquare/connect and its callback are not
-	// registered at all, the same reasoning as FoursquarePushSecret.
+	// FoursquareClientID and FoursquareClientSecret are foursquare.client_id
+	// and foursquare.client_secret, the Foursquare application the OAuth
+	// flow (GET /settings/foursquare/connect and its callback) runs
+	// against — see [config.Config.FoursquareClientID].
 	FoursquareClientID     string
 	FoursquareClientSecret string
 
-	// BaseURL is TRAVELMAP_BASE_URL — see [config.Config.BaseURL] for what
-	// it is and why it is named generally rather than for its one current
-	// reader. Left empty, GET /settings/foursquare/connect and its callback
-	// are not registered at all, the same reasoning as FoursquarePushSecret.
+	// BaseURL is server.base_url — see [config.Config.BaseURL] for what it
+	// is and why it is named generally rather than for its one current
+	// reader, the OAuth callback URL it is a part of.
 	BaseURL string
 
-	// FoursquareAPIURL is TRAVELMAP_FOURSQUARE_API_URL —
+	// FoursquareAPIURL is foursquare.api_url —
 	// [config.Config.FoursquareAPIURL], the same setting the check-in fetch
 	// client uses. Left empty, it defaults to [foursquare.DefaultAPIBaseURL].
 	FoursquareAPIURL string
 
-	// SessionLifetime is TRAVELMAP_SESSION_LIFETIME as a [time.Duration] —
+	// SessionLifetime is session.lifetime as a [time.Duration] —
 	// [config.Config.SessionLifetime]. Left zero, it defaults to
 	// [defaultSessionLifetime].
 	SessionLifetime time.Duration
 
-	// SessionCookieSecure is TRAVELMAP_SESSION_COOKIE_SECURE —
+	// SessionCookieSecure is session.cookie_secure —
 	// [config.Config.SessionCookieSecure], which defaults to true. Unlike
 	// Timezone or TrackBreak this field's own zero value is not that
 	// default: cmd/travelmap always passes config's already-resolved value,
@@ -163,7 +161,7 @@ func (a *api) newRouter() http.Handler {
 	// nothing matched. See [api.logRequests] for why that matters.
 	if a.debugLogRequests {
 		a.logger.Warn("logging every request, credentials redacted; " +
-			"unset TRAVELMAP_DEBUG_LOG_REQUESTS when the capture is done")
+			"unset server.debug_log_requests when the capture is done")
 
 		r.Use(a.logRequests)
 	}
@@ -179,11 +177,8 @@ func (a *api) newRouter() http.Handler {
 	// Registered at the top level rather than under /api/v1: this is not a
 	// Dawarich-compatible endpoint, so it carries none of that group's
 	// middleware — no Dawarich headers, no api_key, no requireUser. It
-	// authenticates the caller with its own shared secret instead, and only
-	// exists at all once one is configured.
-	if a.foursquarePushSecret != "" {
-		r.Post("/webhooks/foursquare", a.foursquareWebhook)
-	}
+	// authenticates the caller with its own shared secret instead.
+	r.Post("/webhooks/foursquare", a.foursquareWebhook)
 
 	// The browser's own group, beside /api/v1 rather than under it: CSRF
 	// protection is attached here and only here — /api/v1 is Bearer /
@@ -207,25 +202,15 @@ func (a *api) newRouter() http.Handler {
 			r.Use(requireSessionUser)
 
 			r.Get("/", a.index)
-
-			// Always registered, the same way index is — see settingsPage's
-			// own doc comment for why.
 			r.Get("/settings", a.settingsPage)
-
-			// The Foursquare OAuth flow, gated on its own: a button on the
-			// settings page that would 404 is worse than no button.
-			if a.foursquareOAuth.configured() {
-				r.Get("/settings/foursquare/connect", a.foursquareOAuthStart)
-				r.Post("/settings/foursquare/disconnect", a.foursquareDisconnect)
-			}
+			r.Get("/settings/foursquare/connect", a.foursquareOAuthStart)
+			r.Post("/settings/foursquare/disconnect", a.foursquareDisconnect)
 		})
 
 		// Not behind requireSessionUser: a missing session is one of the
 		// callback's own refusal cases, alongside a mismatched one — see its
 		// own comment.
-		if a.foursquareOAuth.configured() {
-			r.Get(foursquareOAuthCallbackPath, a.foursquareOAuthCallback)
-		}
+		r.Get(foursquareOAuthCallbackPath, a.foursquareOAuthCallback)
 	})
 
 	r.Handle("/static/*", http.StripPrefix("/static/", http.FileServerFS(staticFiles)))

@@ -21,7 +21,7 @@ const timestampFormat = "2006-01-02T15:04:05.000Z07:00"
 // route-drawing settings belong to the web UI, and the Immich and Photoprism
 // URLs to a non-goal, so those stay constants regardless of whether the rest
 // ever gains its own storage. Timezone is already the exception: it is
-// reported from [api.timezone] (TRAVELMAP_TIMEZONE), not a constant.
+// reported from [api.timezone] (tracking.timezone), not a constant.
 const (
 	defaultTimezone                 = "UTC"
 	defaultDistanceUnit             = "km"

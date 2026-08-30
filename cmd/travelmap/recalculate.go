@@ -11,11 +11,12 @@ import (
 
 // recalculate rebuilds daily_stats for every user, from scratch. It is what
 // an operator runs for recovery after an import or an inconsistency, and
-// after TRAVELMAP_TIMEZONE or TRAVELMAP_TRACK_BREAK_MINUTES changes.
-func recalculate(getenv func(string) string, stdout io.Writer) error {
+// after the tracking.timezone or tracking.track_break_minutes settings
+// change.
+func recalculate(configPath string, stdout io.Writer) error {
 	ctx := context.Background()
 
-	cfg, err := config.Load(getenv)
+	cfg, err := config.Load(configPath)
 	if err != nil {
 		return err
 	}

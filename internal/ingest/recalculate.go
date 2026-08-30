@@ -10,7 +10,7 @@ import (
 
 // Recalculate rebuilds daily_stats for every user, from points. It is what
 // `travelmap recalculate` runs: for recovery after an import or an
-// inconsistency, and after TRAVELMAP_TIMEZONE or TRAVELMAP_TRACK_BREAK_MINUTES
+// inconsistency, and after tracking.timezone or tracking.track_break_minutes
 // changes — both invalidate every existing row.
 //
 // Each user is rebuilt in its own transaction, deliberately not the whole run
@@ -28,7 +28,7 @@ import (
 // package does not otherwise depend on, so they are passed in rather than
 // read here.
 func Recalculate(ctx context.Context, st store.Store, loc *time.Location, trackBreak time.Duration) error {
-	// First, not last, and in its own transaction: changing TRAVELMAP_TIMEZONE
+	// First, not last, and in its own transaction: changing tracking.timezone
 	// reshuffles which days exist, and a per-user rebuild committed ahead of
 	// this would leave rows from the old grouping behind.
 	if err := st.Tx(ctx, func(ctx context.Context, tx store.Store) error {

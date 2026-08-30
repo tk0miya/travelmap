@@ -2,42 +2,79 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
 
-// tempDatabase points the configuration at a database in a directory that goes
-// away with the test, and returns the environment to run with and the path it
-// names.
-func tempDatabase(t *testing.T) (func(string) string, string) {
+// requiredTOML is every setting [config.Load] treats as mandatory, folded
+// into every config file this package's tests write so a test only has to
+// name the settings it actually cares about.
+const requiredTOML = `
+[server]
+base_url = "https://travelmap.example"
+
+[foursquare]
+client_id = "the-client-id"
+client_secret = "the-client-secret"
+push_secret = "the-push-secret"
+`
+
+// writeConfigWithDB writes a TOML config file in a fresh temporary directory
+// pointing the database at dbPath, plus whatever extra TOML the test needs,
+// and returns the config file's path. extra must not itself declare
+// [server] or [foursquare] — see rewriteConfigWithDB for a test that needs
+// to add to those.
+func writeConfigWithDB(t *testing.T, dbPath, extra string) string {
 	t.Helper()
 
-	path := filepath.Join(t.TempDir(), "travelmap.db")
+	configPath := filepath.Join(t.TempDir(), "travelmap.toml")
+	if err := rewriteConfigWithDB(configPath, dbPath, extra); err != nil {
+		t.Fatalf("writing %s: %v", configPath, err)
+	}
 
-	return func(name string) string {
-		if name == "TRAVELMAP_DATABASE" {
-			return path
-		}
-
-		return ""
-	}, path
+	return configPath
 }
 
-// migrated returns the environment of a database the schema has already been
-// applied to, which is the state every other command's own tests start from.
-func migrated(t *testing.T) func(string) string {
+// tempDatabase points the configuration at a database in a directory that
+// goes away with the test, and returns the config file's path to run with
+// and the database path it names.
+func tempDatabase(t *testing.T) (string, string) {
 	t.Helper()
 
-	env, _ := tempDatabase(t)
+	dbPath := filepath.Join(t.TempDir(), "travelmap.db")
+
+	return writeConfigWithDB(t, dbPath, ""), dbPath
+}
+
+// rewriteConfigWithDB writes the whole config file at path from scratch:
+// dbPath, the required settings, and extra. Used both by writeConfigWithDB
+// for a fresh file and by a test that needs to change a [foursquare] setting
+// after commands that do not care about it (migrate, seedFoursquareAccount)
+// have already run against the file — TOML refuses a table declared twice,
+// so that rewrites the file rather than appending to it.
+func rewriteConfigWithDB(configPath, dbPath, extra string) error {
+	content := fmt.Sprintf("[database]\npath = %q\n%s\n%s", dbPath, requiredTOML, extra)
+
+	return os.WriteFile(configPath, []byte(content), 0o600)
+}
+
+// migrated returns the config file's path and the database path for a
+// database the schema has already been applied to, which is the state
+// every other command's own tests start from.
+func migrated(t *testing.T) (string, string) {
+	t.Helper()
+
+	configPath, dbPath := tempDatabase(t)
 
 	var out bytes.Buffer
-	if err := run([]string{"migrate"}, env, noStdin(), &out, &out); err != nil {
+	if err := run(withConfig(configPath, "migrate"), noStdin(), &out, &out); err != nil {
 		t.Fatalf("migrate returned %v", err)
 	}
 
-	return env
+	return configPath, dbPath
 }
 
 // TestMigrateCommand verifies travelmap migrate from outside: the first run
@@ -46,10 +83,10 @@ func migrated(t *testing.T) func(string) string {
 func TestMigrateCommand(t *testing.T) {
 	t.Parallel()
 
-	env, path := tempDatabase(t)
+	configPath, path := tempDatabase(t)
 
 	var first bytes.Buffer
-	if err := run([]string{"migrate"}, env, noStdin(), &first, &first); err != nil {
+	if err := run(withConfig(configPath, "migrate"), noStdin(), &first, &first); err != nil {
 		t.Fatalf("the first migrate returned %v", err)
 	}
 
@@ -62,7 +99,7 @@ func TestMigrateCommand(t *testing.T) {
 	}
 
 	var second bytes.Buffer
-	if err := run([]string{"migrate"}, env, noStdin(), &second, &second); err != nil {
+	if err := run(withConfig(configPath, "migrate"), noStdin(), &second, &second); err != nil {
 		t.Fatalf("the second migrate returned %v", err)
 	}
 

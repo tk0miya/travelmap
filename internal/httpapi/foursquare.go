@@ -25,7 +25,7 @@ const maxFoursquarePushBody = 1 << 20
 // Dawarich-compatible endpoint, and Foursquare is not documented to read one.
 //
 // secret proves the request came from the application this server's
-// TRAVELMAP_FOURSQUARE_PUSH_SECRET was configured for; the reason it is
+// foursquare.push_secret was configured for; the reason it is
 // compared the way it is, is on [auth.CheckSecret].
 func (a *api) foursquareWebhook(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxFoursquarePushBody)

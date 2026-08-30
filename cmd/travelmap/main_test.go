@@ -8,13 +8,17 @@ import (
 	"testing"
 )
 
-// noEnv is the environment of a run with nothing configured.
-func noEnv(string) string { return "" }
-
 // noStdin is the standard input of a run that is not given any. It is a
 // function rather than a value because the tests run in parallel and a reader
 // is not safe to share.
 func noStdin() io.Reader { return strings.NewReader("") }
+
+// withConfig prepends the --config flag for configPath to args, the way a
+// call to run has to name the config file for any command but the bare
+// defaults.
+func withConfig(configPath string, args ...string) []string {
+	return append([]string{"--config", configPath}, args...)
+}
 
 // TestRunArguments covers the argument handling only. `serve` is left out
 // because it blocks until the process is signalled; what it wires together is
@@ -57,9 +61,10 @@ func TestRunArguments(t *testing.T) {
 			wantErr:   errUsage,
 			wantUsage: true,
 		},
-		// The database comes from TRAVELMAP_DATABASE, so a path here is
-		// someone expecting to migrate a database other than the configured
-		// one — which is exactly the misunderstanding not to migrate under.
+		// The database comes from the config file's database.path, so a path
+		// here is someone expecting to migrate a database other than the
+		// configured one — which is exactly the misunderstanding not to
+		// migrate under.
 		"an argument after migrate is a usage error": {
 			args:      []string{"migrate", "other.db"},
 			wantErr:   errUsage,
@@ -92,7 +97,7 @@ func TestRunArguments(t *testing.T) {
 
 			var stdout, stderr bytes.Buffer
 
-			err := run(tt.args, noEnv, noStdin(), &stdout, &stderr)
+			err := run(tt.args, noStdin(), &stdout, &stderr)
 
 			// Which error matters, not just that there is one: errUsage is
 			// what makes the process exit 2 rather than 1, and a wrapper
