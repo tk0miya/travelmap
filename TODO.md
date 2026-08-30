@@ -471,88 +471,16 @@ still one binary plus one SQLite file.
 
 ## Milestone I — Swarm check-in collection
 
-Collect Swarm (Foursquare) check-ins, so that the explicitly recorded landmark sits alongside
-the automatically recorded GPS trace. The first feature that is travelmap's own rather than
-upstream's — read "Keeping the two parts apart" in `docs/api-notes.md` before adding a route
-here.
-
-Independent of the points/stats pipeline: it touches neither `points` nor `daily_stats`. What it
-does need is the store foundation and the authenticated router, both already in place — the push
-webhook already hangs a route off the same router, and the OAuth flow hangs its own off the
-browser session's group. So the remaining steps can be taken at any time after Milestone B, like
-Step 16.
-
-External behaviour these steps rely on is in "Foursquare / Swarm Integration Notes"; the two
-tables are in `internal/store/sqlite/schema.sql` and docs/database.md, per "Data Model".
-
-There are five `TRAVELMAP_FOURSQUARE_*` settings already in place — `_PUSH_SECRET`, the two OAuth
-client settings (`_CLIENT_ID`, `_CLIENT_SECRET`), and the periodic fetch client's own
-`_SYNC_LOOKBACK_DAYS` and `_API_URL` — plus `TRAVELMAP_BASE_URL` (general-purpose, not
-Foursquare-prefixed, since the OAuth callback URL it derives is not the only thing that could ever
-need this server's own address). Step 21 adds a sixth `TRAVELMAP_FOURSQUARE_*` setting, the
-interval.
-
-**Each step documents its own settings in the README, in the same pull request.** The README is
-for someone about to run this server, so a knob that is listed there and does nothing yet is the
-one kind of drift its reader cannot detect — and this milestone's settings come with procedures
-(an OAuth URL, a CLI invocation) that would invite a reader to try something not built. The
-settings and their defaults are recorded here in the meantime, which is what `TODO.md` is for.
-
-The push webhook already opened a check-in section under the README's "Configuration", since it
-collects check-ins on its own; the periodic fetch client adds to what it wrote there rather than
-starting the section itself. That section carries the one fact no single setting does: **nothing
-is collected until an account is linked**, either with `travelmap foursquare connect` or by
-visiting `/foursquare/oauth/start` while signed in — both already documented there. Without
-either, a reader can set every variable, run `foursquare sync`, and be told nothing about why the
-result is empty.
-
-Step 21 follows that client. The OAuth flow is done — built directly against the browser session,
-since the login screen already existed by the time it was taken, rather than against an `api_key`
-leg that would only have had to be replaced afterwards — and **Step 31 is what still finishes it
-from the browser**, with a page that shows and undoes the link instead of a raw URL.
-`travelmap foursquare connect` remains the way to link an account without a browser.
-
-### Step 21: The periodic fetch worker
-
-Repeats `internal/checkin`'s sync run on a timer; the OAuth flow does not block it, and Step 22's
-hardening is not required first either — see that step's note on why.
-
-- [ ] `internal/config`: `TRAVELMAP_FOURSQUARE_SYNC_INTERVAL` (default `1h`, `0` disabling the
-      fetch), parsed with the duration parsing Milestone H's session lifetime setting already
-      added to that package
-- [ ] `internal/checkin`: the worker — a ticker on that interval calling that package's own
-      sync run, nothing more. Started from `cmd/travelmap/serve.go`, the only place holding both
-      the signal-cancelled context and the concrete store
-- [ ] Shut down with the server: the worker stops on the same cancelled context, and a run in
-      flight is not left to write into a closing database
-- [ ] README: the interval, including that `0` switches the fetch off and leaves only the
-      webhook
-- [ ] A test that a restart resumes: the ticker starts again, and the tick after it covers the
-      time the process was down. What makes that possible is the recomputed window, tested in
-      `internal/checkin` already; what is tested here is that stopping and starting the worker
-      loses no tick
-
-**Settles nothing new**: the lifecycle of a background worker in this server — a ticker over the
-signal-cancelled context `cmd/travelmap/serve.go` already holds, **without a job table** — was
-already settled by the session sweep, per "Background workers" in `docs/architecture.md`. This
-step follows that shape rather than deciding it again.
-
-**Done when**: with the server left running and **`TRAVELMAP_FOURSQUARE_PUSH_SECRET` unset**, so
-the webhook route is not registered at all, a check-in made in Swarm turns up in `checkins` on the
-following tick. Unsetting it is what makes this observe the worker: with push configured, a
-check-in may well arrive within seconds by that path — whether it also does so for a check-in
-added after the fact is exactly what is not known — and the tick would then be proving nothing.
-
 **Milestone done when**: with both paths configured, a check-in made in Swarm appears in `checkins`
-within seconds, and a check-in added after the fact appears no later than the next fetch (Step 21,
-or a hand-run `foursquare sync` before it).
+within seconds, and a check-in added after the fact appears no later than the next periodic fetch,
+or a hand-run `foursquare sync` before it.
 
 **Neither of those exercises the fetch path on its own, and this milestone does not ask them to.**
 With push configured, either check-in may well arrive by push within seconds — whether it does for
 a retroactive one is the open question — so `source` here records which path won a race, not which
-paths work. **Step 21's Done when is the fetch path's proof**, because it runs with the push secret
-unset and nothing else can have collected the row. Read this condition as "both paths are
-configured and nothing is lost", and that one as "the fetch path collects".
+paths work. **Isolating the fetch path needs the push secret unset**, so nothing else can have
+collected the row — a stricter check than the milestone condition above, which reads as "both
+paths are configured and nothing is lost" rather than "the fetch path collects" on its own.
 
 ### Step 22: Ambiguous errors and locale drift
 

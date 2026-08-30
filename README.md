@@ -100,8 +100,9 @@ default, so it runs with an empty environment.
 | `TRAVELMAP_FOURSQUARE_CLIENT_SECRET` | unset | The Swarm OAuth application's client secret. See below |
 | `TRAVELMAP_SESSION_LIFETIME` | `720h` | How long a browser session lasts before it needs a fresh login |
 | `TRAVELMAP_SESSION_COOKIE_SECURE` | on | Send the session cookie only over HTTPS. See below |
-| `TRAVELMAP_FOURSQUARE_SYNC_LOOKBACK_DAYS` | `14` | How far back `travelmap foursquare sync` re-reads on every run. See below |
+| `TRAVELMAP_FOURSQUARE_SYNC_LOOKBACK_DAYS` | `14` | How far back each check-in fetch re-reads, whether run by the server itself or by hand. See below |
 | `TRAVELMAP_FOURSQUARE_API_URL` | `https://api.foursquare.com` | The Foursquare API base URL, used by both the check-in fetch client and the OAuth flow. Exists so a test can point either at a fake server |
+| `TRAVELMAP_FOURSQUARE_SYNC_INTERVAL` | `1h` | How often the server repeats the check-in fetch on its own. `0` disables it, leaving only the push webhook. See below |
 
 `TRAVELMAP_TIMEZONE` and `TRAVELMAP_TRACK_BREAK_MINUTES` decide how stored statistics are
 computed, so changing either invalidates the ones already stored; `travelmap recalculate`
@@ -149,19 +150,22 @@ flag, the same concern `user create`'s password reading answers:
 Get that access token from the Foursquare application's own console — it issues one for the
 account that owns the application.
 
-`travelmap foursquare sync` fetches every linked account's check-ins once, from
+Once an account is linked, the running server fetches its check-ins on its own, every
+`TRAVELMAP_FOURSQUARE_SYNC_INTERVAL` (an hour by default), from
 `TRAVELMAP_FOURSQUARE_SYNC_LOOKBACK_DAYS` back (14 by default) — a window re-read on every run
-rather than resumed from a cursor, so a check-in added or edited after the fact is still picked
-up; a check-in already stored is updated in place rather than duplicated. `--lookback-days` takes
-a wider one for a single run, for backfilling further back than the routine window:
+rather than resumed from a cursor, so a check-in added or edited after the fact is still picked up;
+a check-in already stored is updated in place rather than duplicated. Setting
+`TRAVELMAP_FOURSQUARE_SYNC_INTERVAL=0` turns this off, leaving only the push webhook (if
+configured) to collect check-ins.
+
+`travelmap foursquare sync` runs the same fetch by hand, on demand — for a first run before the
+server's own timer would reach it, or with a wider `--lookback-days` for backfilling further back
+than the routine window:
 
 ```sh
 ./bin/travelmap foursquare sync
 ./bin/travelmap foursquare sync --lookback-days 365
 ```
-
-Nothing runs this automatically yet — that is a timer, and there is no timer in this build. Run
-it by hand, or from cron or a systemd timer, until one is built in.
 
 `TRAVELMAP_FOURSQUARE_PUSH_SECRET` turns on `POST /webhooks/foursquare`, which receives your
 check-ins in real time via a Foursquare application's **"Push API notifications"** setting,

@@ -7,7 +7,11 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/tk0miya/travelmap/internal/checkin"
 	"github.com/tk0miya/travelmap/internal/config"
+	// Aliased for the same reason cmd/travelmap/foursquare.go's own import is:
+	// this package's dispatcher function is named foursquare too.
+	foursquareapi "github.com/tk0miya/travelmap/internal/foursquare"
 	"github.com/tk0miya/travelmap/internal/httpapi"
 	"github.com/tk0miya/travelmap/internal/store/sqlite"
 )
@@ -48,6 +52,17 @@ func serve(getenv func(string) string, stderr io.Writer) error {
 	}
 
 	go sweepExpiredSessions(ctx, db, sessionSweepInterval, logger)
+
+	// Zero is TRAVELMAP_FOURSQUARE_SYNC_INTERVAL's own way of switching the
+	// fetch off, and time.NewTicker panics on a non-positive duration, so
+	// this is where that setting decides whether the worker runs at all —
+	// the same shape POST /webhooks/foursquare's own registration takes for
+	// TRAVELMAP_FOURSQUARE_PUSH_SECRET.
+	if cfg.FoursquareSyncInterval > 0 {
+		client := foursquareapi.NewClient(cfg.FoursquareAPIURL, logger)
+
+		go checkin.RunPeriodicSync(ctx, db, client, cfg.FoursquareSyncInterval, cfg.FoursquareSyncLookback(), logger)
+	}
 
 	handler := httpapi.New(httpapi.Options{
 		Logger:                 logger,
