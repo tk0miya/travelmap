@@ -110,9 +110,10 @@ running up to ten seconds to finish.
 `bin/travelmap --version` reports the build the binary came from, which is the thing to quote
 in a bug report.
 
-`recalculate` rebuilds the precomputed statistics (`/stats`, `/points/tracked_months`) from the
-points already stored. Run it after an import, after fixing an inconsistency, or after changing
-`tracking.timezone` or `tracking.track_break_minutes` — see "Configuration" above.
+`recalculate` rebuilds the precomputed statistics (`/stats`, `/points/tracked_months`) and tracks
+(`/tracks`) from the points already stored. Run it after an import, after fixing an inconsistency,
+or after changing `tracking.timezone` or `tracking.track_break_minutes` — see "Configuration"
+above.
 
 ## Using Swarm check-ins
 

@@ -1,0 +1,18 @@
+[
+  {
+    "id": 1,
+    "latitude": "52.502397",
+    "longitude": "13.356718",
+    "timestamp": 1622548800,
+    "velocity": null,
+    "country_name": null
+  },
+  {
+    "id": 2,
+    "latitude": "52.6",
+    "longitude": "13.4",
+    "timestamp": 1622548860,
+    "velocity": 5,
+    "country_name": null
+  }
+]

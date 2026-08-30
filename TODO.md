@@ -14,7 +14,6 @@ it lands.
 
 | Item | Decision | Rationale |
 | --- | --- | --- |
-| Background work | Goroutines + a job table in SQLite | Keeps a single process, with no Sidekiq/Redis equivalent |
 | Reverse geocoding | Off by default; optionally point at a Nominatim/Photon URL | Does not make an external service mandatory |
 
 These are the defaults as of planning. If any turns out to be wrong during implementation,
@@ -39,9 +38,6 @@ Upstream quirks for endpoints not yet implemented. For an endpoint already imple
   puts fields at the top level while the example wraps them in `{"settings": {...}}`.
   **Accept both forms** so neither breaks. Assuming only one means that when the other arrives,
   every field is silently ignored — no error — and settings sync quietly breaks.
-- **`GET /api/v1/tracks`** — GeoJSON `FeatureCollection` of LineStrings. Properties are `id`,
-  `color`, `start_at`, `end_at`, `distance` (metres), `avg_speed` (km/h), `duration` (seconds),
-  `dominant_mode`, `dominant_mode_emoji`.
 - **`GET /api/v1/timeline`** — `start_at` / `end_at` required, **range capped at 31 days**.
   Response is `{days: [...]}`.
 
@@ -266,16 +262,9 @@ app needs and the community client does not, and it is the input to Milestone F'
 
 ## Milestone F — The app's remaining screens
 
-Steps 13, 14 and 16 are independent and can run in parallel. Step 15 needs 13 and 14.
+Step 13 is done. Steps 14 and 16 are independent and can run in parallel. Step 15 needs 14.
 
 Step 16 in fact only needs authentication, so it can be pulled forward at any time.
-
-### Step 13: Tracks
-
-- [ ] Track-splitting logic (split on `tracking.track_break_minutes` of inactivity) as a
-      background job. **Not `track_break` from `settings/mobile`** (see "Data Model")
-- [ ] `GET /api/v1/tracks` (GeoJSON FeatureCollection)
-- [ ] `GET /api/v1/tracks/{id}`, `GET /api/v1/tracks/{track_id}/points`
 
 ### Step 14: Visits
 

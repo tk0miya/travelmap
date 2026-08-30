@@ -156,3 +156,31 @@ CREATE TABLE sessions (
 ) STRICT;
 
 CREATE INDEX sessions_expiry_idx ON sessions (expiry);
+
+CREATE TABLE tracks (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id    INTEGER NOT NULL REFERENCES users (id),
+
+    start_at   INTEGER NOT NULL,
+    end_at     INTEGER NOT NULL,
+
+    distance   REAL NOT NULL, -- Metres; avg_speed and duration are derived from this and start_at/end_at, not stored.
+
+    -- JSON array of [longitude, latitude] pairs, one per point, in timestamp
+    -- order — precomputed so GET /api/v1/tracks needs no join against points.
+    geometry   TEXT NOT NULL,
+
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+) STRICT;
+
+CREATE INDEX tracks_user_id_start_at_idx ON tracks (
+    -- Mirrors points(user_id, timestamp): narrows by user and time range first.
+    user_id, start_at
+);
+
+CREATE TABLE track_split_jobs (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT, -- NextPending's FIFO order; requested_at alone ties when two requests coalesce within the same second.
+    user_id      INTEGER NOT NULL UNIQUE REFERENCES users (id),
+    requested_at INTEGER NOT NULL
+) STRICT;

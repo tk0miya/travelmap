@@ -1,0 +1,32 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            13.356718,
+            52.502397
+          ],
+          [
+            13.4,
+            52.6
+          ]
+        ]
+      },
+      "properties": {
+        "id": 1,
+        "color": "#3B82F6",
+        "start_at": "2021-06-01T12:00:00.000Z",
+        "end_at": "2021-06-01T12:01:00.000Z",
+        "distance": 12345.6,
+        "avg_speed": 740.7360000000001,
+        "duration": 60,
+        "dominant_mode": null,
+        "dominant_mode_emoji": null
+      }
+    }
+  ]
+}

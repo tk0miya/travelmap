@@ -77,6 +77,36 @@ therefore exists twice: share the Earth-radius constant and pin agreement with a
 The spec does not say how upstream computes distance, so compare against the app's own display
 and revisit if the numbers diverge.
 
+## `tracks`
+
+`tracks` is precomputed from `points`, the same reason `daily_stats` is: reading its rows costs no
+join against `points` at request time. Rebuilt from scratch whenever a point changes anywhere in a
+user's history, never adjusted arithmetically — a single inserted point can shift where every later
+track boundary falls, the same argument `daily_stats` makes for its own rebuild.
+
+`geometry` stores the JSON-encoded `[longitude, latitude]` pairs of every point in the track, in
+timestamp order — `GET /api/v1/tracks` reads it directly rather than reconstructing a polyline from
+`points`. `avg_speed` and `duration` are not stored: both follow from `start_at`, `end_at` and
+`distance` alone, so they are derived at the response boundary instead.
+
+### How a track is split
+
+A track is a contiguous run of one user's points, split from its neighbours by a gap exceeding
+`TRAVELMAP_TRACK_BREAK_MINUTES` — the same value `daily_stats`' own segment attribution uses (see
+"Segment attribution" above), and, like it, **not** `settings/mobile`'s own `track_break`, which is
+the device's own splitting setting. A run of a single point is not a track: a GeoJSON LineString
+needs at least two coordinates, and a lone point measures no distance or duration, so it is dropped
+rather than kept as a degenerate one-point track.
+
+### How a rebuild is triggered
+
+`internal/ingest` enqueues a rebuild request (`track_split_jobs`, one row per user, coalesced on a
+repeat request) after every point mutation, in the same transaction as the write. A background
+worker in `internal/track` drains that table — the first genuine consumer of the "Background work"
+row in `docs/architecture.md`. `travelmap recalculate` also rebuilds every user's tracks directly,
+without going through the job table: a `TRAVELMAP_TRACK_BREAK_MINUTES` change touches no point, so
+it never reaches the enqueue a write triggers.
+
 ## `checkins`
 
 Swarm (Foursquare) check-ins — travelmap's own extension, not a Dawarich concept. All writes go

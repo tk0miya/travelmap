@@ -3,6 +3,7 @@ package storetest
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"sync"
@@ -58,6 +59,22 @@ func UnavailablePoints(t *testing.T, users ...model.User) store.Store {
 	return open(t, path)
 }
 
+// UnavailablePointsWithTracks is [UnavailablePoints], plus tracks seeded
+// directly before the points table is dropped — for a test whose track
+// lookup must succeed while listing that track's own points then fails.
+func UnavailablePointsWithTracks(t *testing.T, users []model.User, tracks []model.Track) store.Store {
+	t.Helper()
+
+	path := prepare(t, users)
+	seedTracks(t, path, tracks)
+
+	// Dropped before the store is opened, for the same reason as
+	// UnavailablePoints.
+	exec(t, path, `DROP TABLE points`)
+
+	return open(t, path)
+}
+
 // UnavailableDailyStats returns a store holding users whose daily_stats
 // table has been dropped, so that authenticating and reading points still
 // work but a daily_stats read fails.
@@ -97,6 +114,38 @@ func NewWithPoints(t *testing.T, users []model.User, points []model.Point) store
 
 	path := prepare(t, users)
 	seedPoints(t, path, points)
+
+	return open(t, path)
+}
+
+// UnavailableTracks returns a store holding users whose tracks table has
+// been dropped, so that authenticating and reading points still work but a
+// tracks read fails, for the same reason [UnavailablePoints] exists.
+func UnavailableTracks(t *testing.T, users ...model.User) store.Store {
+	t.Helper()
+
+	path := prepare(t, users)
+
+	// Dropped before the store is opened, for the same reason as
+	// UnavailablePoints.
+	exec(t, path, `DROP TABLE tracks`)
+
+	return open(t, path)
+}
+
+// NewWithTracks is [New], plus points and tracks seeded directly with their
+// own ID, CreatedAt and UpdatedAt — not what
+// [store.PointRepository.Create]/[store.TrackRepository.ReplaceAll] would
+// stamp, which is the current time — so a caller can pin what a golden file
+// shows a client being handed back. points are seeded too, since
+// GET /api/v1/tracks/{track_id}/points reads them directly rather than from
+// a track's own precomputed geometry.
+func NewWithTracks(t *testing.T, users []model.User, points []model.Point, tracks []model.Track) store.Store {
+	t.Helper()
+
+	path := prepare(t, users)
+	seedPoints(t, path, points)
+	seedTracks(t, path, tracks)
 
 	return open(t, path)
 }
@@ -220,6 +269,35 @@ func seedPoints(t *testing.T, path string, points []model.Point) {
 			p.Accuracy, p.VerticalAccuracy, p.Course, p.CourseAccuracy,
 			p.BatteryStatus, p.Battery, p.SSID, p.TrackerID,
 			p.CreatedAt.Unix(), p.UpdatedAt.Unix(),
+		)
+	}
+}
+
+// seedTracks writes tracks directly, rather than through the repository, for
+// the same reason [seedPoints] does.
+func seedTracks(t *testing.T, path string, tracks []model.Track) {
+	t.Helper()
+
+	if len(tracks) == 0 {
+		return
+	}
+
+	for _, tr := range tracks {
+		pairs := make([][2]float64, len(tr.Geometry))
+		for i, c := range tr.Geometry {
+			pairs[i] = [2]float64{c.Longitude, c.Latitude}
+		}
+
+		geometry, err := json.Marshal(pairs)
+		if err != nil {
+			t.Fatalf("encoding track geometry: %v", err)
+		}
+
+		exec(t, path,
+			`INSERT INTO tracks (id, user_id, start_at, end_at, distance, geometry, created_at, updated_at)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+			tr.ID, tr.UserID, tr.StartAt.Unix(), tr.EndAt.Unix(), tr.DistanceMeters, string(geometry),
+			tr.CreatedAt.Unix(), tr.UpdatedAt.Unix(),
 		)
 	}
 }

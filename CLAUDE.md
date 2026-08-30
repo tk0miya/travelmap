@@ -95,7 +95,7 @@ cmd/travelmap
     ↓
 httpapi  →  httpapi/dto
     ↓
-ingest   checkin   auth
+ingest   checkin   track   auth
     ↓
 store  ←  store/sqlite  ←  store/storetest (tests only)
     ↓
@@ -124,6 +124,9 @@ The rules that matter, stated directly:
   webhook and the periodic fetch — have to agree on how a duplicate is recognised and on which
   fields a repeat write overwrites. A second writer would settle that twice, and the two answers
   would drift. `internal/checkin` reaches `internal/store` as `internal/ingest` does.
+- **Every rebuild of a user's tracks goes through `internal/track`.** `internal/ingest` enqueues a
+  request rather than rebuilding tracks itself, keeping the two concerns — and the two tables they
+  write — apart, the same split that keeps `internal/checkin` out of `internal/ingest`.
 - **`internal/foursquare` returns the shapes Foursquare sends**, and the package that owns the
   record converts them into `internal/model` types — check-ins in `internal/checkin`, the account
   row in the handler that writes it. Being a leaf it cannot name a `model` type itself, and the

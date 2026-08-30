@@ -338,6 +338,129 @@ paths:
         "500":
           $ref: "#/components/responses/InternalServerError"
 
+  /api/v1/tracks:
+    get:
+      summary: The authenticated user's tracks, as GeoJSON
+      description: >
+        A FeatureCollection of LineStrings, one per track — a contiguous
+        run of points split from its neighbours by a gap exceeding
+        TRAVELMAP_TRACK_BREAK_MINUTES. color, avg_speed and duration are
+        always the same shape; dominant_mode and dominant_mode_emoji are
+        always null, since this server infers no transport mode.
+      operationId: listTracks
+      parameters:
+        - $ref: "#/components/parameters/StartAt"
+        - $ref: "#/components/parameters/EndAt"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+      responses:
+        "200":
+          $ref: "#/components/responses/TracksOK"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    head:
+      summary: The authenticated user's tracks, as GeoJSON (headers only)
+      description: >
+        Identical to GET, with no response body. See the note on
+        GET /api/v1/users/me.
+      operationId: listTracksHead
+      parameters:
+        - $ref: "#/components/parameters/StartAt"
+        - $ref: "#/components/parameters/EndAt"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+      responses:
+        "200":
+          $ref: "#/components/responses/TracksOK"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /api/v1/tracks/{id}:
+    parameters:
+      - $ref: "#/components/parameters/TrackId"
+    get:
+      summary: One track, as GeoJSON
+      description: >
+        A single-Feature FeatureCollection, the same per-feature shape
+        GET /api/v1/tracks answers with. id not existing, or belonging to
+        a different user, both answer 404.
+      operationId: getTrack
+      responses:
+        "200":
+          $ref: "#/components/responses/TrackOK"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    head:
+      summary: One track, as GeoJSON (headers only)
+      description: >
+        Identical to GET, with no response body. See the note on
+        GET /api/v1/users/me.
+      operationId: getTrackHead
+      responses:
+        "200":
+          $ref: "#/components/responses/TrackOK"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /api/v1/tracks/{track_id}/points:
+    parameters:
+      - $ref: "#/components/parameters/TrackPointsTrackId"
+    get:
+      summary: The points belonging to one track
+      description: >
+        Ordered by timestamp ascending. A narrower shape than
+        GET /api/v1/points, matching upstream's own documented schema for
+        this endpoint — velocity here is a JSON number, unlike
+        GET /api/v1/points' own string. track_id not existing, or
+        belonging to a different user, both answer 404.
+      operationId: trackPoints
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+      responses:
+        "200":
+          $ref: "#/components/responses/TrackPointsOK"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    head:
+      summary: The points belonging to one track (headers only)
+      description: >
+        Identical to GET, with no response body. See the note on
+        GET /api/v1/users/me.
+      operationId: trackPointsHead
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+      responses:
+        "200":
+          $ref: "#/components/responses/TrackPointsOK"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
   /webhooks/foursquare:
     post:
       summary: Swarm (Foursquare) User Push notification
@@ -438,6 +561,20 @@ components:
         this server hands out is one of its own integer primary keys.
       schema:
         type: string
+    TrackId:
+      name: id
+      in: path
+      required: true
+      description: A track's own integer primary key.
+      schema:
+        type: integer
+    TrackPointsTrackId:
+      name: track_id
+      in: path
+      required: true
+      description: A track's own integer primary key.
+      schema:
+        type: integer
 
   headers:
     DawarichResponse:
@@ -645,6 +782,64 @@ components:
             $ref: "#/components/schemas/LocationsCreated"
           example:
             created: 1
+
+    TracksOK:
+      description: The user's tracks for the requested range and page.
+      headers:
+        X-Dawarich-Response:
+          $ref: "#/components/headers/DawarichResponse"
+        X-Dawarich-Version:
+          $ref: "#/components/headers/DawarichVersion"
+        X-Current-Page:
+          description: The page this response answers with.
+          schema:
+            type: integer
+        X-Total-Pages:
+          description: >
+            The total number of pages across the whole matching range,
+            not just the page fetched. 0 when nothing matches.
+          schema:
+            type: integer
+      content:
+        application/json; charset=utf-8:
+          schema:
+            $ref: "#/components/schemas/TracksResponse"
+
+    TrackOK:
+      description: The requested track, as a single-Feature FeatureCollection.
+      headers:
+        X-Dawarich-Response:
+          $ref: "#/components/headers/DawarichResponse"
+        X-Dawarich-Version:
+          $ref: "#/components/headers/DawarichVersion"
+      content:
+        application/json; charset=utf-8:
+          schema:
+            $ref: "#/components/schemas/TracksResponse"
+
+    TrackPointsOK:
+      description: The points belonging to the requested track.
+      headers:
+        X-Dawarich-Response:
+          $ref: "#/components/headers/DawarichResponse"
+        X-Dawarich-Version:
+          $ref: "#/components/headers/DawarichVersion"
+        X-Current-Page:
+          description: The page this response answers with.
+          schema:
+            type: integer
+        X-Total-Pages:
+          description: >
+            The total number of pages across the whole track, not just
+            the page fetched. 0 when nothing matches.
+          schema:
+            type: integer
+      content:
+        application/json; charset=utf-8:
+          schema:
+            type: array
+            items:
+              $ref: "#/components/schemas/TrackPoint"
 
     BadRequest:
       description: The request body could not be read as the shape this endpoint expects.
@@ -1438,3 +1633,127 @@ components:
           type: integer
         december:
           type: integer
+
+    TracksResponse:
+      type: object
+      description: A GeoJSON FeatureCollection of LineStrings, one per track.
+      required:
+        - type
+        - features
+      properties:
+        type:
+          type: string
+          example: FeatureCollection
+        features:
+          type: array
+          items:
+            $ref: "#/components/schemas/TrackFeature"
+
+    TrackFeature:
+      type: object
+      required:
+        - type
+        - geometry
+        - properties
+      properties:
+        type:
+          type: string
+          example: Feature
+        geometry:
+          $ref: "#/components/schemas/TrackGeometry"
+        properties:
+          $ref: "#/components/schemas/TrackProperties"
+
+    TrackGeometry:
+      type: object
+      required:
+        - type
+        - coordinates
+      properties:
+        type:
+          type: string
+          example: LineString
+        coordinates:
+          type: array
+          description: "[longitude, latitude] pairs, one per point, in timestamp order."
+          items:
+            type: array
+            items:
+              type: number
+
+    TrackProperties:
+      type: object
+      required:
+        - id
+        - color
+        - start_at
+        - end_at
+        - distance
+        - avg_speed
+        - duration
+        - dominant_mode
+        - dominant_mode_emoji
+      properties:
+        id:
+          type: integer
+          format: int64
+        color:
+          type: string
+          description: >
+            Always the same value: this server infers no transport mode
+            to color-code by.
+        start_at:
+          type: string
+          format: date-time
+        end_at:
+          type: string
+          format: date-time
+        distance:
+          type: number
+          description: Metres.
+        avg_speed:
+          type: number
+          description: Km/h.
+        duration:
+          type: integer
+          description: Seconds.
+        dominant_mode:
+          type: string
+          nullable: true
+          description: Always null; transport mode inference is not implemented.
+        dominant_mode_emoji:
+          type: string
+          nullable: true
+          description: Always null; transport mode inference is not implemented.
+
+    TrackPoint:
+      type: object
+      description: >
+        A narrower shape than the Point schema GET /api/v1/points answers
+        with — upstream's own documented schema for this endpoint.
+      required:
+        - id
+        - latitude
+        - longitude
+        - timestamp
+        - velocity
+        - country_name
+      properties:
+        id:
+          type: integer
+          format: int64
+        latitude:
+          type: string
+        longitude:
+          type: string
+        timestamp:
+          type: integer
+          description: Unix seconds.
+        velocity:
+          type: number
+          nullable: true
+          description: Km/h. A JSON number here, unlike the Point schema's own string.
+        country_name:
+          type: string
+          nullable: true
+          description: Always null; reverse geocoding is not implemented yet.

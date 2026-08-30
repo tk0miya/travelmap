@@ -216,6 +216,26 @@ parse time. Sending the fractional kilometre total `daily_stats.km` actually sto
 that client's stats screen, so travelmap truncates to `int64` at the response boundary instead of
 rounding — matching upstream's own precision loss, not just avoiding the crash by coincidence.
 
+### `GET /api/v1/tracks`, `GET /api/v1/tracks/{id}` and `GET /api/v1/tracks/{track_id}/points`
+
+The spec's inline schema for `GET /api/v1/tracks/{id}` is a bare
+`items: type: object` — no properties at all — so its shape here is read off `GET /api/v1/tracks`'
+own per-feature schema instead: a single-Feature `FeatureCollection`, the same shape the list
+endpoint answers with per element.
+
+`color` is always the same value: this server infers no transport mode to color-code by, the same
+reason `dominant_mode` and `dominant_mode_emoji` are always `null`.
+
+`GET /api/v1/tracks/{track_id}/points` answers a narrower per-point shape than
+`GET /api/v1/points`, matching the spec's own inline schema for this endpoint rather than the full
+`Point` shape — and that schema types `velocity` as a plain JSON `number`, not the string
+`GET /api/v1/points`' own serializer sends. Both are read directly off the spec, not inferred by
+analogy with the other endpoint.
+
+A track's points are read from `points` by its own `[start_at, end_at]` range rather than a column
+naming which track a point belongs to: `internal/track` builds every track from one ordered walk
+over a user's whole history, so no other track's points ever fall inside another track's own span.
+
 ### Every response carries `Content-Type: application/json; charset=utf-8`
 
 Upstream sends the charset, and it is worth copying rather than sending a bare
