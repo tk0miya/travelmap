@@ -36,12 +36,15 @@ for the Web UI".
 
 ## Where each part of the design lives
 
+A quick map of the documents in this directory; [CLAUDE.md](../CLAUDE.md)'s "Documents" table
+holds the fuller description of what each one holds and where new content lands.
+
 | Document | Covers |
 | --- | --- |
-| [architecture.md](architecture.md) | Technical decisions already implemented — what was chosen and why |
-| [api-notes.md](api-notes.md) | The API: its two-part structure (Dawarich-compatible and travelmap's own), and upstream's quirks for the part already implemented |
-| [openapi.yaml](openapi.yaml) | The OpenAPI contract for the subset actually implemented |
-| [database.md](database.md) | Database internals beyond what `schema.sql` already shows by itself |
+| [architecture.md](architecture.md) | System-wide technical decisions |
+| [api-notes.md](api-notes.md) | The API's two-part structure and upstream's quirks |
+| [openapi.yaml](openapi.yaml) | The OpenAPI contract |
+| [database.md](database.md) | Database internals beyond `schema.sql` |
 | [toolchain.md](toolchain.md) | The Go toolchain and its development tools |
 
 What is not yet built — the plan, its ordering, and decisions not yet settled — is
