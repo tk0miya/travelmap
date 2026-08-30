@@ -21,7 +21,7 @@ import (
 // rebuilding is redundant but not wrong, and telling a duplicate apart from a
 // fresh point up front would cost a lookup this design has no other use for.
 //
-// loc and trackBreak are TRAVELMAP_TIMEZONE and TRAVELMAP_TRACK_BREAK_MINUTES,
+// loc and trackBreak are tracking.timezone and tracking.track_break_minutes,
 // resolved by the caller for the reason on [Recalculate].
 func CreatePoints(ctx context.Context, st store.Store, points []model.Point, loc *time.Location, trackBreak time.Duration) (int, error) {
 	var created int

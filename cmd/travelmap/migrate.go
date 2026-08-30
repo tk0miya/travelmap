@@ -14,10 +14,10 @@ import (
 // It is a command of its own rather than something `serve` does on the way up:
 // a schema change is the one operation that cannot be undone by restarting, so
 // it happens when an operator asks for it, and its output says what it did.
-func migrate(getenv func(string) string, stdout io.Writer) error {
+func migrate(configPath string, stdout io.Writer) error {
 	ctx := context.Background()
 
-	db, path, err := openDatabase(ctx, getenv)
+	db, path, err := openDatabase(ctx, configPath)
 	if err != nil {
 		return err
 	}
@@ -41,11 +41,12 @@ func migrate(getenv func(string) string, stdout io.Writer) error {
 	return nil
 }
 
-// openDatabase opens the database the environment points at, returning it and
-// the path it came from — every message about it names the file, since which
-// database was touched is the thing an operator most needs to be sure of.
-func openDatabase(ctx context.Context, getenv func(string) string) (*sqlite.DB, string, error) {
-	cfg, err := config.Load(getenv)
+// openDatabase opens the database the configuration points at, returning it
+// and the path it came from — every message about it names the file, since
+// which database was touched is the thing an operator most needs to be sure
+// of.
+func openDatabase(ctx context.Context, configPath string) (*sqlite.DB, string, error) {
+	cfg, err := config.Load(configPath)
 	if err != nil {
 		return nil, "", err
 	}

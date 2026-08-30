@@ -48,15 +48,15 @@ func countSessionRow(t *testing.T, path, token string) int {
 func TestSweepExpiredSessions(t *testing.T) {
 	t.Parallel()
 
-	env, path := tempDatabase(t)
+	configPath, path := tempDatabase(t)
 
-	if err := run([]string{"migrate"}, env, noStdin(), new(bytes.Buffer), new(bytes.Buffer)); err != nil {
+	if err := run(withConfig(configPath, "migrate"), noStdin(), new(bytes.Buffer), new(bytes.Buffer)); err != nil {
 		t.Fatalf("migrate returned %v", err)
 	}
 
 	ctx := t.Context()
 
-	db, _, err := openDatabase(ctx, env)
+	db, _, err := openDatabase(ctx, configPath)
 	if err != nil {
 		t.Fatalf("opening the database: %v", err)
 	}

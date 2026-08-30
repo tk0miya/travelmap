@@ -89,7 +89,7 @@ type Client struct {
 
 // NewClient returns a client for the API at baseURL — the real one, or the
 // address of a test server standing in for it, which is what
-// TRAVELMAP_FOURSQUARE_API_URL is for. The default is the configuration's to
+// foursquare.api_url is for. The default is the configuration's to
 // hold, so nothing here supplies one.
 //
 // logger carries the one thing this client reports without being asked: the

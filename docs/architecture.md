@@ -57,8 +57,8 @@ below.
 ### Recalculation trigger
 
 CLI only (`travelmap recalculate`), not exposed as `/api/v1/recalculations`. Rebuilding
-`daily_stats` is only needed after an import, an inconsistency, or a `TRAVELMAP_TIMEZONE` /
-`TRAVELMAP_TRACK_BREAK_MINUTES` change — all operator-run locally on a self-hosted instance.
+`daily_stats` is only needed after an import, an inconsistency, or a `tracking.timezone` /
+`tracking.track_break_minutes` change — all operator-run locally on a self-hosted instance.
 Revisit if triggering it from the app turns out to be necessary.
 
 ### HTML rendering
@@ -122,7 +122,7 @@ the session afterwards. The callback also requires the session's user and the si
 it minted to name the same one, since the browser returns from Foursquare by a top-level GET that
 carries the `SameSite=Lax` session cookie.
 
-### `TRAVELMAP_BASE_URL`
+### `server.base_url`
 
 This server's own externally reachable URL, general-purpose rather than named for its one current
 reader. The Foursquare OAuth callback URL is this plus a fixed path
@@ -198,7 +198,7 @@ only because the endpoint answers **newest first**: what has already been read i
 
 ### The window is recomputed, never resumed
 
-Every run re-reads a whole window — `TRAVELMAP_FOURSQUARE_SYNC_LOOKBACK_DAYS` (default 14) back
+Every run re-reads a whole window — `foursquare.sync_lookback_days` (default 14) back
 from now — rather than resuming from where the last one stopped.
 
 A high-water-mark cursor cannot see two things, both of which happen whatever the push path does.

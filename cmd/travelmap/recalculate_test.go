@@ -16,20 +16,20 @@ import (
 // CLI command that inserts a point to set one up through instead — that goes
 // through the HTTP endpoints (POST /api/v1/points, /api/v1/overland/batches).
 
-// seedPoints migrates env's database and inserts one user's points directly,
-// standing in for what a device's uploads would have put there. It returns
-// the id the user got.
-func seedPoints(t *testing.T, env func(string) string, points []model.Point) int64 {
+// seedPoints migrates configPath's database and inserts one user's points
+// directly, standing in for what a device's uploads would have put there. It
+// returns the id the user got.
+func seedPoints(t *testing.T, configPath string, points []model.Point) int64 {
 	t.Helper()
 
 	var out bytes.Buffer
-	if err := run([]string{"migrate"}, env, noStdin(), &out, &out); err != nil {
+	if err := run(withConfig(configPath, "migrate"), noStdin(), &out, &out); err != nil {
 		t.Fatalf("migrate returned %v", err)
 	}
 
 	ctx := t.Context()
 
-	db, _, err := openDatabase(ctx, env)
+	db, _, err := openDatabase(ctx, configPath)
 	if err != nil {
 		t.Fatalf("opening the database: %v", err)
 	}
@@ -61,7 +61,7 @@ func seedPoints(t *testing.T, env func(string) string, points []model.Point) int
 func TestRecalculateCommand(t *testing.T) {
 	t.Parallel()
 
-	env, _ := tempDatabase(t)
+	configPath, _ := tempDatabase(t)
 
 	day := time.Date(2026, time.June, 1, 12, 0, 0, 0, time.UTC)
 
@@ -71,14 +71,14 @@ func TestRecalculateCommand(t *testing.T) {
 	)
 
 	// Ten minutes apart, well inside the default 30-minute
-	// TRAVELMAP_TRACK_BREAK_MINUTES, so the segment is not excluded.
-	userID := seedPoints(t, env, []model.Point{
+	// tracking.track_break_minutes, so the segment is not excluded.
+	userID := seedPoints(t, configPath, []model.Point{
 		{Timestamp: day, Latitude: tokyoLat, Longitude: tokyoLon},
 		{Timestamp: day.Add(10 * time.Minute), Latitude: osakaLat, Longitude: osakaLon},
 	})
 
 	var out bytes.Buffer
-	if err := run([]string{"recalculate"}, env, noStdin(), &out, &out); err != nil {
+	if err := run(withConfig(configPath, "recalculate"), noStdin(), &out, &out); err != nil {
 		t.Fatalf("recalculate returned %v (output %q)", err, out.String())
 	}
 
@@ -86,7 +86,7 @@ func TestRecalculateCommand(t *testing.T) {
 		t.Errorf("recalculate printed %q, want it to report the recalculation", got)
 	}
 
-	db, _, err := openDatabase(t.Context(), env)
+	db, _, err := openDatabase(t.Context(), configPath)
 	if err != nil {
 		t.Fatalf("opening the database: %v", err)
 	}
@@ -107,16 +107,16 @@ func TestRecalculateCommand(t *testing.T) {
 }
 
 // TestRecalculateOnAnUnmigratedDatabase covers the same mistake `serve` and
-// `foursquare sync` refuse: TRAVELMAP_DATABASE pointing at a file with no
+// `foursquare sync` refuse: database.path pointing at a file with no
 // schema.
 func TestRecalculateOnAnUnmigratedDatabase(t *testing.T) {
 	t.Parallel()
 
-	env, _ := tempDatabase(t)
+	configPath, _ := tempDatabase(t)
 
 	var out bytes.Buffer
 
-	err := run([]string{"recalculate"}, env, noStdin(), &out, &out)
+	err := run(withConfig(configPath, "recalculate"), noStdin(), &out, &out)
 	if err == nil {
 		t.Fatal("recalculate on an unmigrated database returned nil")
 	}
@@ -126,68 +126,56 @@ func TestRecalculateOnAnUnmigratedDatabase(t *testing.T) {
 	}
 }
 
-// TestRecalculateRejectsAnInvalidTimezone pins that a bad TRAVELMAP_TIMEZONE
+// TestRecalculateRejectsAnInvalidTimezone pins that a bad tracking.timezone
 // stops the command before it touches the database, the same way every other
 // command refuses a configuration that fails to load.
 func TestRecalculateRejectsAnInvalidTimezone(t *testing.T) {
 	t.Parallel()
 
-	base, _ := tempDatabase(t)
-
-	env := func(name string) string {
-		if name == "TRAVELMAP_TIMEZONE" {
-			return "Nowhere/Nothing"
-		}
-
-		return base(name)
-	}
+	_, dbPath := tempDatabase(t)
+	configPath := writeConfigWithDB(t, dbPath, "[tracking]\ntimezone = \"Nowhere/Nothing\"\n")
 
 	var out bytes.Buffer
 
-	err := run([]string{"recalculate"}, env, noStdin(), &out, &out)
+	err := run(withConfig(configPath, "recalculate"), noStdin(), &out, &out)
 	if err == nil {
-		t.Fatal("recalculate with an invalid TRAVELMAP_TIMEZONE returned nil")
+		t.Fatal("recalculate with an invalid tracking.timezone returned nil")
 	}
 
-	if !strings.Contains(err.Error(), "TRAVELMAP_TIMEZONE") {
-		t.Errorf("recalculate failed with %v, want it to name the variable at fault", err)
+	if !strings.Contains(err.Error(), "tracking.timezone") {
+		t.Errorf("recalculate failed with %v, want it to name the key at fault", err)
 	}
 }
 
 // TestRecalculateDeletesStaleDays pins the reason DeleteAll runs first:
-// rebuilding under a changed TRAVELMAP_TIMEZONE must not leave a day from
+// rebuilding under a changed tracking.timezone must not leave a day from
 // the previous timezone's grouping behind.
 func TestRecalculateDeletesStaleDays(t *testing.T) {
 	t.Parallel()
 
-	env, _ := tempDatabase(t)
+	configPath, dbPath := tempDatabase(t)
 
 	// 20:00 UTC, which recalculate under the default UTC groups onto June 1.
 	ts := time.Date(2026, time.June, 1, 20, 0, 0, 0, time.UTC)
 
-	userID := seedPoints(t, env, []model.Point{{Timestamp: ts, Latitude: 35.0, Longitude: 139.0}})
+	userID := seedPoints(t, configPath, []model.Point{{Timestamp: ts, Latitude: 35.0, Longitude: 139.0}})
 
 	var out bytes.Buffer
-	if err := run([]string{"recalculate"}, env, noStdin(), &out, &out); err != nil {
+	if err := run(withConfig(configPath, "recalculate"), noStdin(), &out, &out); err != nil {
 		t.Fatalf("the first recalculate returned %v", err)
 	}
 
 	// The same instant is 05:00 JST on June 2 — a different calendar day, so
 	// the second recalculation must not leave June 1's row from the first
-	// behind.
-	tzEnv := func(name string) string {
-		if name == "TRAVELMAP_TIMEZONE" {
-			return "Asia/Tokyo"
-		}
+	// behind. Pointed at the same database, under a config that sets only
+	// the timezone.
+	tzConfigPath := writeConfigWithDB(t, dbPath, "[tracking]\ntimezone = \"Asia/Tokyo\"\n")
 
-		return env(name)
-	}
-
-	if err := run([]string{"recalculate"}, tzEnv, noStdin(), &out, &out); err != nil {
+	if err := run(withConfig(tzConfigPath, "recalculate"), noStdin(), &out, &out); err != nil {
 		t.Fatalf("the second recalculate returned %v", err)
 	}
 
-	db, _, err := openDatabase(t.Context(), env)
+	db, _, err := openDatabase(t.Context(), configPath)
 	if err != nil {
 		t.Fatalf("opening the database: %v", err)
 	}

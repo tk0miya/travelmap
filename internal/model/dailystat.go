@@ -8,7 +8,7 @@ type DailyStat struct {
 	UserID int64
 
 	// Day is local midnight of the day this row covers, in whatever timezone
-	// TRAVELMAP_TIMEZONE named when the row was built. It is part of the
+	// tracking.timezone named when the row was built. It is part of the
 	// primary key together with UserID.
 	Day time.Time
 

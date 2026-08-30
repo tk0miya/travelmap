@@ -41,7 +41,7 @@ upstream requires the user to configure a reverse geocoder.
 
 The distance between two consecutive points is **attributed to the day of the later point**.
 
-Segments whose time gap exceeds `TRAVELMAP_TRACK_BREAK_MINUTES` are **not counted at all**,
+Segments whose time gap exceeds `tracking.track_break_minutes` are **not counted at all**,
 so `km` means "distance travelled within tracks". Without this, the straight-line distance
 across a tracking gap or a flight lands in the total. Track splitting uses the same value.
 
@@ -143,9 +143,9 @@ A check-in is neither a point nor a segment, so it contributes to no `/stats` to
 
 ## `foursquare_accounts`
 
-A row per user rather than an env var, since resolving an incoming webhook to a travelmap user
-needs a lookup an env var cannot provide (see below). Created by completing the settings page's
-browser OAuth flow; nothing is collected for a user until this row exists.
+A row per user rather than a config setting, since resolving an incoming webhook to a travelmap
+user needs a lookup a single setting cannot provide (see below). Created by completing the
+settings page's browser OAuth flow; nothing is collected for a user until this row exists.
 
 `foursquare_user_id` is stored as **TEXT**: the payload sends it quoted (`"1709193"`). Its unique
 index is what lets an incoming push resolve to exactly one travelmap user — nothing else maps a

@@ -13,7 +13,7 @@ import (
 // cmd/travelmap/serve.go, the only place holding both the signal-cancelled
 // context and the concrete store — which is also why that caller, not this
 // function, decides whether to start it at all: interval <= 0
-// (TRAVELMAP_FOURSQUARE_SYNC_INTERVAL=0) would panic inside time.NewTicker
+// (foursquare.sync_interval = "0") would panic inside time.NewTicker
 // rather than mean anything to disable here.
 func RunPeriodicSync(ctx context.Context, st store.Store, fetcher Fetcher, interval, lookback time.Duration, logger *slog.Logger) {
 	ticker := time.NewTicker(interval)

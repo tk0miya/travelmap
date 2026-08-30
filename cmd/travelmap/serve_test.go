@@ -8,20 +8,20 @@ import (
 
 // TestServeRefusesAnUnmigratedDatabase covers the check that happens before the
 // listener opens. Serving from a database with no schema would answer every
-// request with an error about a missing table, and a typo in
-// TRAVELMAP_DATABASE looks exactly like that — the history everyone expects is
-// in the file nobody named.
+// request with an error about a missing table, and a typo in the config
+// file's database.path looks exactly like that — the history everyone
+// expects is in the file nobody named.
 //
 // It is the whole of what can be tested through run: a serve that gets past
 // this blocks until the process is signalled.
 func TestServeRefusesAnUnmigratedDatabase(t *testing.T) {
 	t.Parallel()
 
-	env, path := tempDatabase(t)
+	configPath, path := tempDatabase(t)
 
 	var stdout, stderr bytes.Buffer
 
-	err := run([]string{"serve"}, env, noStdin(), &stdout, &stderr)
+	err := run(withConfig(configPath, "serve"), noStdin(), &stdout, &stderr)
 	if err == nil {
 		t.Fatal("serve against an unmigrated database returned nil")
 	}

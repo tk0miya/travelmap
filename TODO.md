@@ -257,7 +257,7 @@ filled in.
 #### Endpoints a real device hits
 
 Nothing recorded yet. Fill this in from one capture session — start the server with
-`TRAVELMAP_DEBUG_LOG_REQUESTS=1`, add it in the app, let it record and browse — and list the
+`server.debug_log_requests = true`, add it in the app, let it record and browse — and list the
 method, the path and the query parameters of every line, including the 404s. Diff that against
 the six endpoints under "About the iOS app": what is here and not there is what the official
 app needs and the community client does not, and it is the input to Milestone F's ordering.
@@ -272,7 +272,7 @@ Step 16 in fact only needs authentication, so it can be pulled forward at any ti
 
 ### Step 13: Tracks
 
-- [ ] Track-splitting logic (split on `TRAVELMAP_TRACK_BREAK_MINUTES` of inactivity) as a
+- [ ] Track-splitting logic (split on `tracking.track_break_minutes` of inactivity) as a
       background job. **Not `track_break` from `settings/mobile`** (see "Data Model")
 - [ ] `GET /api/v1/tracks` (GeoJSON FeatureCollection)
 - [ ] `GET /api/v1/tracks/{id}`, `GET /api/v1/tracks/{track_id}/points`
@@ -315,8 +315,8 @@ All independent of each other; take them in whatever order the need arises.
       points are inserted, so **on completion update `countries` / `cities` /
       `reverse_geocoded_points` in `daily_stats` for the affected days** (without this the
       corresponding `/stats` values stay 0 — see "Data Model")
-- [ ] `POST /api/v1/auth/register`, **open like the browser sign-up screen**, not behind an
-      environment variable. Two registration routes whose defaults disagree is exactly the
+- [ ] `POST /api/v1/auth/register`, **open like the browser sign-up screen**, not behind a
+      config setting. Two registration routes whose defaults disagree is exactly the
       drift this file's rules exist to stop, and there is no reading under which the API is the
       cautious one: a bot reaches a JSON endpoint more easily than a form
 - [ ] `POST /api/v1/owntracks/points`, `POST /api/v1/traccar/points`

@@ -103,7 +103,7 @@ type PointRepository interface {
 
 	// Timestamps returns every timestamp recorded for user, in ascending
 	// order. A full recalculation groups these into calendar days itself,
-	// because which day a timestamp falls on depends on TRAVELMAP_TIMEZONE,
+	// because which day a timestamp falls on depends on tracking.timezone,
 	// which this package does not know.
 	Timestamps(ctx context.Context, userID int64) ([]time.Time, error)
 
@@ -159,11 +159,11 @@ type DailyStatsRepository interface {
 	// preceding it, which may belong to an earlier day: the day's first
 	// point measures its segment against that point. A segment whose gap
 	// exceeds trackBreak is excluded entirely from km, matching
-	// TRAVELMAP_TRACK_BREAK_MINUTES.
+	// tracking.track_break_minutes.
 	Rebuild(ctx context.Context, userID int64, day time.Time, trackBreak time.Duration) error
 
 	// DeleteAll removes every row. It is the first step of a full
-	// recalculation: changing TRAVELMAP_TIMEZONE reshuffles which days
+	// recalculation: changing tracking.timezone reshuffles which days
 	// exist, and rebuilding only the days the new grouping produces would
 	// leave rows from the old grouping behind forever.
 	DeleteAll(ctx context.Context) error

@@ -1,0 +1,58 @@
+# travelmap configuration. Copy this file to travelmap.toml (the default
+# path Load reads, or pass --config <path>) and fill in the settings that
+# have no default below.
+#
+# server.base_url, foursquare.client_id, foursquare.client_secret and
+# foursquare.push_secret are required — see README.md's "Swarm (Foursquare)
+# check-ins" section for how to obtain them. Every other setting already
+# shows its own default and only needs to be touched to change it.
+
+[server]
+# The address to listen on, as host:port.
+addr = ":3000"
+# This server's own externally reachable URL, no trailing path — e.g.
+# "https://travelmap.example.com". The Foursquare OAuth callback URL is
+# this plus /foursquare/oauth/callback, and has to match what is
+# registered on the Foursquare application exactly.
+base_url = "https://travelmap.example.com"
+# The lowest level that is logged: debug, info, warn or error.
+log_level = "info"
+# Log one line per request, credentials redacted. See README.md.
+debug_log_requests = false
+
+[database]
+# The SQLite file holding everything the server stores.
+path = "travelmap.db"
+
+[tracking]
+# The timezone the day boundary is cut on. Changing this invalidates every
+# stored daily_stats row; run `travelmap recalculate` afterwards.
+timezone = "UTC"
+# Gaps longer than this, in minutes, are not counted as travelled distance.
+# Changing this also requires `travelmap recalculate`.
+track_break_minutes = 30
+
+[session]
+# How long a browser session lasts before it needs a fresh login.
+lifetime = "720h"
+# Send the session cookie only over HTTPS. Browsers treat http://localhost
+# as a secure context, so this costs nothing there; a server reachable only
+# over a plain-HTTP LAN sets this to false, or the cookie never leaves the
+# browser at all.
+cookie_secure = true
+
+[foursquare]
+# The Swarm OAuth application's client id and secret.
+client_id = "<client id>"
+client_secret = "<client secret>"
+# Shared secret for the Swarm push webhook (POST /webhooks/foursquare).
+push_secret = "<push secret>"
+# The Foursquare API base URL, used by both the check-in fetch client and
+# the OAuth flow. Only ever changed to point a test at a fake server.
+api_url = "https://api.foursquare.com"
+# How often the server repeats the check-in fetch on its own. "0" disables
+# it, leaving only the push webhook.
+sync_interval = "1h"
+# How far back each check-in fetch re-reads, whether run by the server
+# itself or by hand (`travelmap foursquare sync`).
+sync_lookback_days = 14

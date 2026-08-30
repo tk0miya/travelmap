@@ -13,7 +13,7 @@ import (
 
 // dayFormat is how a calendar day is stored: a plain "YYYY-MM-DD", read in
 // whatever timezone it was written under. The column carries no timezone of
-// its own — that is TRAVELMAP_TIMEZONE, a server-side setting, not something
+// its own — that is tracking.timezone, a server-side setting, not something
 // that varies row to row.
 const dayFormat = "2006-01-02"
 

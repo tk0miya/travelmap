@@ -210,61 +210,6 @@ func TestFoursquareOAuthStartRedirectsToFoursquare(t *testing.T) {
 	}
 }
 
-// TestFoursquareOAuthRoutesAbsentWhenUnconfigured pins that the routes do
-// not exist at all unless every one of the three settings is present — the
-// same reasoning as POST /webhooks/foursquare's own FoursquarePushSecret.
-// Each case leaves exactly one of the three unset, including BaseURL on its
-// own: that is the one combination foursquareOAuth.configured has to reject
-// correctly, since the callback URL it derives from BaseURL is never itself
-// empty (it would just be the bare callback path).
-func TestFoursquareOAuthRoutesAbsentWhenUnconfigured(t *testing.T) {
-	t.Parallel()
-
-	tests := map[string]Options{
-		"nothing set": {},
-		"BaseURL missing": {
-			FoursquareClientID:     oauthTestClientID,
-			FoursquareClientSecret: oauthTestClientSecret,
-		},
-		"FoursquareClientID missing": {
-			FoursquareClientSecret: oauthTestClientSecret,
-			BaseURL:                oauthTestBaseURL,
-		},
-		"FoursquareClientSecret missing": {
-			FoursquareClientID: oauthTestClientID,
-			BaseURL:            oauthTestBaseURL,
-		},
-	}
-
-	for name, opts := range tests {
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-
-			opts.Logger = slog.New(slog.NewTextHandler(io.Discard, nil))
-			opts.Store = storetest.New(t)
-
-			a := newAPI(opts)
-			srv := httptest.NewServer(a.newRouter())
-			t.Cleanup(srv.Close)
-
-			for _, path := range []string{"/settings/foursquare/connect", "/foursquare/oauth/callback"} {
-				resp, err := srv.Client().Get(srv.URL + path)
-				if err != nil {
-					t.Fatalf("GET %s: %v", path, err)
-				}
-
-				if err := resp.Body.Close(); err != nil {
-					t.Errorf("closing the response body: %v", err)
-				}
-
-				if resp.StatusCode != http.StatusNotFound {
-					t.Errorf("GET %s: status = %d, want %d", path, resp.StatusCode, http.StatusNotFound)
-				}
-			}
-		})
-	}
-}
-
 // TestFoursquareOAuthStartTrimsBaseURLTrailingSlash pins that a BaseURL an
 // operator copy-pasted with a trailing slash (plausible, out of a reverse
 // proxy config) does not produce a doubled slash in redirect_uri — a value

@@ -13,17 +13,17 @@ import (
 	"github.com/tk0miya/travelmap/internal/model"
 )
 
-// seedUser inserts one user directly into env's already-migrated database —
-// the same reasoning as recalculate_test.go's own seedPoints, since there is
-// no CLI command left that creates a user: signing up needs a browser, which
-// these tests don't drive. The email doubles as the API key; nothing here
-// authenticates with it, so only uniqueness matters.
-func seedUser(t *testing.T, env func(string) string, email string) {
+// seedUser inserts one user directly into configPath's already-migrated
+// database — the same reasoning as recalculate_test.go's own seedPoints,
+// since there is no CLI command left that creates a user: signing up needs
+// a browser, which these tests don't drive. The email doubles as the API
+// key; nothing here authenticates with it, so only uniqueness matters.
+func seedUser(t *testing.T, configPath, email string) {
 	t.Helper()
 
 	ctx := t.Context()
 
-	db, _, err := openDatabase(ctx, env)
+	db, _, err := openDatabase(ctx, configPath)
 	if err != nil {
 		t.Fatalf("opening the database: %v", err)
 	}
@@ -38,15 +38,16 @@ func seedUser(t *testing.T, env func(string) string, email string) {
 	}
 }
 
-// seedFoursquareAccount links email to foursquareUserID directly in env's
-// already-migrated database, standing in for what the settings page's OAuth
-// flow does — there is no CLI command left that creates a link either.
-func seedFoursquareAccount(t *testing.T, env func(string) string, email, foursquareUserID, accessToken string) {
+// seedFoursquareAccount links email to foursquareUserID directly in
+// configPath's already-migrated database, standing in for what the
+// settings page's OAuth flow does — there is no CLI command left that
+// creates a link either.
+func seedFoursquareAccount(t *testing.T, configPath, email, foursquareUserID, accessToken string) {
 	t.Helper()
 
 	ctx := t.Context()
 
-	db, _, err := openDatabase(ctx, env)
+	db, _, err := openDatabase(ctx, configPath)
 	if err != nil {
 		t.Fatalf("opening the database: %v", err)
 	}
@@ -66,18 +67,22 @@ func seedFoursquareAccount(t *testing.T, env func(string) string, email, foursqu
 	}
 }
 
-// withFoursquareAPI returns the environment of a migrated database holding
+// withFoursquareAPI returns the config path of a migrated database holding
 // one user with a Swarm account already linked, pointed at a test server
-// answering with checkins — the one variable that exists so that a fetch can
+// answering with checkins — the one setting that exists so that a fetch can
 // be run against something other than Foursquare itself.
-func withFoursquareAPI(t *testing.T, checkins string) func(string) string {
+//
+// The config file is rewritten with the server's URL only after every
+// command that does not care about it has already run against the original
+// content.
+func withFoursquareAPI(t *testing.T, checkins string) string {
 	t.Helper()
 
-	env := migrated(t)
+	configPath, dbPath := migrated(t)
 	const email = "alice@example.com"
 
-	seedUser(t, env, email)
-	seedFoursquareAccount(t, env, email, "1709193", "the-access-token")
+	seedUser(t, configPath, email)
+	seedFoursquareAccount(t, configPath, email, "1709193", "the-access-token")
 
 	body := `{"meta":{"code":200},"response":{"checkins":{"count":1,"items":[` + checkins + `]}}}`
 
@@ -86,13 +91,15 @@ func withFoursquareAPI(t *testing.T, checkins string) func(string) string {
 	}))
 	t.Cleanup(server.Close)
 
-	return func(name string) string {
-		if name == "TRAVELMAP_FOURSQUARE_API_URL" {
-			return server.URL
-		}
-
-		return env(name)
+	// No [foursquare] header of its own: requiredTOML's own [foursquare]
+	// table is still open at this point in the generated file, and TOML
+	// refuses a table declared twice.
+	extra := fmt.Sprintf("api_url = %q\n", server.URL)
+	if err := rewriteConfigWithDB(configPath, dbPath, extra); err != nil {
+		t.Fatalf("rewriting %s: %v", configPath, err)
 	}
+
+	return configPath
 }
 
 // recentCheckin is one check-in dated relative to now. A run computes its
@@ -109,11 +116,11 @@ func recentCheckin(id string, ago time.Duration) string {
 func TestFoursquareSyncCommand(t *testing.T) {
 	t.Parallel()
 
-	env := withFoursquareAPI(t, recentCheckin("5f2a1b3c4d5e6f708192a3b4", time.Hour))
+	configPath := withFoursquareAPI(t, recentCheckin("5f2a1b3c4d5e6f708192a3b4", time.Hour))
 
 	var stdout, stderr bytes.Buffer
 
-	if err := run([]string{"foursquare", "sync"}, env, noStdin(), &stdout, &stderr); err != nil {
+	if err := run(withConfig(configPath, "foursquare", "sync"), noStdin(), &stdout, &stderr); err != nil {
 		t.Fatalf("foursquare sync returned %v (stderr %q)", err, stderr.String())
 	}
 
@@ -129,12 +136,12 @@ func TestFoursquareSyncCommand(t *testing.T) {
 func TestFoursquareSyncTakesAWiderWindow(t *testing.T) {
 	t.Parallel()
 
-	env := withFoursquareAPI(t, recentCheckin("5f2a1b3c4d5e6f708192a3b4", 30*24*time.Hour))
+	configPath := withFoursquareAPI(t, recentCheckin("5f2a1b3c4d5e6f708192a3b4", 30*24*time.Hour))
 
 	var stdout, stderr bytes.Buffer
 
-	args := []string{"foursquare", "sync", "--lookback-days", "365"}
-	if err := run(args, env, noStdin(), &stdout, &stderr); err != nil {
+	args := withConfig(configPath, "foursquare", "sync", "--lookback-days", "365")
+	if err := run(args, noStdin(), &stdout, &stderr); err != nil {
 		t.Fatalf("foursquare sync returned %v (stderr %q)", err, stderr.String())
 	}
 
@@ -151,7 +158,10 @@ func TestFoursquareSyncWithoutALinkedAccount(t *testing.T) {
 
 	var stdout, stderr bytes.Buffer
 
-	if err := run([]string{"foursquare", "sync"}, migrated(t), noStdin(), &stdout, &stderr); err != nil {
+	configPath, _ := migrated(t)
+
+	args := withConfig(configPath, "foursquare", "sync")
+	if err := run(args, noStdin(), &stdout, &stderr); err != nil {
 		t.Fatalf("foursquare sync returned %v (stderr %q)", err, stderr.String())
 	}
 
@@ -174,9 +184,9 @@ func TestFoursquareSyncRejectsBadInput(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			var stdout, stderr bytes.Buffer
+			configPath, _ := migrated(t)
 
-			err := run(args, migrated(t), noStdin(), &stdout, &stderr)
+			err := run(withConfig(configPath, args...), noStdin(), &bytes.Buffer{}, &bytes.Buffer{})
 			if !errors.Is(err, errUsage) {
 				t.Fatalf("foursquare sync returned %v, want a usage error", err)
 			}
@@ -193,7 +203,7 @@ func TestFoursquareSyncRejectsBadInput(t *testing.T) {
 func TestFoursquareSyncContinuesAfterOneAccountFails(t *testing.T) {
 	t.Parallel()
 
-	env := migrated(t)
+	configPath, dbPath := migrated(t)
 
 	body := `{"meta":{"code":200},"response":{"checkins":{"count":1,` +
 		`"items":[` + recentCheckin("5f2a1b3c4d5e6f708192a3b4", time.Hour) + `]}}}`
@@ -211,24 +221,24 @@ func TestFoursquareSyncContinuesAfterOneAccountFails(t *testing.T) {
 	t.Cleanup(server.Close)
 
 	link := func(email, foursquareUserID, token string) {
-		seedUser(t, env, email)
-		seedFoursquareAccount(t, env, email, foursquareUserID, token)
+		seedUser(t, configPath, email)
+		seedFoursquareAccount(t, configPath, email, foursquareUserID, token)
 	}
 
 	link("first@example.com", "1111111", "the-failing-token")
 	link("second@example.com", "2222222", "the-working-token")
 
-	withAPIURL := func(name string) string {
-		if name == "TRAVELMAP_FOURSQUARE_API_URL" {
-			return server.URL
-		}
-
-		return env(name)
+	// Rewritten only now, after both links — which do not care about it —
+	// have already run against the original content. No [foursquare] header
+	// of its own: see the comment on the same pattern in withFoursquareAPI.
+	extra := fmt.Sprintf("api_url = %q\n", server.URL)
+	if err := rewriteConfigWithDB(configPath, dbPath, extra); err != nil {
+		t.Fatalf("rewriting %s: %v", configPath, err)
 	}
 
 	var stdout, stderr bytes.Buffer
 
-	err := run([]string{"foursquare", "sync"}, withAPIURL, noStdin(), &stdout, &stderr)
+	err := run(withConfig(configPath, "foursquare", "sync"), noStdin(), &stdout, &stderr)
 	if err == nil {
 		t.Fatal("foursquare sync returned nil, want the failing account's error")
 	}

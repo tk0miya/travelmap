@@ -25,9 +25,8 @@ const foursquareOAuthCallbackPath = "/foursquare/oauth/callback"
 // single feature happens to need.
 //
 // baseURL is kept as given rather than turned into the derived callback URL
-// once and cached: configured is cheap to compute from the one fact this
-// type actually holds, and the callback URL itself is the handlers' own to
-// build — see foursquareOAuthCallbackURL in foursquare.go.
+// once and cached: the callback URL itself is the handlers' own to build —
+// see foursquareOAuthCallbackURL in foursquare.go.
 type foursquareOAuth struct {
 	clientID     string
 	clientSecret string
@@ -36,7 +35,7 @@ type foursquareOAuth struct {
 	httpClient *http.Client
 	states     *oauthStateStore
 
-	// apiBaseURL is TRAVELMAP_FOURSQUARE_API_URL — [config.Config.FoursquareAPIURL]
+	// apiBaseURL is foursquare.api_url — [config.Config.FoursquareAPIURL]
 	// — the same setting the check-in fetch client points at a fake server
 	// with, reused here rather than a second setting of its own.
 	apiBaseURL string
@@ -68,12 +67,4 @@ func newFoursquareOAuth(opts Options) *foursquareOAuth {
 		apiBaseURL:   apiBaseURL,
 		tokenURL:     foursquare.DefaultTokenURL,
 	}
-}
-
-// configured reports whether enough is set to run the OAuth flow at all:
-// the client id, the client secret, and BaseURL to derive the callback URL
-// from. GET /settings/foursquare/connect and its callback are registered
-// only when this is true, the same reasoning as FoursquarePushSecret.
-func (f *foursquareOAuth) configured() bool {
-	return f.clientID != "" && f.clientSecret != "" && f.baseURL != ""
 }

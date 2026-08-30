@@ -263,10 +263,7 @@ reading these responses to keep the shape of.
 
 ### `POST /webhooks/foursquare`
 
-A Swarm User Push notification. Registered only when `TRAVELMAP_FOURSQUARE_PUSH_SECRET` is set;
-an unconfigured server answers 404 like any endpoint it does not implement, rather than 401 to
-every request — consistent with "An endpoint this server does not implement answers 404" above
-even though this route is outside the Dawarich-compatible surface that rule was written for.
+A Swarm User Push notification, checked against `foursquare.push_secret`.
 
 The status codes and their (always empty) response bodies are in `docs/openapi.yaml`; what
 follows is why they are what they are.
