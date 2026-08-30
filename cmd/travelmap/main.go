@@ -23,7 +23,6 @@ Usage:
 Commands:
   serve                Run the HTTP server
   migrate              Bring the database schema up to date
-  user create          Issue a user and its API key
   recalculate          Rebuild daily_stats from points
   foursquare connect   Link a travelmap account to a Swarm account
   foursquare sync      Fetch the linked accounts' Swarm check-ins once
@@ -98,8 +97,6 @@ func run(args []string, getenv func(string) string, stdin io.Reader, stdout, std
 		}
 
 		return migrate(getenv, stdout)
-	case "user":
-		return user(cmdArgs, getenv, stdin, stdout, stderr)
 	case "foursquare":
 		return foursquare(cmdArgs, getenv, stdin, stdout, stderr)
 	case "recalculate":

@@ -25,6 +25,21 @@ func tempDatabase(t *testing.T) (func(string) string, string) {
 	}, path
 }
 
+// migrated returns the environment of a database the schema has already been
+// applied to, which is the state every other command's own tests start from.
+func migrated(t *testing.T) func(string) string {
+	t.Helper()
+
+	env, _ := tempDatabase(t)
+
+	var out bytes.Buffer
+	if err := run([]string{"migrate"}, env, noStdin(), &out, &out); err != nil {
+		t.Fatalf("migrate returned %v", err)
+	}
+
+	return env
+}
+
 // TestMigrateCommand verifies travelmap migrate from outside: the first run
 // creates the schema, and a second one changes nothing and says so instead of
 // failing.

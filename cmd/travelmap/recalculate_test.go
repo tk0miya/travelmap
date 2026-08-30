@@ -11,11 +11,10 @@ import (
 	"github.com/tk0miya/travelmap/internal/store"
 )
 
-// This file, alone in this package's tests, opens internal/store/sqlite
-// directly: cmd/travelmap is the only package allowed to, per "Layering" in
-// CLAUDE.md, and there is no CLI command that inserts a point to set one up
-// through instead — that goes through the HTTP endpoints (POST
-// /api/v1/points, /api/v1/overland/batches).
+// This file opens internal/store/sqlite directly to seed points: cmd/travelmap
+// is the only package allowed to, per "Layering" in CLAUDE.md, and there is no
+// CLI command that inserts a point to set one up through instead — that goes
+// through the HTTP endpoints (POST /api/v1/points, /api/v1/overland/batches).
 
 // seedPoints migrates env's database and inserts one user's points directly,
 // standing in for what a device's uploads would have put there. It returns
@@ -108,7 +107,8 @@ func TestRecalculateCommand(t *testing.T) {
 }
 
 // TestRecalculateOnAnUnmigratedDatabase covers the same mistake `serve` and
-// `user create` refuse: TRAVELMAP_DATABASE pointing at a file with no schema.
+// `foursquare connect` refuse: TRAVELMAP_DATABASE pointing at a file with no
+// schema.
 func TestRecalculateOnAnUnmigratedDatabase(t *testing.T) {
 	t.Parallel()
 

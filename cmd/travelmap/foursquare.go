@@ -32,8 +32,8 @@ Usage:
   travelmap foursquare connect --email <address> --foursquare-user-id <id>
 
 Flags:
-  --email                 The travelmap account to link, created with
-                           "travelmap user create"
+  --email                 The travelmap account to link, created by signing
+                           up at /signup
   --foursquare-user-id    The Swarm account's own id, as it appears in
                            checkin.user.id on an incoming push
 
@@ -131,7 +131,7 @@ func foursquareConnect(args []string, getenv func(string) string, stdin io.Reade
 	user, err := db.Users().ByEmail(ctx, address)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
-			return fmt.Errorf("%s: no user with the email %s, run \"travelmap user create\" first", path, address)
+			return fmt.Errorf("%s: no user with the email %s, sign up at /signup first", path, address)
 		}
 
 		return err
@@ -270,8 +270,7 @@ func countedCheckins(n int) string {
 
 // readToken takes the Foursquare access token off the first line of standard
 // input — the way to hand it to this command without it appearing in `ps`
-// output or the shell history, the same concern userCreate's password reading
-// answers.
+// output or the shell history.
 func readToken(stdin io.Reader) (string, error) {
 	line, err := bufio.NewReader(stdin).ReadString('\n')
 	if err != nil && !errors.Is(err, io.EOF) {

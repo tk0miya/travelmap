@@ -332,14 +332,14 @@ All independent of each other; take them in whatever order the need arises.
 Start once the API has settled. What the screens still need a library for is in "Library Choices
 for the Web UI".
 
-Steps 32 and 33 are the rest of the browser's way in, and the CLI paths it replaces. The Swarm
+Step 33 is the rest of the browser's way in, and the CLI path it replaces. The Swarm
 link itself already runs on the browser session, with its own section on the settings page —
 `/settings`, its connect at `/settings/foursquare/connect` and its OAuth callback, and its
 disconnect at `/settings/foursquare/disconnect`, all in `internal/httpapi` — built directly
 against the session rather than against `api_key`, since the
 `sessions` table and its repository, the HTML route group and its one page, the session
 middleware, the login screen, `auth.Register` and the sign-up screen were all already in place
-when it was taken. **Neither of the two adds a data endpoint**, which is what leaves "Open
+when it was taken. **It adds no data endpoint either**, which is what leaves "Open
 question: how the browser authenticates against `/api/v1`" for the map screen to answer rather
 than this half.
 
@@ -350,43 +350,8 @@ plan rather than recording it.
 ### Ordering
 
 ```
-The sign-up screen ─→ Step 32 (remove user create)
-
 The settings page (already built) ─→ Step 33 (remove foursquare connect)
 ```
-
-### Step 32: Remove `travelmap user create`
-
-Follows the sign-up screen, already in place. Once the browser can sign up on an empty database,
-the CLI path settles nothing a browser cannot: unlike Foursquare's OAuth exchange, nothing about
-creating a travelmap account needs a redirect to reach the operator's own server from the outside,
-so there is no deployment where sign-up is reachable and `user create` is not. Kept only as long as
-it takes to prove sign-up out; this step is what removes it rather than leaving two paths that can
-drift.
-
-- [ ] Delete the `user create` subcommand and its own tests
-- [ ] `docs/architecture.md`'s "User management" section drops the CLI entirely: issued via browser
-      sign-up, full stop
-- [ ] `0001_users.sql`'s leading comment on `users` and `model.User`'s doc comment — both rewritten
-      once already, by the sign-up screen, to say the CLI is one path rather than the path — are
-      rewritten again to say there is no command-line path at all
-- [ ] README: the `user create` walkthrough in "Build and run" is replaced with signing up at
-      `/signup`; `travelmap foursquare connect --email …` keeps working unchanged, since it only
-      ever needed an existing account's address, not the command that created it. Two places in
-      its own `--help` text name the command being removed here, both rewritten to point at
-      `/signup` instead: the `--email` flag's own description ("created with `travelmap user
-      create`") and the "no user with the email …, run `travelmap user create` first" error
-      message. A third comment there, on `readToken`, names `userCreate` itself ("the same concern
-      `userCreate`'s password reading answers") — rewritten too, since that function stops
-      existing here
-- [ ] Tests: `travelmap --help` no longer lists `user create`; whatever this repository's own
-      tests use to seed a user for another command's tests (`foursquare connect`, `recalculate`)
-      does not go through it either, and is checked here rather than assumed
-
-**Settles**: that a travelmap account has exactly one way to be created.
-
-**Done when**: `travelmap user create` no longer exists, and the README's setup walkthrough signs
-up at `/signup` instead.
 
 ### Step 33: Remove `travelmap foursquare connect`
 

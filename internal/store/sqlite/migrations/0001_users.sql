@@ -1,8 +1,7 @@
 -- +goose Up
 
--- The accounts the API authenticates. Issued from the command line
--- (`travelmap user create`) or the browser sign-up screen, both through
--- auth.Register — neither needs a column of its own. Likewise no
+-- The accounts the API authenticates. Issued from the browser sign-up screen,
+-- through auth.Register — it needs no column of its own. Likewise no
 -- status/plan/subscription_source/active_until: those are upstream Cloud's
 -- billing fields, billing is a non-goal, and auth/login answers them with
 -- constants instead.
