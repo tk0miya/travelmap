@@ -90,19 +90,27 @@ default, so it runs with an empty environment.
 | --- | --- | --- |
 | `TRAVELMAP_ADDR` | `:3000` | The address to listen on, as `host:port` |
 | `TRAVELMAP_DATABASE` | `travelmap.db` | The SQLite file holding everything the server stores |
+| `TRAVELMAP_BASE_URL` | unset | This server's own externally reachable URL, no trailing path. See below |
 | `TRAVELMAP_DEBUG_LOG_REQUESTS` | off | Log one line per request, credentials redacted. See below |
 | `TRAVELMAP_LOG_LEVEL` | `info` | The lowest level that is logged: `debug`, `info`, `warn` or `error` |
 | `TRAVELMAP_TIMEZONE` | `UTC` | The timezone the day boundary is cut on |
 | `TRAVELMAP_TRACK_BREAK_MINUTES` | `30` | Gaps longer than this are not counted as travelled distance |
 | `TRAVELMAP_FOURSQUARE_PUSH_SECRET` | unset | Shared secret for the Swarm (Foursquare) push webhook. See below |
+| `TRAVELMAP_FOURSQUARE_CLIENT_ID` | unset | The Swarm OAuth application's client id. See below |
+| `TRAVELMAP_FOURSQUARE_CLIENT_SECRET` | unset | The Swarm OAuth application's client secret. See below |
 | `TRAVELMAP_SESSION_LIFETIME` | `720h` | How long a browser session lasts before it needs a fresh login |
 | `TRAVELMAP_SESSION_COOKIE_SECURE` | on | Send the session cookie only over HTTPS. See below |
 | `TRAVELMAP_FOURSQUARE_SYNC_LOOKBACK_DAYS` | `14` | How far back `travelmap foursquare sync` re-reads on every run. See below |
-| `TRAVELMAP_FOURSQUARE_API_URL` | `https://api.foursquare.com` | The Foursquare API base URL. Exists so a test can point the client elsewhere |
+| `TRAVELMAP_FOURSQUARE_API_URL` | `https://api.foursquare.com` | The Foursquare API base URL, used by both the check-in fetch client and the OAuth flow. Exists so a test can point either at a fake server |
 
 `TRAVELMAP_TIMEZONE` and `TRAVELMAP_TRACK_BREAK_MINUTES` decide how stored statistics are
 computed, so changing either invalidates the ones already stored; `travelmap recalculate`
 rebuilds them.
+
+`TRAVELMAP_BASE_URL` is this server's own externally reachable URL (e.g.
+`https://travelmap.example.com`, no trailing path). The Swarm OAuth flow below appends its own
+fixed `/foursquare/oauth/callback` path to it to build the URL Foursquare redirects back to — that
+combined URL has to match the one registered on the Foursquare application exactly.
 
 `TRAVELMAP_SESSION_COOKIE_SECURE` defaults to on, which is what a login form needs to keep
 working over plain HTTP: browsers treat `http://localhost` as a secure context, so this costs a
@@ -113,18 +121,33 @@ developer nothing there. A server reachable only over a plain-HTTP LAN sets
 
 travelmap can collect your Swarm check-ins alongside the GPS trace the app records, as its own
 extension to the Dawarich API — see "Keeping the two parts apart" in
-[docs/api-notes.md](docs/api-notes.md). **Nothing is collected until an account is linked** with
-`travelmap foursquare connect`, which reads the
-Foursquare access token from standard input rather than a flag, the same concern `user create`'s
-password reading answers:
+[docs/api-notes.md](docs/api-notes.md). **Nothing is collected until an account is linked**,
+either from a browser or from the command line.
+
+To link one from a browser: log in at `http://localhost:3000/login`, then visit
+`http://localhost:3000/foursquare/oauth/start`. This needs a Foursquare application's OAuth
+credentials — its client id and secret — and `TRAVELMAP_BASE_URL` set so the redirect URL this
+server builds (`<TRAVELMAP_BASE_URL>/foursquare/oauth/callback`) matches the one registered on
+the application exactly:
+
+```sh
+TRAVELMAP_BASE_URL=http://localhost:3000 \
+TRAVELMAP_FOURSQUARE_CLIENT_ID=<client id> \
+TRAVELMAP_FOURSQUARE_CLIENT_SECRET=<client secret> \
+    ./bin/travelmap serve
+```
+
+To link one from the command line instead — no browser, no OAuth application needed —
+`travelmap foursquare connect` reads a Foursquare access token from standard input rather than a
+flag, the same concern `user create`'s password reading answers:
 
 ```sh
 ./bin/travelmap foursquare connect --email you@example.com --foursquare-user-id <your Swarm user id> \
     < /run/secrets/foursquare-access-token
 ```
 
-Until the OAuth flow exists, get an access token from the Foursquare application's own console —
-it issues one for the account that owns the application.
+Get that access token from the Foursquare application's own console — it issues one for the
+account that owns the application.
 
 `travelmap foursquare sync` fetches every linked account's check-ins once, from
 `TRAVELMAP_FOURSQUARE_SYNC_LOOKBACK_DAYS` back (14 by default) — a window re-read on every run

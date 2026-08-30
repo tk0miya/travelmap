@@ -76,6 +76,22 @@ func (a *api) loadSessionUser(next http.Handler) http.Handler {
 	})
 }
 
+// requireSessionUser answers a browser request with no signed-in session by
+// redirecting to the login form, rather than [requireUser]'s empty 401: a
+// browser hitting this route directly has somewhere useful to go, unlike a
+// device calling /api/v1 with no key.
+func requireSessionUser(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if _, ok := userFrom(r.Context()); !ok {
+			http.Redirect(w, r, "/login", http.StatusSeeOther)
+
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
 // sessionStore adapts [store.SessionRepository] to scs.CtxStore.
 //
 // Its three plain methods exist only because scs.SessionManager.Store is
