@@ -40,8 +40,8 @@ commented in `internal/store/sqlite/sqlite.go`). Two races are left unhandled de
 needing something the workflow does not do: several processes opening a **brand-new** database at
 the same moment, where converting the file to WAL answers `SQLITE_BUSY` and no timeout can wait it
 out; and two `travelmap migrate` processes at once, where goose has no lock for SQLite and the
-loser fails on the DDL instead of reporting nothing to do. The first run is one `travelmap
-migrate`, and retry logic for a race nobody reaches would cost more than it returns.
+loser fails on the DDL instead of reporting nothing to do. The first run is one
+`travelmap migrate`, and retry logic for a race nobody reaches would cost more than it returns.
 
 ### SQL
 
@@ -89,9 +89,9 @@ That is not a cost saved but a part of the feature missing.
 ### Browser CSRF
 
 Standard `net/http.CrossOriginProtection`, on the browser routes only. Present in the toolchain
-`go.mod` already names (`go 1.26.6`), and its `Handler` is a plain `func(http.Handler)
-http.Handler`, so this costs no dependency, which is what needed confirming before it could be
-chosen. `/api/v1` keeps Bearer / `api_key` only and needs none.
+`go.mod` already names (`go 1.26.6`), and its `Handler` is a plain
+`func(http.Handler) http.Handler`, so this costs no dependency, which is what needed confirming
+before it could be chosen. `/api/v1` keeps Bearer / `api_key` only and needs none.
 
 ### Swarm check-ins
 
