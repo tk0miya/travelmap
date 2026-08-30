@@ -16,7 +16,6 @@ it lands.
 | --- | --- | --- |
 | Background work | Goroutines + a job table in SQLite | Keeps a single process, with no Sidekiq/Redis equivalent |
 | Reverse geocoding | Off by default; optionally point at a Nominatim/Photon URL | Does not make an external service mandatory |
-| Scheduling | A ticker goroutine re-running the fetch over the window it already takes, and **no job table** | The periodic fetch is one cron-like task with no queue of items, so the job table in the "Background work" row above would be scaffolding with nothing in it. Step 13's track splitting is the first genuine per-item consumer; the decision stands, its first use just is not here |
 
 These are the defaults as of planning. If any turns out to be wrong during implementation,
 change it — after updating this file.
@@ -354,34 +353,6 @@ The sign-up screen ─→ Step 32 (remove user create)
 The Swarm OAuth flow (session-based, already built) ─→ Step 31 (the Swarm page) ─→ Step 33 (remove foursquare connect)
 ```
 
-Step 27 (the session sweep) can be taken at any time, needing nothing but the sessions store
-already in place.
-
-### Step 27: The expired-session sweep
-
-Can be taken any time, needing nothing but the sessions store already in place; it does not wait
-for a login to exist. Small, but it answers the same question Step 21 answers for Milestone I —
-how a background worker in this server starts and stops — so whichever of the two lands first is
-the one that settles it, and the second follows it rather than deciding again.
-
-- [ ] A ticker calling `store.Sessions().DeleteExpired`, started from `cmd/travelmap/serve.go` —
-      the only place holding both the signal-cancelled context and the concrete store, which is
-      why Step 21's worker starts there too
-- [ ] It stops with the server, on the same cancelled context, so a sweep in flight is not left
-      writing into a closing database
-- [ ] The interval is a constant, **not a setting**, and the code says why: `ByToken` already
-      filters on `expiry`, so a late sweep leaves no session usable — only rows on disk. There is
-      nothing for an operator to tune that would change behaviour
-- [ ] Tests: an expired row is deleted and an unexpired one is not; a cancelled context stops the
-      ticker. **Not Step 21's "a restart loses no tick"** — that test exists because a fetch window
-      has to cover the time the process was down, and a sweep has no window to miss
-
-**Settles**: the lifecycle of a background worker in this server, **without a job table**, per the
-"Scheduling" row under "Technical Decisions" — **if it lands before Step 21**, which says the same
-of itself. Whichever is second follows the first rather than deciding again, and moves nothing.
-
-**Done when**: with one expired row in `sessions`, starting the server removes it on the next tick.
-
 ### Step 31: The Swarm connection page
 
 Follows the Swarm OAuth flow (`GET /foursquare/oauth/start` and its callback), already built
@@ -561,9 +532,10 @@ hardening is not required first either — see that step's note on why.
       `internal/checkin` already; what is tested here is that stopping and starting the worker
       loses no tick
 
-**Settles**: the lifecycle of a background worker in this server — **without introducing the job
-table**, per the "Scheduling" row under "Technical Decisions". Milestone H's Step 27 says the same
-of its session sweep: whichever of the two lands first settles it, and the second follows it.
+**Settles nothing new**: the lifecycle of a background worker in this server — a ticker over the
+signal-cancelled context `cmd/travelmap/serve.go` already holds, **without a job table** — was
+already settled by the session sweep, per "Background workers" in `docs/architecture.md`. This
+step follows that shape rather than deciding it again.
 
 **Done when**: with the server left running and **`TRAVELMAP_FOURSQUARE_PUSH_SECRET` unset**, so
 the webhook route is not registered at all, a check-in made in Swarm turns up in `checkins` on the
