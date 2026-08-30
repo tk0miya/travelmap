@@ -492,30 +492,17 @@ matches on the five columns or has them recorded as excluded from refresh.
   implies: the secret is server configuration, and identifying whose check-in arrived is
   `foursquare_user_id`'s job. Deriving a user from the secret would break the moment a second
   person connects.
-- **Sign-up is open, so on a reachable instance anyone can create an account.** This is the
-  decision recorded under "User management" in `docs/architecture.md`, not an oversight, and
-  it is written down here because three of its consequences are real on a self-hosted box rather
-  than hypothetical. Every
-  account can write points into **the same SQLite file**, so somebody else's history is on the
-  operator's disk and inside their backups. `travelmap recalculate` walks every user with points,
-  so it gets slower with each account that is not the operator's. And `/signup` and `/login` each
-  spend one bcrypt hash per request, which is CPU an unauthenticated caller chooses to spend — both
-  `POST /api/v1/auth/login` and the browser's own `/login` form now have that property, the second
-  advertising it to anyone who can reach the page. **None of this bites on a LAN or behind a
-  reverse proxy that authenticates first**, which is how a personal instance is normally run; it
-  bites on one published to the internet, which the Swarm push webhook — already shipped — is a
-  reason to do. If a gate is ever wanted, the cheapest one is an environment variable read at route
-  registration, exactly as `POST /webhooks/foursquare` is registered only when
-  `TRAVELMAP_FOURSQUARE_PUSH_SECRET` is set — which is why nothing in Steps 27 to 34 has to be
-  designed for it now.
-- **No brute-force protection on login: neither `POST /api/v1/auth/login` nor the browser's own
-  `/login` limits how many attempts an email address or an IP gets.** Both already spend one
-  bcrypt hash per attempt and refuse a wrong password at the same cost as a right one, which
-  narrows the attack to throughput rather than timing, but nothing here bounds that throughput
-  itself — a caller can simply keep asking. Unmitigated today; the same "None of this bites on a
-  LAN or behind a reverse proxy that authenticates first" reasoning above applies, so it matters
-  once more on an internet-reachable instance. Adding a per-address or per-account attempt limiter
-  is new work with no home in the current plan.
+- **No rate limiting anywhere a request computes bcrypt: `POST /api/v1/auth/login`, the browser's
+  own `/login`, and `/signup` all let a caller ask as many times as they like.** Each spends one
+  bcrypt hash per request and refuses a wrong password (or an email already taken) at the same
+  cost as a right one, which narrows the attack to throughput rather than timing, but nothing here
+  bounds that throughput itself — a caller can simply keep asking. `auth.Register` hashes the
+  password before checking whether the email is taken, so a `/signup` repeated against an existing
+  address still pays the full cost every time. None of this bites on a LAN or behind a reverse
+  proxy that authenticates first, which is how a personal instance is normally run; it bites on
+  one published to the internet, which the Swarm push webhook — already shipped — is a reason to
+  do. Unmitigated today; adding a per-address or per-account attempt limiter is new work with no
+  home in the current plan.
 - **No security-related HTTP headers on the browser routes** — no `Strict-Transport-Security`,
   `X-Content-Type-Options`, `X-Frame-Options` or `Content-Security-Policy`. `/api/v1` carries only
   the Dawarich compatibility headers, which are a different thing. Left for a later Milestone H

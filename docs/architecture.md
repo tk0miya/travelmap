@@ -54,14 +54,6 @@ nothing installed but Go.
 `net/http` + `github.com/go-chi/chi/v5`, chosen with the future web UI in mind — see "Router"
 below.
 
-### User management
-
-Issued via `GET/POST /signup`, through `auth.Register`; sign-up is open to anyone — no
-environment variable, no invite code, no first-user-only rule. `auth/login` implemented, no 2FA.
-A gate is one more setting to get wrong before the first login works, on a server whose first
-account is the operator's own. What open sign-up means for an instance reachable from the
-internet is under "Risks and Open Questions" in TODO.md.
-
 ### Recalculation trigger
 
 CLI only (`travelmap recalculate`), not exposed as `/api/v1/recalculations`. Rebuilding
