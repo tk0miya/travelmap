@@ -157,8 +157,8 @@ func (a *api) foursquareOAuthCallback(w http.ResponseWriter, r *http.Request) {
 	// Whether a refresh token or an expiry also comes back is untested, so
 	// the field names are logged rather than assumed. No renewal is
 	// scheduled either way: a token that stops working shows up as a 401
-	// from the fetch path, which `travelmap foursquare connect` can already
-	// repair by replacing it.
+	// from the fetch path, which disconnecting and reconnecting from the
+	// settings page can already repair.
 	a.logger.Info("Foursquare OAuth token exchange succeeded",
 		"user_id", sessionUser.ID, "fields", token.Fields)
 

@@ -101,11 +101,11 @@ developer nothing there. A server reachable only over a plain-HTTP LAN sets
 
 travelmap can collect your Swarm check-ins alongside the GPS trace the app records, as its own
 extension to the Dawarich API — see "Keeping the two parts apart" in
-[docs/api-notes.md](docs/api-notes.md). **Nothing is collected until an account is linked**, and
-every way of linking one starts from the same prerequisite: a Foursquare application of your own,
-registered at Foursquare's own developer console.
+[docs/api-notes.md](docs/api-notes.md). **Nothing is collected until an account is linked**, which
+starts from one prerequisite: a Foursquare application of your own, registered at Foursquare's own
+developer console.
 
-To link an account from a browser, once that application exists: set its client id and secret as
+To link an account, once that application exists: set its client id and secret as
 `TRAVELMAP_FOURSQUARE_CLIENT_ID` and `TRAVELMAP_FOURSQUARE_CLIENT_SECRET`, its redirect URI to
 `<TRAVELMAP_BASE_URL>/foursquare/oauth/callback`, and `TRAVELMAP_BASE_URL` itself — this server's
 own externally reachable URL:
@@ -121,16 +121,6 @@ With those three settings in place, sign in and open the **Settings** page to co
 account with its "Connect your Swarm account" button. Without them, the settings page has no
 Swarm section to show, the same as the webhook below when `TRAVELMAP_FOURSQUARE_PUSH_SECRET` is
 unset.
-
-To link one from the command line instead — no browser, just the access token the same
-application's own console issues for the account that owns it —
-`travelmap foursquare connect` reads it from standard input rather than a flag, so it stays out of
-`ps` output and the shell history:
-
-```sh
-./bin/travelmap foursquare connect --email you@example.com --foursquare-user-id <your Swarm user id> \
-    < /run/secrets/foursquare-access-token
-```
 
 Once an account is linked, the running server fetches its check-ins on its own, every
 `TRAVELMAP_FOURSQUARE_SYNC_INTERVAL` (an hour by default), from

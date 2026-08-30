@@ -21,11 +21,10 @@ Usage:
   travelmap --version
 
 Commands:
-  serve                Run the HTTP server
-  migrate              Bring the database schema up to date
-  recalculate          Rebuild daily_stats from points
-  foursquare connect   Link a travelmap account to a Swarm account
-  foursquare sync      Fetch the linked accounts' Swarm check-ins once
+  serve            Run the HTTP server
+  migrate          Bring the database schema up to date
+  recalculate      Rebuild daily_stats from points
+  foursquare sync  Fetch the linked accounts' Swarm check-ins once
 `
 
 // errUsage asks main for the exit status a misuse gets, which is not the same

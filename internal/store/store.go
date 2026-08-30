@@ -196,8 +196,7 @@ type CheckinRepository interface {
 }
 
 // FoursquareAccountRepository stores the link between a travelmap account and
-// a Swarm account: the row `travelmap foursquare connect` or the browser
-// OAuth flow creates.
+// a Swarm account: the row the settings page's browser OAuth flow creates.
 type FoursquareAccountRepository interface {
 	// Create stores account and returns it as stored, with CreatedAt and
 	// UpdatedAt filled in. It returns [ErrConflict] if the user already has

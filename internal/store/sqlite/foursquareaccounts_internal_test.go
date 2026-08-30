@@ -11,7 +11,7 @@ import (
 	"github.com/tk0miya/travelmap/internal/store"
 )
 
-// testFoursquareAccount builds an account as `travelmap foursquare connect`
+// testFoursquareAccount builds an account as the settings page's OAuth flow
 // creates one: no synced_through yet, since nothing has been fetched.
 func testFoursquareAccount(userID int64, foursquareUserID string) model.FoursquareAccount {
 	return model.FoursquareAccount{
