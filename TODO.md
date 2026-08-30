@@ -188,7 +188,7 @@ browser will also call `/api/v1/points` and friends — but `/api/v1` accepts on
 - (c) Hand the api_key to the UI at login and call with Bearer — not recommended, since XSS
   would leak the API key.
 
-**Steps 27 to 33 do not settle this and do not need to**: none of them adds a data endpoint, so
+**Steps 27 to 34 do not settle this and do not need to**: none of them adds a data endpoint, so
 `/api/v1` is left exactly as it is and keeps needing no CSRF protection. It is the first screen
 that reads a point — the map — that has to answer it. The session middleware already in place is
 what makes (a) cheap when that day comes: accepting the cookie there is one more branch in
@@ -233,7 +233,7 @@ can run in parallel. Parallelism is noted where it applies.
 Milestones group the steps and state a user-visible outcome. Individual steps have a completion
 condition that can be verified by running something.
 
-**A step's number says when it was planned, not when to take it.** Milestone H's Steps 23 to 33
+**A step's number says when it was planned, not when to take it.** Milestone H's Steps 23 to 34
 were planned after Milestone I's 18 to 22 and so carry higher numbers while appearing earlier in
 this file, and one of them (Step 30) depends on a step in the other milestone. What order to take
 them in is what each milestone's own ordering note says, never the numbers.
@@ -352,8 +352,8 @@ The sign-up screen ─→ Step 32 (remove user create)
 The login screen + Milestone I's Step 20 ─→ Step 30 (Swarm over a session) ─→ Step 31 (the Swarm page) ─→ Step 33 (remove foursquare connect)
 ```
 
-Step 27 (the session sweep) can be taken at any time, needing nothing but the sessions store
-already in place.
+Step 27 (the session sweep) and Step 34 (the `/` redirect) can each be taken at any time, needing
+nothing but the sessions store and the login screen, respectively, already in place.
 
 ### Step 27: The expired-session sweep
 
@@ -379,6 +379,27 @@ the one that settles it, and the second follows it rather than deciding again.
 of itself. Whichever is second follows the first rather than deciding again, and moves nothing.
 
 **Done when**: with one expired row in `sessions`, starting the server removes it on the next tick.
+
+### Step 34: Redirect an anonymous `GET /` to `/login`
+
+Can be taken any time, needing nothing but the login screen already in place. Today `GET /`
+answers an anonymous visitor with a status page reading "Not signed in", plus a link to `/login`
+and one to `/signup` — a page that has to be read before it says what to do. A first-time visitor
+opening the server's URL should land on the thing to act on, not a landing page pointing at it.
+
+- [ ] `GET /` redirects an unauthenticated visitor to `/login` with a 302 Found — a plain GET
+      redirect, not the 303 See Other a POST handler uses after processing a form, since nothing
+      here is converting a POST into a GET
+- [ ] A signed-in visitor keeps seeing the current page (the signed-in status and the logout
+      button), unchanged
+- [ ] Tests: an anonymous `GET /` redirects to `/login`; a signed-in `GET /` still renders the
+      current page
+
+**Settles**: that `/` is not a dead end for a first-time visitor — the browser's own entry point
+sends them straight to the action they need, rather than a static message they have to read and
+click through first.
+
+**Done when**: opening `http://localhost:3000/` with no session lands directly on the login form.
 
 ### Step 30: Starting the Swarm flow from a browser session
 
@@ -760,7 +781,7 @@ matches on the five columns or has them recorded as excluded from refresh.
   bites on one published to the internet, which the Swarm push webhook — already shipped — is a
   reason to do. If a gate is ever wanted, the cheapest one is an environment variable read at route
   registration, exactly as `POST /webhooks/foursquare` is registered only when
-  `TRAVELMAP_FOURSQUARE_PUSH_SECRET` is set — which is why nothing in Steps 27 to 33 has to be
+  `TRAVELMAP_FOURSQUARE_PUSH_SECRET` is set — which is why nothing in Steps 27 to 34 has to be
   designed for it now.
 - **No brute-force protection on login: neither `POST /api/v1/auth/login` nor the browser's own
   `/login` limits how many attempts an email address or an IP gets.** Both already spend one
