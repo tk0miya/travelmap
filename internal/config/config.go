@@ -97,6 +97,26 @@ type Config struct {
 	// Dawarich-compatible one).
 	FoursquarePushSecret string
 
+	// FoursquareClientID and FoursquareClientSecret identify the Foursquare
+	// application the OAuth flow (GET /foursquare/oauth/start and its
+	// callback) runs against. Both empty by default, which is what keeps
+	// those routes unregistered, the same reasoning as FoursquarePushSecret
+	// above.
+	FoursquareClientID     string
+	FoursquareClientSecret string
+
+	// BaseURL is this server's own externally reachable URL, with no
+	// trailing path — e.g. "https://travelmap.example.com". Empty by
+	// default, which along with the two Foursquare settings above keeps
+	// GET /foursquare/oauth/start and its callback unregistered: deriving
+	// the callback URL (BaseURL plus the fixed
+	// /foursquare/oauth/callback path) is its only consumer today, but the
+	// setting names this server rather than that one feature, so a second
+	// consumer names the same setting instead of adding its own. The
+	// derived callback URL has to match the one registered on the
+	// Foursquare application exactly.
+	BaseURL string
+
 	// SessionLifetime is how long a browser session lasts before it needs a
 	// fresh login. Defaults to 30 days.
 	SessionLifetime time.Duration
@@ -116,7 +136,9 @@ type Config struct {
 	FoursquareSyncLookbackDays int
 
 	// FoursquareAPIURL is the base URL of the Foursquare API, without a
-	// trailing path.
+	// trailing path. Read by both the check-in fetch client and the OAuth
+	// flow's own call to /v2/users/self — one setting for the one
+	// Foursquare API host, rather than one per reader of it.
 	FoursquareAPIURL string
 }
 
@@ -134,6 +156,9 @@ func Load(getenv func(string) string) (Config, error) {
 		Timezone:                   lookup(getenv, "TIMEZONE", defaultTimezone),
 		TrackBreakMinutes:          defaultTrackBreakMinutes,
 		FoursquarePushSecret:       lookup(getenv, "FOURSQUARE_PUSH_SECRET", ""),
+		FoursquareClientID:         lookup(getenv, "FOURSQUARE_CLIENT_ID", ""),
+		FoursquareClientSecret:     lookup(getenv, "FOURSQUARE_CLIENT_SECRET", ""),
+		BaseURL:                    lookup(getenv, "BASE_URL", ""),
 		SessionLifetime:            defaultSessionLifetime,
 		SessionCookieSecure:        defaultSessionCookieSecure,
 		FoursquareSyncLookbackDays: defaultFoursquareSyncLookbackDays,

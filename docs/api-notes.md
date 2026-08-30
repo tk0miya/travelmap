@@ -9,9 +9,9 @@ headers, status codes for the endpoints actually implemented. Read it first; wha
 is whatever does not fit there: upstream's quirks, why travelmap's behaviour deliberately
 differs, and the client evidence behind each choice.
 
-travelmap also serves a small HTML surface for a browser — `GET /` so far — at routes outside
-`/api/v1`. `docs/openapi.yaml`'s contract is for the JSON API above; an HTML route is not part of
-it, and this document does not cover it either.
+travelmap also serves a browser surface at routes outside `/api/v1` — `GET /`, the login form, the
+Swarm OAuth flow, and so on. `docs/openapi.yaml`'s contract is for the JSON API above; a
+browser-facing route is not part of it, and this document does not cover those either.
 
 ## Keeping the two parts apart
 

@@ -73,6 +73,21 @@ func UnavailableDailyStats(t *testing.T, users ...model.User) store.Store {
 	return open(t, path)
 }
 
+// UnavailableFoursquareAccounts returns a store holding users whose
+// foursquare_accounts table has been dropped, so that authenticating and
+// reading a session's user still work but linking a Swarm account fails.
+func UnavailableFoursquareAccounts(t *testing.T, users ...model.User) store.Store {
+	t.Helper()
+
+	path := prepare(t, users)
+
+	// Dropped before the store is opened, for the same reason as
+	// UnavailablePoints.
+	exec(t, path, `DROP TABLE foursquare_accounts`)
+
+	return open(t, path)
+}
+
 // NewWithPoints is [New], plus points seeded directly with their own ID,
 // CreatedAt and UpdatedAt — not [store.PointRepository.Create]'s, which
 // stamps the timestamps with the current time — so a caller can pin what a
