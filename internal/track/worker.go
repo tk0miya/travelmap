@@ -9,17 +9,18 @@ import (
 )
 
 // pollInterval is how often [RunWorker] checks for a pending rebuild
-// request. It is a constant rather than a setting: there is nothing for an
-// operator to tune that would change behaviour, the same reasoning the
-// session sweep's own interval is expected to carry once it exists — a
-// shorter interval only costs a few more queries against a small table, and
-// a track becoming visible a few seconds late is not a case worth a knob for.
+// request. It is a constant rather than a setting: a shorter interval only
+// costs a few more queries against a small table, and a track becoming
+// visible a few seconds late is not a case worth a knob for.
 const pollInterval = 5 * time.Second
 
 // RunWorker drains pending track rebuild requests until ctx is done. It is
 // started once, from cmd/travelmap/serve.go, alongside the signal-cancelled
-// context that stops it: a rebuild in flight is not left writing into a
-// closing database, since [drain] only starts one once ctx.Err() is nil.
+// context that stops it — not joined there: cancelling ctx aborts a
+// rebuild's own in-flight query rather than letting it finish, and
+// RebuildUser's transaction then rolls back rather than partially writing,
+// so an interrupted request is exactly what the next start's own catch-up
+// resumes.
 func RunWorker(ctx context.Context, st store.Store, trackBreak time.Duration, logger *slog.Logger) {
 	// Catch up on anything left pending from before the last shutdown, or
 	// enqueued while nothing was running to drain it, before waiting for the

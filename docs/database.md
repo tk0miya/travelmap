@@ -114,19 +114,20 @@ timestamp order — `GET /api/v1/tracks` reads it directly rather than reconstru
 
 ### How a track is split
 
-A track is a contiguous run of one user's points, split from its neighbours by a gap exceeding
-`TRAVELMAP_TRACK_BREAK_MINUTES` — the same value `daily_stats`' own segment attribution uses (see
-"Segment attribution" above), and, like it, **not** `settings/mobile`'s own `track_break`, which is
-the device's own splitting setting. A run of a single point is not a track: a GeoJSON LineString
-needs at least two coordinates, and a lone point measures no distance or duration, so it is dropped
-rather than kept as a degenerate one-point track.
+The gap that starts a new track is `TRAVELMAP_TRACK_BREAK_MINUTES` — the same value `daily_stats`'
+own segment attribution uses (see "Segment attribution" above), and, like it, **not**
+`settings/mobile`'s own `track_break`, which is the device's own splitting setting. A run of a
+single point is not a track: a GeoJSON LineString needs at least two coordinates, and a lone point
+measures no distance or duration, so it is dropped rather than kept as a degenerate one-point
+track.
 
-### Reading a track's own points
+### No `track_id` column on `points`
 
-A track names no points of its own — no column on `points` says which track it belongs to.
-`GET /api/v1/tracks/{track_id}/points` instead reads `points` by the track's own
-`[start_at, end_at]` range: every track is built from one ordered walk over a user's whole
-history, so no other track's points ever fall inside another track's own span.
+There is no column, and no join table, linking a point to the track it belongs to. What makes
+that safe is how a track is built: one ordered walk over a user's whole point history, splitting
+it into runs that never overlap — so a track's own `[start_at, end_at]` range can never include
+another track's points, and that range alone is enough to find them again.
+`GET /api/v1/tracks/{track_id}/points` is what currently relies on this.
 
 ### How a rebuild is triggered
 
