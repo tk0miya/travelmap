@@ -16,9 +16,7 @@ it lands.
 | --- | --- | --- |
 | Background work | Goroutines + a job table in SQLite | Keeps a single process, with no Sidekiq/Redis equivalent |
 | Reverse geocoding | Off by default; optionally point at a Nominatim/Photon URL | Does not make an external service mandatory |
-| Swarm check-ins | Collected by webhook push, with a periodic API fetch as the backstop | Push is immediate but nothing documented makes it reliable: Foursquare publishes no retry, records a timed-out push as a failure, and reaches only a public HTTPS endpoint. What it does after a failure is not documented at all. Fetching alone would lag every check-in by up to a poll interval. **What each path does and does not see is only partly known** — whether a push fires for a check-in added after the fact, or for an edit to one already stored, is undocumented — which is itself a reason to run both (Milestone I) |
-| Foursquare API version | v2 (`/v2/users/self/checkins`), with `v=` pinned as a constant and `m=swarm` | v2 is what returns Swarm check-ins, and it is current rather than abandoned: it is documented today as the "Personalization APIs", and the pricing change of 1 June 2026 names the checkins and users endpoints as remaining free while putting the venues endpoints behind paid tiers. `v=` is a date Foursquare uses to freeze response shape, so it is a constant raised deliberately after checking behaviour, never "today". `m` asks for the Swarm perspective rather than the Foursquare one; what it changes on this endpoint is untested, and its documented "required" status is contradicted by working clients — see "Fetching check-ins" |
-| Scheduling | A ticker goroutine plus a fixed lookback window, and **no job table** | The periodic fetch is one cron-like task with no queue of items, so the job table in the "Background work" row above would be scaffolding with nothing in it. Step 13's track splitting is the first genuine per-item consumer; the decision stands, its first use just is not here |
+| Scheduling | A ticker goroutine re-running the fetch over the window it already takes, and **no job table** | The periodic fetch is one cron-like task with no queue of items, so the job table in the "Background work" row above would be scaffolding with nothing in it. Step 13's track splitting is the first genuine per-item consumer; the decision stands, its first use just is not here |
 
 These are the defaults as of planning. If any turns out to be wrong during implementation,
 change it — after updating this file.
@@ -97,163 +95,41 @@ this section records only the spec endpoints whose absence needs explaining — 
 
 ## Foursquare / Swarm Integration Notes
 
-External behaviour that must be known before implementing Milestone I, in the same spirit as
+External behaviour that must be known before finishing Milestone I, in the same spirit as
 "Dawarich API Compatibility Notes".
 
-Four sources feed this section and they are kept apart on purpose, because they do not carry equal
-weight and this milestone has already been planned once on the assumption that they did.
+Two sources feed what is left here, and they are kept apart on purpose: **a real push captured
+with a webhook recorder**, and **Foursquare's own reference** at
+`https://docs.foursquare.com/developer/reference/`, which documents v2 today under the name
+**Personalization APIs**, labelled a public beta. Where an observation and the reference disagree
+the observation wins, and the disagreement is recorded rather than smoothed over.
 
-1. **A real push captured with a webhook recorder** — what the push webhook's own design and
-   `docs/api-notes.md` are built on.
-2. **Foursquare's own reference**, at `https://docs.foursquare.com/developer/reference/`, which
-   documents v2 today under the name **Personalization APIs**, labelled a public beta.
-3. **Foursquare's 2014 announcement** of the Foursquare/Swarm split, which the reference does not
-   link and which is the only source for the `m` parameter.
-4. **Long-lived Swarm importers**, which demonstrate that a parameter still works without
-   documenting what it does.
-
-Where an observation and the reference disagree the observation wins, and the disagreement is
-recorded rather than smoothed over — there are several, and each one is a thing a reader would
-otherwise trip on. Where only (3) or (4) supports something, the note says so rather than
-promoting it.
-
-The reference is also **an incomplete subset of the API it describes**: it omits fields that the
-captured push demonstrably carries, and it omits parameters that working clients still pass. So
-"not in the reference" is not "not there" — but for a parameter it is not "still there" either,
-only "not settled here", and the notes below say which of those three readings each fact is.
+The reference is **an incomplete subset of the API it describes**: it omits fields the captured
+push demonstrably carries, and parameters working clients still pass. So "not in the reference" is
+not "not there" — but it is not "still there" either, only "not settled here", and each note below
+says which of those it is.
 
 Pages read on 2026-08-24, all under `https://docs.foursquare.com/developer/`:
 `reference/get-user-checkins`, `reference/get-checkin-details`, `reference/create-a-checkin`,
 `reference/get-user-details`, `reference/v2-authentication`, `reference/real-time-view`,
 `reference/personalization-api-overview`, `reference/personalization-apis-errors`,
 `reference/personalization-apis-rate-limits`, `reference/personalization-apis-localization`,
-`reference/upcoming-changes`, `docs/configure-server-webhooks`. The `m` parameter appears in none
-of them. It is documented in Foursquare's 2014 announcement of the Foursquare/Swarm split, which
-the reference does not link and which working clients contradict — see "Fetching check-ins".
+`reference/upcoming-changes`, `docs/configure-server-webhooks`.
 
-### Fetching check-ins
+### Errors this client does not branch on yet
 
-Read off the reference rather than observed, so Step 19 confirms all of it against the live API.
-Where the reference is silent this section says so rather than filling the gap.
+**Branch on `errorType`, not on the status.** A 403 carries two meanings on this API:
+`not_authorized`, which is a revoked authorisation and permanent, and `rate_limit_exceeded`, which
+is transient. Only `meta.errorType` tells them apart, so a client reading the status alone either
+keeps trying against an account that will never answer again, or reports a passing refusal as a
+permissions failure. An account whose authorisation is gone needs its operator told, and nothing
+can tell them from a 403.
 
-```
-GET /v2/users/self/checkins?v=<pinned date>&m=swarm&limit=250&sort=newestfirst
-        &afterTimestamp=<window start>&beforeTimestamp=<paging cursor>
-Host: api.foursquare.com
-Authorization: Bearer <access token>
-```
+### Whether the two paths agree on a check-in's language
 
-- **`v` is required**, a `YYYYMMDD` date, and the reference marks it so.
-- **`m` takes `foursquare` or `swarm`** and is the "mode" parameter Foursquare added when it split
-  the two apps, so that one endpoint can answer with the Foursquare perspective (tips in the
-  response) or the Swarm one (check-ins). Its status needs stating carefully, because the two
-  sources disagree: the 2014 announcement calls it "a new required parameter" for every
-  `v >= 20140806`, while importers running `v` dates years past that omit `m` entirely and get
-  check-ins back. So **send `m=swarm` for what it selects, not because the API refuses without
-  it** — and do not treat its absence as the error the announcement implies. What it changes on
-  this endpoint is untested: the importers that omit it parse the same fields this design reads,
-  which is evidence that the check-in shape does not depend on it. Sending it is the cheap way to
-  ask for the perspective this milestone wants, not a fix for anything observed.
-- **The token goes in an `Authorization: Bearer` header** — a choice, and an untested one on this
-  endpoint. What the endpoint's own parameter table names is the `oauth_token` query parameter; the
-  `Bearer` header is shown on the authentication page, for the API in general. The header is
-  preferred anyway, because a credential in a URL ends up in proxy logs, error messages and
-  anything that echoes a request line. But **if the header is not accepted here every request is a
-  401**, so Step 19 confirms it, and the documented fallback is the query parameter.
-- `limit` **defaults to 20 and caps at 250**. `offset` defaults to 0 with no documented maximum.
-- `sort` (`newestfirst` or `oldestfirst`), `afterTimestamp` and `beforeTimestamp` are **absent
-  from the current reference page.** What is known is that the long-lived Swarm importers pass them
-  and get check-ins back; nothing consulted here documents them, so Step 19 is confirming their
-  existence, not their behaviour. If any of them is gone, the fetch pages by `offset` over the
-  whole history and filters by `createdAt` here instead — slower and heavier, and it can step over
-  a check-in that arrives mid-run, which the next run's window then picks up anyway. Degraded,
-  not broken.
-- The response is
-  `{"meta": {…}, "notifications": [...], "response": {"checkins": {"count": N, "items": [...]}}}`.
-  The reference calls `count` the "total number of user checkins". **Whether it narrows when
-  `afterTimestamp` is set is untested**, so it is a progress hint for a backfill and nothing keys
-  off it — least of all a decision to stop paging.
-
-**Page with `beforeTimestamp`, not `offset`.** `offset` is the documented one, and it works, but it
-walks a list that an incoming check-in pushes along underneath it, so a check-in arriving mid-run
-can be stepped over. A timestamp cursor pins the page to the data instead of to a position.
-`beforeTimestamp` is not in the reference, so Step 19 confirms it exists before any of this
-matters. **The rule below is defined here and nowhere else**; Step 19's checklist is what
-implements it, and any other mention of paging points back to this paragraph.
-
-**The cursor is the page's oldest `createdAt` plus one second.** Not that timestamp itself, and
-certainly not one second earlier. Whether `beforeTimestamp` is inclusive or exclusive is
-undocumented, and the two disagree about the boundary second: if it is exclusive, a cursor of `T`
-excludes every other check-in that also happened at `T`, so a page boundary landing on a busy
-second silently loses the rest of it. `T + 1` is inside the page under either reading, so — unless
-a single second holds `limit` check-ins or more — nothing is skipped either way. It re-reads the
-boundary second, and that overlap costs nothing: this is an upsert on `foursquare_checkin_id`, and
-the run's own id set filters the repeat before it is written.
-
-**A short page ends the run. A full page that did not advance is an error, not an end.** Those
-are two different conditions, and conflating them is how this loop goes wrong.
-
-- A page **shorter than `limit`** is the ordinary end of the data. It is the normal terminator, and
-  it is why the hourly fetch of a quiet fortnight costs one request rather than two.
-- A **full page whose cursor does not come out strictly lower than the one that fetched it** has
-  made no progress, and repeating the request would return the same rows forever. Two things cause
-  it: `limit` or more check-ins sharing one second, and — the one worth building the check for —
-  **`beforeTimestamp` being accepted and ignored**, which makes every page the same newest 250.
-- So a run that cannot advance **fails loudly and leaves `synced_through` alone**. Ending it
-  quietly would let an ignored `beforeTimestamp` look like a successful sync of one page, forever.
-- The check compares a page against **the cursor that fetched it**, so it cannot say anything about
-  the first request of a run, which has no cursor.
-
-**`sort` being ignored is the failure this cannot catch, and it is not a runtime check.** If the
-effective selection is oldest-first, the first request returns the window's *oldest* 250, the cursor
-lands just above the window's lower bound, and the second request returns the few check-ins in that
-boundary second — a short page, a clean stop, and a run that collected a fortnight-old page and
-never reached this week. Nothing in the loop can tell that apart from a genuinely quiet window.
-
-Within-page ordering is no help either: the cursor is the page's **minimum** `createdAt`, not its
-last element, precisely so that a server returning the right rows in an unspecified order still
-pages correctly. That robustness is what removes the signal.
-
-So this one is settled once, by observation, in Step 19: **against a window known to hold more than
-`limit` check-ins, check whether the first page contains the most recent one.** If it does not,
-`sort` is not being honoured and the paging scheme needs rethinking before the fetch path is
-trusted — which is why it is a `Confirms` item there and not a runtime branch here.
-
-**Read `meta`, not only the HTTP status.** Foursquare's own wording is that it "attempts to use
-appropriate HTTP status codes", repeated in `meta.code` — an intention, not a guarantee, and the
-same page names a case that arrives on a **200**: `errorType: deprecated`, the notice that the
-pinned `v` or a field this server reads is on its way out. So the status is usually enough and
-`meta` is what makes it reliable, and `deprecated` is the one warning this design will ever get
-before a pinned version stops answering. Log it loudly rather than dropping it. `meta` also
-carries `requestId`, `errorDetail` and sometimes `errorMessage`; log `requestId` with every
-failure, because it is what a support question has to quote.
-
-**Branch on `errorType`, not on the status.** Two mappings make that necessary rather than tidy.
-`rate_limit_exceeded` is **403**, where a client would guess 429, while 429 is `quota_exceeded` —
-documented as the daily call quota. And 403 is shared: `not_authorized` arrives with the same
-status, which is what a revoked authorisation looks like. A client that reads every 403 as the
-rate limit backs off forever against an account that will never answer again, and a client that
-reads only 429 as "slow down" reads an exhausted hourly limit as a permissions problem.
-
-### What the fetch path costs
-
-- **500 authenticated requests per hour per OAuth token**, counted per top-level resource group,
-  so every check-in call for one linked account shares one budget of 500. Responses carry
-  `X-RateLimit-Limit`, `X-RateLimit-Remaining` and `X-RateLimit-Reset` (a timestamp). Over the
-  limit the API answers 403 with an empty response object.
-- **Neither the interval nor a backfill comes near that.** The hourly fetch of a 14-day window is
-  a single request per account per hour for anyone checking in fewer than 250 times a fortnight —
-  one, not two, because a short page ends the run without a confirming request. Even a full
-  backfill would need 125,000 stored check-ins in one account to spend 500 requests inside an hour.
-  So the headers are read not because the limit is close but because a backfill is the only run
-  that pages without pausing, and the numbers are already in every response — the cheapest
-  possible guard against a limit that changes, or a paging loop that does not terminate.
-- **The endpoints this milestone uses are free.** Foursquare's pricing change of 1 June 2026 puts
-  `/v2/venues/*` behind premium and pro tiers and names checkins, lists, tastes, tips and users as
-  remaining without charge. Nothing here calls a venue endpoint — the venue arrives inside the
-  check-in — and keeping that true is a reason not to add one casually.
-
-### Localisation is left unset on both paths
+Neither collection path asserts a locale, and what that means for the display columns is under
+"Localisation" in [`docs/database.md`](docs/database.md). What is not settled is whether the two
+paths then render the same check-in the same way.
 
 v2 takes a locale from an `Accept-Language` header, which the documentation prefers, or from a
 `locale=` query parameter, over `en`, `es`, `fr`, `de`, `it`, `ja`, `th`, `tr`, `ko`, `ru`, `pt`
@@ -269,51 +145,15 @@ nothing about categories, so the fallback does not account for it while an app l
 would. That leans towards the locale reading — **one observation leaning is not a conclusion**,
 and neither reading is settled.
 
-So the fetch is decided on what happens if the guess is wrong, not on which reading is right. A
-repeat write refreshes `venue_name`, `country`, `city`, `state` and `category_name`, so any
-disagreement between the two paths shows up as those columns flipping language on every write.
-**The fetch therefore sends no locale**: it is the only setting that does not assert an answer, and
-the push has no locale to match it against anyway.
+What that leaves is a disagreement nobody has looked for: a repeat write refreshes `venue_name`,
+`country`, `city`, `state` and `category_name`, so if the two paths render them differently, those
+columns flip language on every write.
 
 **Step 22 measures it rather than trusting it.** Fetch a check-in that also arrived by push and
 compare those five columns. If they agree, this section is settled and says so. **If they differ,
 the fix is not a locale setting** — no setting can track whatever the push does — but removing
 those columns from what a repeat write refreshes, leaving the first writer's rendering in place.
 `cc` is stable under either outcome, per "checkins" in docs/database.md.
-
-### The periodic fetch takes a window, not a cursor
-
-Whether a push fires for a check-in added after the fact is **neither documented nor observed** —
-"every time one of your users checks in" could well cover it. Nothing here may rest on the answer,
-in either direction, until one is observed.
-
-The window does not need it. Two things a high-water-mark cursor cannot see, both of which happen
-whatever push does. A check-in whose own timestamp sorts *before* the stored cursor is skipped,
-and then skipped forever — which is the shape Swarm's retro check-in flow produces. That flow is
-**app behaviour, not an API contract**: nothing in the reference describes it, and
-`/v2/checkins/add` has no time parameter at all, so how the app dates such a check-in is exactly
-the open question at the end of this section. And an **edit** to a check-in already stored moves no
-timestamp at all, so a cursor never revisits it; `editableUntil` says edits are expected long after
-the fact.
-
-So **re-fetch a fixed window on every run** and let the unique index on
-`foursquare_checkin_id` absorb the overlap.
-
-- The window is `TRAVELMAP_FOURSQUARE_SYNC_LOOKBACK_DAYS` (default 14) back from now, sent as
-  `afterTimestamp`. A run's first request carries no `beforeTimestamp`; the rest carry the cursor
-  defined under "Page with `beforeTimestamp`, not `offset`", which is where that rule lives
-- `foursquare_accounts.synced_through` advances on success; what it is and is not used for is
-  under "foursquare_accounts" in docs/database.md
-- Which columns a repeat write keeps and which it refreshes is under "checkins" there too
-
-**Open, and the documentation does not close it**: whether a retroactive check-in's `createdAt` is
-the visit time or the time it was created. The reference describes `createdAt` only as a "UNIX
-timestamp in seconds since Epoch", and the retro check-in has no API equivalent to compare against
-— `/v2/checkins/add` takes `venueId` and `shout` and **no time parameter at all**, so a check-in
-this API creates is always "now" and cannot demonstrate the other case. The window design above is
-correct either way, so it blocks nothing, but it decides what `checked_in_at` means. Settle it by
-observing one retroactive check-in and record the answer here; the same observation settles whether
-a push fires for one.
 
 ## Library Choices for the Web UI
 
@@ -580,8 +420,7 @@ that the same is true on the leg that comes back from a third party.
 
 **Done when**: with a browser logged in and no `api_key` anywhere in the URLs, the Swarm flow
 completes and writes the `foursquare_accounts` row. That the stored token then collects check-ins
-is `travelmap foursquare sync`'s to show, and Step 19 may not be built yet: Milestone I lets
-Step 20 be taken at any point, so this step cannot rest on it.
+is `travelmap foursquare sync`'s to show, which this step does not repeat.
 
 ### Step 31: The Swarm connection page
 
@@ -654,10 +493,7 @@ long as it takes to prove that flow out; this step is what removes it rather tha
 that can drift.
 
 - [ ] Delete the `foursquare connect` subcommand and its own tests. What that leaves of the
-      `foursquare` dispatcher depends on whether Step 19 has been taken by then — Step 30 already
-      notes it may not have been, and nothing orders it before this step: with `foursquare sync` in
-      place, it becomes the dispatcher's one remaining subcommand; without it, `foursquare` itself
-      has no subcommand left, and removing the now-empty dispatcher is part of this step too
+      `foursquare` dispatcher is `foursquare sync`, its one remaining subcommand
 - [ ] `docs/database.md`'s `foursquare_accounts` entry ("Created by `travelmap foursquare
       connect`") is rewritten to say created from the Swarm connection page instead. Three more
       places say the same thing and go with it: `internal/model.FoursquareAccount`'s doc comment,
@@ -711,10 +547,8 @@ So the remaining steps can be taken at any time after Milestone B, like Step 16.
 External behaviour these steps rely on is in "Foursquare / Swarm Integration Notes"; the two
 tables are in `internal/store/sqlite/schema.sql` and docs/database.md, per "Data Model".
 
-There are seven `TRAVELMAP_FOURSQUARE_*` settings, and no step adds all of them:
-`TRAVELMAP_FOURSQUARE_PUSH_SECRET` is already in place, the lookback and the API URL belong to
-Step 19, the three OAuth settings to Step 20, the interval to Step 21. An eighth setting joins
-whichever step needs it.
+Four `TRAVELMAP_FOURSQUARE_*` settings are still to add: the three OAuth ones in Step 20 and the
+interval in Step 21. A fifth joins whichever step needs it.
 
 **Each step documents its own settings in the README, in the same pull request.** The README is
 for someone about to run this server, so a knob that is listed there and does nothing yet is the
@@ -722,93 +556,20 @@ one kind of drift its reader cannot detect — and this milestone's settings com
 (an OAuth URL, a CLI invocation) that would invite a reader to try something not built. The
 settings and their defaults are recorded here in the meantime, which is what `TODO.md` is for.
 
-The push webhook already opened a check-in section under the README's "Configuration", since it
-collects check-ins on its own; Step 19 adds to what it wrote there rather than starting the
-section itself. That section carries the one fact no single setting does: **nothing is collected
-until an account is linked**, which until Step 20 exists means `travelmap foursquare connect`.
-Without it a reader can set every variable, run `foursquare sync`, and be told nothing about why
-the result is empty. Step 20 adds its browser flow to the same sentence when it lands, which is
-its own README item.
+The README's check-in section says that **nothing is collected until an account is linked**, the
+one fact no single setting carries — without it a reader can set every variable, run `foursquare
+sync`, and be told nothing about why the result is empty. Step 20 adds its browser flow to that
+sentence when it lands, which is its own README item.
 
-Step 19 can be taken at any time now that the push webhook already collects check-ins on its own;
-Step 21 follows Step 19, and Step 20 can be taken at any point or left until last, needing nothing
-this milestone has not already shipped. **Milestone H's Steps 30 and 31 then finish it from the
-browser** — the session that replaces its `api_key` URL, and the page that shows and undoes the
-link — so taking Step 20 now that Milestone H's login screen already exists saves building the
-credential it already accepts as a limitation. `travelmap foursquare connect` exists precisely so
-the collecting steps can be finished and run for real before the OAuth flow is written. Until it
-is, the access token comes out of the Foursquare application's own console, which issues one for
-the account that owns the application; that is the whole of what Step 20 later automates.
-
-**Step 19 grew a second step rather than one long checklist.** Calling the endpoint and knowing a
-page-walk succeeded is one decision; how that client copes with a rate limit, an ambiguous error
-code, or a check-in whose language disagrees between paths is another, confirmed empirically
-rather than designed alongside the first. That second half is Step 22 — it follows Step 19 and
-also reaches back to a check-in already collected by push for the locale comparison — and nothing
-in this milestone waits on it in turn.
-
-### Step 19: The Foursquare API client
-
-One fetch, run by hand, against an API that is answering normally. Two things are split out of
-this step, for two different reasons. The timer that repeats it is Step 21 — a client and a
-scheduler settle different conventions, and this half already reaches real check-ins on its own.
-This client's response to rate limits, ambiguous error codes and locale drift is Step 22 instead:
-none of that is decided by this step's design, only confirmed once it exists — and, for locale,
-once the push webhook's collection path has a check-in to compare against.
-
-- [ ] `internal/foursquare`: a client for `GET /v2/users/self/checkins` — `v=` pinned, `m=swarm`,
-      the token in an `Authorization: Bearer` header rather than the URL, `limit=250`,
-      `sort=newestfirst`, and paging through `beforeTimestamp` rather than `offset`, all per
-      "Fetching check-ins"
-- [ ] The paging loop follows "Page with `beforeTimestamp`, not `offset`" exactly: the cursor is
-      the page's oldest `createdAt` **plus** one second; a page shorter than `limit` ends the run;
-      and a **full page that does not lower the cursor fails the run** without advancing
-      `synced_through`
-- [ ] Two tests, because ending and failing are not the same condition. A fake server returning a
-      page shorter than `limit` ends the run normally. A fake server returning the **same full page
-      every time** — so its oldest `createdAt` never falls and the cursor cannot advance, the shape
-      an ignored `beforeTimestamp` produces — makes the run **fail**. Assert the failure, not merely
-      that the run terminates: termination alone passes with the progress check missing, which is
-      the whole reason for writing this one
-- [ ] `internal/config`: `TRAVELMAP_FOURSQUARE_SYNC_LOOKBACK_DAYS` and
-      `TRAVELMAP_FOURSQUARE_API_URL` (default `https://api.foursquare.com`)
-- [ ] `internal/checkin`: one sync run — the lookback window from "The periodic fetch takes a
-      window, not a cursor", an upsert per check-in through the same writer the webhook uses,
-      and `synced_through` advanced on success
-- [ ] `travelmap foursquare sync`, for a one-shot run and for backfilling further back than the
-      window
-- [ ] README: the lookback and the API URL, and `travelmap foursquare sync` under "Build and
-      run"
-- [ ] Test the client against `httptest.NewServer` serving a recorded response;
-      `TRAVELMAP_FOURSQUARE_API_URL` exists so the test can point at it
-- [ ] A test that the same check-in arriving by push and then by fetch leaves one row, with
-      `source` still naming the first path
-- [ ] **A test that pins the window against a cursor**: a check-in dated before the last
-      successful run, added after it, is still collected by the next one. This step is where the
-      window and `synced_through` are written, so it is where the test belongs — and it is what
-      stops a later change from turning `synced_through` into the lower bound, which is the one
-      mistake that would silently defeat the whole fetch path
-
-**Settles**: the conventions for calling an external API from this server — timeouts, closing
-bodies, and how a page-walk knows it succeeded.
-
-**Confirms**, and records the answers in "Fetching check-ins":
-
-- That `sort`, `afterTimestamp` and `beforeTimestamp` are honoured though the current reference
-  page omits them. If they are not, that section names the fallback
-- **That `sort` selects, and not merely returns 200.** Against a window holding more than `limit`
-  check-ins, the first page must contain the most recent one. This is the one failure the runtime
-  progress check cannot see — "Page with `beforeTimestamp`, not `offset`" explains why — so it is
-  confirmed here, once, before the fetch path is trusted at all
-- That an `Authorization: Bearer` header is accepted on **this** endpoint, whose own parameter
-  table names only the `oauth_token` query parameter. If it is not, every request is a 401 and the
-  fallback is that parameter
-- Whether `beforeTimestamp` is inclusive or exclusive, and whether `count` narrows with
-  `afterTimestamp`. Neither changes the design — the `+ 1` cursor, the short-page stop and the
-  progress check hold under either boundary — but both are cheap to read off a real response
-
-**Done when**: `travelmap foursquare sync` fetches real check-ins, and a second run changes no
-row count.
+Step 21 follows the fetch path already in place, and Step 20 can be taken at any point or left
+until last, needing nothing this milestone has not already shipped. **Milestone H's Steps 30 and
+31 then finish it from the browser** — the session that replaces its `api_key` URL, and the page
+that shows and undoes the link — so taking Step 20 now that Milestone H's login screen already
+exists saves building the credential it already accepts as a limitation. `travelmap foursquare
+connect` exists precisely so the collecting steps can be finished and run for real before the
+OAuth flow is written. Until it is, the access token comes out of the Foursquare application's
+own console, which issues one for the account that owns the application; that is the whole of
+what Step 20 later automates.
 
 ### Step 20: Server-side OAuth
 
@@ -829,7 +590,7 @@ row count.
 - [ ] `GET /foursquare/oauth/callback` — verifies `state`, exchanges the code at
       `https://foursquare.com/oauth2/access_token`, calls `/v2/users/self` for the Foursquare
       user id, and writes the `foursquare_accounts` row. Both calls go in
-      `internal/foursquare` alongside Step 19's client, so every request to Foursquare is
+      `internal/foursquare` alongside the check-in client, so every request to Foursquare is
       configured in one place; this handler imports it directly, since it writes an account
       rather than a check-in
 - [ ] `state` stored **in process**, with a short expiry and single use. One process serves
@@ -868,22 +629,23 @@ rather than removed afterwards.
 
 ### Step 21: The periodic fetch worker
 
-Follows Step 19, whose sync run this repeats on a timer; nothing in Step 20 is in the way, and
-Step 22's hardening is not required first either — see that step's note on why.
+Repeats `internal/checkin`'s sync run on a timer; nothing in Step 20 is in the way, and Step 22's
+hardening is not required first either — see that step's note on why.
 
 - [ ] `internal/config`: `TRAVELMAP_FOURSQUARE_SYNC_INTERVAL` (default `1h`, `0` disabling the
       fetch), parsed with the duration parsing Milestone H's session lifetime setting already
       added to that package
-- [ ] `internal/checkin`: the worker — a ticker on that interval calling Step 19's sync run,
-      nothing more. Started from `cmd/travelmap/serve.go`, the only place
-      holding both the signal-cancelled context and the concrete store
+- [ ] `internal/checkin`: the worker — a ticker on that interval calling that package's own
+      sync run, nothing more. Started from `cmd/travelmap/serve.go`, the only place holding both
+      the signal-cancelled context and the concrete store
 - [ ] Shut down with the server: the worker stops on the same cancelled context, and a run in
       flight is not left to write into a closing database
 - [ ] README: the interval, including that `0` switches the fetch off and leaves only the
       webhook
 - [ ] A test that a restart resumes: the ticker starts again, and the tick after it covers the
-      time the process was down. What makes that possible is Step 19's window, tested there;
-      what is tested here is that stopping and starting the worker loses no tick
+      time the process was down. What makes that possible is the recomputed window, tested in
+      `internal/checkin` already; what is tested here is that stopping and starting the worker
+      loses no tick
 
 **Settles**: the lifecycle of a background worker in this server — **without introducing the job
 table**, per the "Scheduling" row under "Technical Decisions". Milestone H's Step 27 says the same
@@ -906,49 +668,36 @@ paths work. **Step 21's Done when is the fetch path's proof**, because it runs w
 unset and nothing else can have collected the row. Read this condition as "both paths are
 configured and nothing is lost", and that one as "the fetch path collects".
 
-### Step 22: Rate limits, ambiguous errors and locale drift
+### Step 22: Ambiguous errors and locale drift
 
-Split out of Step 19 because none of this is decided by the calling convention or the paging
-design — it is confirmed empirically, once a client exists to run and a check-in has arrived by
-both paths to compare. Depends on Step 19, which this extends, and on a check-in already
-collected by the push webhook for the locale bullet to compare against.
+Split out of the API client's own step because none of this is decided by the calling convention
+or the paging design — it is confirmed empirically, once a client exists to run and a check-in has
+arrived by both paths to compare. It extends the client already in `internal/foursquare`, and
+depends on a check-in already collected by the push webhook for the locale bullet to compare
+against.
 
-- [ ] The client **reads `meta`, not only the HTTP status**: it logs `meta.requestId` on every
-      failure and surfaces `errorType: deprecated` on a 200 loudly, that being the only notice
-      this design gets before a pinned `v` stops answering
 - [ ] **Branch on `meta.errorType`, never on the status alone**: 403 is both
-      `rate_limit_exceeded` and `not_authorized`, and 429 is `quota_exceeded`. A revoked
-      authorisation must not be retried as a rate limit, and an exhausted hourly limit must not be
-      reported as a permissions failure
-- [ ] Read `X-RateLimit-Remaining` and `X-RateLimit-Reset` and **log them**, and when `Remaining`
-      reaches zero **end the run rather than sending the request that would 403**. No sleeping
-      inside a run: the window has moved on by the next tick anyway. Such a run **does not advance
-      `synced_through`**, because it did not cover its window — and running it again walks the
-      window from the top rather than resuming, there being no stored position to resume from
-- [ ] Send **no locale**, for the reason in "Localisation is left unset on both paths" — this is
-      a decision the fetch path has to make and the push path cannot
-- [ ] **Measure whether that matches the push**: fetch a check-in that also arrived by push and
-      compare `venue_name`, `country`, `city`, `state` and `category_name`. If they differ, take
-      those columns out of what a repeat write refreshes and record the outcome in that section
-- [ ] A test for the two `meta` cases the status code alone would hide: a 200 carrying
-      `errorType: deprecated` is reported and its items are still stored, and a 403 is
-      distinguished by `errorType` between the rate limit and a revoked authorisation
+      `rate_limit_exceeded` and `not_authorized`. A revoked authorisation, which is permanent,
+      must not be reported as the transient one
+- [ ] **Measure whether the fetch's rendering matches the push's**: fetch a check-in that also
+      arrived by push and compare `venue_name`, `country`, `city`, `state` and `category_name`.
+      If they differ, take those columns out of what a repeat write refreshes, and record the
+      outcome under "Whether the two paths agree on a check-in's language"
+- [ ] A test that a 403 is distinguished by `errorType` between the two meanings it carries — the
+      case the status code alone hides, and the one the client's existing `meta` handling stops
+      short of
 
-**Settles**: how this client behaves when Foursquare pushes back — an ambiguous status, an
-exhausted quota, a deprecation notice — and what the two collection paths do when they disagree
-about a check-in's language.
+**Settles**: how this client behaves when Foursquare refuses a request with a status that means
+two different things, and what the two collection paths do when they disagree about a check-in's
+language.
 
-**Nothing else in the milestone waits on this.** Step 21's worker runs unattended, which is where
-a stuck retry or a wasted request would actually bite — but "What the fetch path costs" shows
-normal use nowhere near the 500-request budget, so Step 21 does not hold for this step, and an
-account that runs into either problem before it lands sees the run fail with a plain HTTP error —
-no branch yet to say whether it was a quota or a revoked token — until this step's logging exists
-to tell them apart.
+**Nothing else in the milestone waits on this.** An account that hits either case before this
+step lands sees the run fail with an error that already names the `errorType` and the
+`requestId`; what is missing is a client that tells a permanent refusal from a transient one.
 
-**Done when**: a fake server answering 403 with `errorType: not_authorized` is not retried as a
-rate limit, one answering with `X-RateLimit-Remaining: 0` ends the run without a further request,
-and a check-in observed by both paths either matches on the five columns or has them recorded as
-excluded from refresh.
+**Done when**: a fake server answering 403 with `errorType: not_authorized` is reported as a
+revoked authorisation rather than as a rate limit, and a check-in observed by both paths either
+matches on the five columns or has them recorded as excluded from refresh.
 
 ## Risks and Open Questions
 
@@ -978,16 +727,14 @@ excluded from refresh.
   source of this data exists. Two things are the hedge and both are already in the design: the push
   path is a separate mechanism, which one would expect to outlive the fetch endpoint though nothing
   documents that either, and `checkins.raw` means a later column can be derived from stored payloads
-  instead of re-fetching. The `errorType: deprecated` check in Step 22 is the early warning.
+  instead of re-fetching. The `errorType: deprecated` check the client already makes is the early
+  warning.
 - **What each collection path actually sees is only partly known.** Whether a push fires for a
   check-in added after the fact, and whether one fires for an edit to a check-in already stored,
   are both undocumented and unobserved. Nothing in the design rests on either answer — the fetch
-  window is argued from what a cursor cannot see, under "The periodic fetch takes a window, not a
-  cursor" — and nothing should start to. One retroactive check-in, made with both paths configured
-  and `source` read afterwards, settles both questions and the `createdAt` one below at once.
-- **Whether a retroactive check-in's `createdAt` is the visit time or the creation time is
-  open.** It does not block Milestone I — the fetch window is correct either way — but it
-  decides what `checked_in_at` means. See "The periodic fetch takes a window, not a cursor".
+  window is argued from what a cursor cannot see, under "Fetching Swarm check-ins" in
+  `docs/architecture.md` — and nothing should start to. One retroactive check-in, made with both
+  paths configured and `source` read afterwards, settles both questions at once.
 - **The push URL has to be reachable over HTTPS from the internet**, which a self-hosted
   instance behind a reverse proxy can do but a laptop cannot. Until then the fetch path alone
   collects check-ins, just with a delay. The README already says so, in the check-in

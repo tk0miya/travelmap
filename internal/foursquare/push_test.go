@@ -1,6 +1,7 @@
 package foursquare_test
 
 import (
+	"encoding/json"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -49,16 +50,19 @@ func TestParsePushCheckin(t *testing.T) {
 
 	offset := 540
 
-	want := foursquare.PushCheckin{
+	want := foursquare.Checkin{
+		// The parse hands back the bytes it was given, so that the checkins
+		// table stores the check-in exactly as it arrived.
+		Raw:            json.RawMessage(form.Get("checkin")),
 		ID:             "5f2a1b3c4d5e6f708192a3b4",
 		CreatedAt:      1767225906,
 		TimeZoneOffset: &offset,
 		Shout:          nil,
-		User:           foursquare.PushUser{ID: "1709193"},
-		Venue: &foursquare.PushVenue{
+		User:           foursquare.User{ID: "1709193"},
+		Venue: &foursquare.Venue{
 			ID:   "4b4429abf964a520a80f25e3",
 			Name: "東京タワー",
-			Location: foursquare.PushLocation{
+			Location: foursquare.Location{
 				Lat:     35.6586,
 				Lng:     139.7454,
 				CC:      "JP",
@@ -66,7 +70,7 @@ func TestParsePushCheckin(t *testing.T) {
 				State:   "東京都",
 				Country: "日本",
 			},
-			Categories: []foursquare.PushCategory{
+			Categories: []foursquare.Category{
 				{ID: "4bf58dd8d48988d12d941735", Name: "モニュメント / ランドマーク", Primary: true},
 			},
 		},
@@ -108,27 +112,27 @@ func TestParsePushCheckinRejectsUnparseableJSON(t *testing.T) {
 func TestPrimaryCategory(t *testing.T) {
 	t.Parallel()
 
-	primary := foursquare.PushCategory{ID: "primary", Primary: true}
-	other := foursquare.PushCategory{ID: "other"}
+	primary := foursquare.Category{ID: "primary", Primary: true}
+	other := foursquare.Category{ID: "other"}
 
 	tests := map[string]struct {
-		categories []foursquare.PushCategory
-		want       foursquare.PushCategory
+		categories []foursquare.Category
+		want       foursquare.Category
 		wantOK     bool
 	}{
 		"one marked primary among several": {
-			categories: []foursquare.PushCategory{other, primary},
+			categories: []foursquare.Category{other, primary},
 			want:       primary,
 			wantOK:     true,
 		},
 		"none marked primary falls back to the first": {
-			categories: []foursquare.PushCategory{other, {ID: "second"}},
+			categories: []foursquare.Category{other, {ID: "second"}},
 			want:       other,
 			wantOK:     true,
 		},
 		"no categories at all": {
 			categories: nil,
-			want:       foursquare.PushCategory{},
+			want:       foursquare.Category{},
 			wantOK:     false,
 		},
 	}

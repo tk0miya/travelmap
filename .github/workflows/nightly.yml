@@ -28,11 +28,7 @@ jobs:
           - goos: linux
             goarch: arm64
           - goos: darwin
-            goarch: amd64
-          - goos: darwin
             goarch: arm64
-          - goos: windows
-            goarch: amd64
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
@@ -46,10 +42,8 @@ jobs:
         GOARCH: ${{ matrix.goarch }}
         CGO_ENABLED: "0"
       run: |
-        ext=""
-        if [ "$GOOS" = "windows" ]; then ext=".exe"; fi
         mkdir -p dist
-        go build -trimpath -ldflags="-s -w" -o "dist/travelmap-${GOOS}-${GOARCH}${ext}" ./cmd/travelmap
+        go build -trimpath -ldflags="-s -w" -o "dist/travelmap-${GOOS}-${GOARCH}" ./cmd/travelmap
     - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       with:
         name: travelmap-${{ matrix.goos }}-${{ matrix.goarch }}

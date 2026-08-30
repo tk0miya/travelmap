@@ -123,3 +123,99 @@ func TestFoursquareAccountCreateRejectsDuplicates(t *testing.T) {
 		})
 	}
 }
+
+// TestFoursquareAccountAll covers the listing the fetch iterates over: every
+// linked account, in a defined order, and an empty result — the ordinary
+// state of a server nobody has linked an account on — rather than an error.
+func TestFoursquareAccountAll(t *testing.T) {
+	t.Parallel()
+
+	db := newTestDB(t)
+
+	empty, err := db.FoursquareAccounts().All(t.Context())
+	if err != nil {
+		t.Fatalf("All returned %v", err)
+	}
+
+	if len(empty) != 0 {
+		t.Errorf("All returned %d accounts, want none before any is linked", len(empty))
+	}
+
+	var want []model.FoursquareAccount
+
+	for _, email := range []string{"first@example.com", "second@example.com"} {
+		user, err := db.Users().Create(t.Context(), testUser(email))
+		if err != nil {
+			t.Fatalf("creating the user: %v", err)
+		}
+
+		account, err := db.FoursquareAccounts().Create(t.Context(),
+			testFoursquareAccount(user.ID, "swarm-"+email))
+		if err != nil {
+			t.Fatalf("Create returned %v", err)
+		}
+
+		want = append(want, account)
+	}
+
+	got, err := db.FoursquareAccounts().All(t.Context())
+	if err != nil {
+		t.Fatalf("All returned %v", err)
+	}
+
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("All differs (-want +got):\n%s", diff)
+	}
+}
+
+// TestFoursquareAccountUpdateSyncedThrough covers what a successful fetch
+// leaves behind: the window's end, truncated to the second the column holds,
+// and a bumped updated_at.
+func TestFoursquareAccountUpdateSyncedThrough(t *testing.T) {
+	t.Parallel()
+
+	db := newTestDB(t)
+
+	user, err := db.Users().Create(t.Context(), testUser("swarm@example.com"))
+	if err != nil {
+		t.Fatalf("creating the user: %v", err)
+	}
+
+	created, err := db.FoursquareAccounts().Create(t.Context(), testFoursquareAccount(user.ID, "1709193"))
+	if err != nil {
+		t.Fatalf("Create returned %v", err)
+	}
+
+	through := time.Date(2026, time.February, 3, 4, 5, 6, 0, time.UTC)
+
+	if err := db.FoursquareAccounts().UpdateSyncedThrough(t.Context(), user.ID, through); err != nil {
+		t.Fatalf("UpdateSyncedThrough returned %v", err)
+	}
+
+	got, err := db.FoursquareAccounts().ByFoursquareUserID(t.Context(), "1709193")
+	if err != nil {
+		t.Fatalf("ByFoursquareUserID returned %v", err)
+	}
+
+	if got.SyncedThrough == nil || !got.SyncedThrough.Equal(through) {
+		t.Errorf("SyncedThrough = %v, want %v", got.SyncedThrough, through)
+	}
+
+	if got.UpdatedAt.Before(created.UpdatedAt) {
+		t.Errorf("UpdatedAt = %v, want it at or after the link's own %v", got.UpdatedAt, created.UpdatedAt)
+	}
+}
+
+// TestFoursquareAccountUpdateSyncedThroughReportsMissing pins that an update
+// matching no row is the same ErrNotFound the lookup reports, rather than a
+// silent success that would leave a fetch believing it had recorded its run.
+func TestFoursquareAccountUpdateSyncedThroughReportsMissing(t *testing.T) {
+	t.Parallel()
+
+	db := newTestDB(t)
+
+	err := db.FoursquareAccounts().UpdateSyncedThrough(t.Context(), 404, time.Now())
+	if !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("UpdateSyncedThrough returned %v, want ErrNotFound", err)
+	}
+}

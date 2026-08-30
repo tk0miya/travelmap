@@ -20,8 +20,8 @@ maps / fog of war, and areas, places, notes, tags, digests and insights. See "No
 
 There is no tagged release yet. The
 [`nightly` release](https://github.com/tk0miya/travelmap/releases/tag/nightly) carries prebuilt
-binaries for Linux, macOS and Windows, rebuilt from `main` on every merge — pick one of those to
-skip building from source, or build it yourself:
+binaries for Linux and macOS (Apple Silicon), rebuilt from `main` on every merge — pick one of
+those to skip building from source, or build it yourself:
 
 A checkout and a Go toolchain are all it takes. The Go version comes from `go.mod`, so nothing
 else has to be installed.
@@ -102,6 +102,8 @@ default, so it runs with an empty environment.
 | `TRAVELMAP_FOURSQUARE_PUSH_SECRET` | unset | Shared secret for the Swarm (Foursquare) push webhook. See below |
 | `TRAVELMAP_SESSION_LIFETIME` | `720h` | How long a browser session lasts before it needs a fresh login |
 | `TRAVELMAP_SESSION_COOKIE_SECURE` | on | Send the session cookie only over HTTPS. See below |
+| `TRAVELMAP_FOURSQUARE_SYNC_LOOKBACK_DAYS` | `14` | How far back `travelmap foursquare sync` re-reads on every run. See below |
+| `TRAVELMAP_FOURSQUARE_API_URL` | `https://api.foursquare.com` | The Foursquare API base URL. Exists so a test can point the client elsewhere |
 
 `TRAVELMAP_TIMEZONE` and `TRAVELMAP_TRACK_BREAK_MINUTES` decide how stored statistics are
 computed, so changing either invalidates the ones already stored; `travelmap recalculate`
@@ -128,6 +130,20 @@ password reading answers:
 
 Until the OAuth flow exists, get an access token from the Foursquare application's own console —
 it issues one for the account that owns the application.
+
+`travelmap foursquare sync` fetches every linked account's check-ins once, from
+`TRAVELMAP_FOURSQUARE_SYNC_LOOKBACK_DAYS` back (14 by default) — a window re-read on every run
+rather than resumed from a cursor, so a check-in added or edited after the fact is still picked
+up; a check-in already stored is updated in place rather than duplicated. `--lookback-days` takes
+a wider one for a single run, for backfilling further back than the routine window:
+
+```sh
+./bin/travelmap foursquare sync
+./bin/travelmap foursquare sync --lookback-days 365
+```
+
+Nothing runs this automatically yet — that is a timer, and there is no timer in this build. Run
+it by hand, or from cron or a systemd timer, until one is built in.
 
 `TRAVELMAP_FOURSQUARE_PUSH_SECRET` turns on `POST /webhooks/foursquare`, which receives your
 check-ins in real time via a Foursquare application's **"Push API notifications"** setting,

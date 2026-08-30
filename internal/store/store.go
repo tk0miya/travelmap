@@ -208,6 +208,16 @@ type FoursquareAccountRepository interface {
 	// returns [ErrNotFound] if there is none — how an incoming push resolves
 	// checkin.user.id to a travelmap user.
 	ByFoursquareUserID(ctx context.Context, foursquareUserID string) (model.FoursquareAccount, error)
+
+	// All returns every linked account, ordered by user id. The periodic
+	// fetch has no user to start from: it fetches for whoever is linked, and
+	// an empty result is the ordinary state of a server nobody has linked an
+	// account on.
+	All(ctx context.Context) ([]model.FoursquareAccount, error)
+
+	// UpdateSyncedThrough records the end of a successful fetch window for
+	// userID. It returns [ErrNotFound] if no account is linked to that user.
+	UpdateSyncedThrough(ctx context.Context, userID int64, syncedThrough time.Time) error
 }
 
 // SessionRepository stores the browser sessions scs hands out, keyed by the
