@@ -58,10 +58,8 @@ func serve(t *testing.T, handler http.HandlerFunc) *foursquare.Client {
 }
 
 // TestCheckinsSendsTheDocumentedRequest pins what goes on the wire: the
-// pinned version, the Swarm mode, the maximum page size, the newest-first
-// sort, the window, and the token in a header rather than in the query — the
-// last of which is a deliberate departure from the parameter table of the
-// endpoint's own reference.
+// pinned version, the maximum page size, the offset, and the token in a
+// header rather than in the query.
 func TestCheckinsSendsTheDocumentedRequest(t *testing.T) {
 	t.Parallel()
 
@@ -73,11 +71,8 @@ func TestCheckinsSendsTheDocumentedRequest(t *testing.T) {
 		_, _ = w.Write(checkinsResponse(t))
 	})
 
-	after := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
-	before := time.Date(2026, time.January, 15, 0, 0, 0, 0, time.UTC)
-
 	if _, err := client.Checkins(t.Context(), "the-token",
-		foursquare.CheckinsQuery{After: after, Before: before}); err != nil {
+		foursquare.CheckinsQuery{Offset: 500}); err != nil {
 		t.Fatalf("Checkins returned %v", err)
 	}
 
@@ -94,11 +89,8 @@ func TestCheckinsSendsTheDocumentedRequest(t *testing.T) {
 	}
 
 	want := map[string]string{
-		"m":               "swarm",
-		"limit":           strconv.Itoa(pageLimit),
-		"sort":            "newestfirst",
-		"afterTimestamp":  strconv.FormatInt(after.Unix(), 10),
-		"beforeTimestamp": strconv.FormatInt(before.Unix(), 10),
+		"limit":  strconv.Itoa(pageLimit),
+		"offset": "500",
 	}
 
 	for name, value := range want {
@@ -114,10 +106,10 @@ func TestCheckinsSendsTheDocumentedRequest(t *testing.T) {
 	}
 }
 
-// TestCheckinsOmitsTheCursorOnTheFirstRequest covers the other half of the
-// query: a run's first request asks for the newest page of the window, with
-// no cursor to page back from yet.
-func TestCheckinsOmitsTheCursorOnTheFirstRequest(t *testing.T) {
+// TestCheckinsOmitsTheOffsetOnTheFirstRequest covers the other half of the
+// query: a run's first request asks for the newest page, with nothing to skip
+// yet, and says so by leaving the parameter off rather than sending a zero.
+func TestCheckinsOmitsTheOffsetOnTheFirstRequest(t *testing.T) {
 	t.Parallel()
 
 	var got *http.Request
@@ -128,14 +120,12 @@ func TestCheckinsOmitsTheCursorOnTheFirstRequest(t *testing.T) {
 		_, _ = w.Write(checkinsResponse(t))
 	})
 
-	query := foursquare.CheckinsQuery{After: time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)}
-
-	if _, err := client.Checkins(t.Context(), "the-token", query); err != nil {
+	if _, err := client.Checkins(t.Context(), "the-token", foursquare.CheckinsQuery{}); err != nil {
 		t.Fatalf("Checkins returned %v", err)
 	}
 
-	if _, ok := got.URL.Query()["beforeTimestamp"]; ok {
-		t.Errorf("beforeTimestamp = %q, want it absent", got.URL.Query().Get("beforeTimestamp"))
+	if _, ok := got.URL.Query()["offset"]; ok {
+		t.Errorf("offset = %q, want it absent", got.URL.Query().Get("offset"))
 	}
 }
 
@@ -310,22 +300,21 @@ func TestEachCheckinPageStopsOnAShortPage(t *testing.T) {
 	}
 }
 
-// TestEachCheckinPagePagesByTheOldestCreatedAt pins the cursor rule: the next
-// request asks for what is older than the page's oldest check-in plus one
-// second, so the boundary second is re-read rather than risked on an
-// inclusive-or-exclusive boundary nothing documents.
-func TestEachCheckinPagePagesByTheOldestCreatedAt(t *testing.T) {
+// TestEachCheckinPageWalksByOffset pins how the walk moves: each request
+// skips the pages already read, by the documented offset, and the offsets go
+// up by a whole page at a time.
+func TestEachCheckinPageWalksByOffset(t *testing.T) {
 	t.Parallel()
 
 	newest := time.Date(2026, time.February, 3, 4, 5, 6, 0, time.UTC)
 	oldest := newest.Add(-time.Duration(pageLimit-1) * time.Second)
 
-	var cursors []string
+	var offsets []string
 
 	client := serve(t, func(w http.ResponseWriter, r *http.Request) {
-		cursors = append(cursors, r.URL.Query().Get("beforeTimestamp"))
+		offsets = append(offsets, r.URL.Query().Get("offset"))
 
-		if len(cursors) == 1 {
+		if len(offsets) == 1 {
 			_, _ = w.Write(page(t, newest, pageLimit))
 
 			return
@@ -350,22 +339,72 @@ func TestEachCheckinPagePagesByTheOldestCreatedAt(t *testing.T) {
 		t.Errorf("the walk delivered %d pages, want 2", pages)
 	}
 
-	want := []string{"", strconv.FormatInt(oldest.Add(time.Second).Unix(), 10)}
+	want := []string{"", strconv.Itoa(pageLimit)}
 
-	if diff := cmp.Diff(want, cursors); diff != "" {
-		t.Errorf("the cursors sent differ (-want +got):\n%s", diff)
+	if diff := cmp.Diff(want, offsets); diff != "" {
+		t.Errorf("the offsets sent differ (-want +got):\n%s", diff)
 	}
 }
 
-// TestEachCheckinPageFailsWhenTheCursorCannotAdvance is the other half of the
-// pair above, and the reason the two conditions are kept apart: a server
-// answering every request with the same full page — the shape a
-// beforeTimestamp that is accepted and ignored produces — makes the walk
-// fail, rather than quietly reporting a successful sync of that one page.
+// TestEachCheckinPageStopsAndTrimsAtTheWindowStart pins where the window's
+// lower bound is applied: to the pages here. A page reaching past it ends the
+// walk, and the check-ins older than it are not handed over.
+func TestEachCheckinPageStopsAndTrimsAtTheWindowStart(t *testing.T) {
+	t.Parallel()
+
+	newest := time.Date(2026, time.February, 3, 4, 5, 6, 0, time.UTC)
+
+	// A full page one second apart per check-in, so the window can be put
+	// inside it: the newest half is in, the oldest half is out.
+	inside := pageLimit / 2
+	after := newest.Add(-time.Duration(inside-1) * time.Second)
+
+	requests := 0
+
+	client := serve(t, func(w http.ResponseWriter, _ *http.Request) {
+		requests++
+
+		_, _ = w.Write(page(t, newest, pageLimit))
+	})
+
+	var collected []foursquare.Checkin
+
+	err := client.EachCheckinPage(t.Context(), "the-token", after,
+		func(page []foursquare.Checkin) error {
+			collected = append(collected, page...)
+
+			return nil
+		})
+	if err != nil {
+		t.Fatalf("EachCheckinPage returned %v", err)
+	}
+
+	// One: the page already reaches past the window, so there is nothing
+	// older left to ask for.
+	if requests != 1 {
+		t.Errorf("the walk made %d requests, want 1", requests)
+	}
+
+	if len(collected) != inside {
+		t.Errorf("the walk collected %d check-ins, want the %d inside the window", len(collected), inside)
+	}
+
+	for _, checkin := range collected {
+		if checkin.CreatedAt < after.Unix() {
+			t.Errorf("a check-in created at %d is older than the window start %d", checkin.CreatedAt, after.Unix())
+		}
+	}
+}
+
+// TestEachCheckinPageFailsWhenTheWalkCannotAdvance is the other half of the
+// pair above, and the reason the conditions are kept apart: a server
+// answering every request with the same full page — the shape an offset that
+// is accepted and ignored produces — makes the walk fail, rather than quietly
+// reporting a successful sync of that one page.
 //
 // The assertion is the failure, not merely that the walk ends: terminating
 // alone is what this would still do with the progress check missing.
-func TestEachCheckinPageFailsWhenTheCursorCannotAdvance(t *testing.T) {
+func TestEachCheckinPageFailsWhenTheWalkCannotAdvance(t *testing.T) {
 	t.Parallel()
 
 	requests := 0
@@ -374,7 +413,7 @@ func TestEachCheckinPageFailsWhenTheCursorCannotAdvance(t *testing.T) {
 	client := serve(t, func(w http.ResponseWriter, _ *http.Request) {
 		requests++
 
-		// The same page every time, cursor or no cursor.
+		// The same page every time, offset or no offset.
 		_, _ = w.Write(page(t, newest, pageLimit))
 	})
 
@@ -385,10 +424,53 @@ func TestEachCheckinPageFailsWhenTheCursorCannotAdvance(t *testing.T) {
 		t.Fatalf("EachCheckinPage returned %v, want ErrNoProgress", err)
 	}
 
-	// Two: the first request has no cursor to have failed to advance past, so
-	// the second is the earliest one the check can judge.
+	// Two: the first request has no page before it to have failed to reach
+	// past, so the second is the earliest one the check can judge.
 	if requests != 2 {
 		t.Errorf("the walk made %d requests, want 2", requests)
+	}
+}
+
+// TestEachCheckinPageEndsOnAShortPageThatDidNotAdvance is the case that
+// separates the end of the data from a walk that cannot move. Check-ins
+// arriving mid-walk push the list along, so a last page can hold only
+// check-ins newer than the page before it and still be the end of the data. A
+// short page is that end whatever its timestamps say, and judging it by them
+// would fail a walk that finished correctly.
+func TestEachCheckinPageEndsOnAShortPageThatDidNotAdvance(t *testing.T) {
+	t.Parallel()
+
+	requests := 0
+	newest := time.Date(2026, time.February, 3, 4, 5, 6, 0, time.UTC)
+
+	client := serve(t, func(w http.ResponseWriter, _ *http.Request) {
+		requests++
+
+		if requests == 1 {
+			_, _ = w.Write(page(t, newest, pageLimit))
+
+			return
+		}
+
+		// Newer than everything the first page held, which is what an
+		// arriving check-in leaves behind at a boundary.
+		_, _ = w.Write(page(t, newest.Add(time.Hour), 2))
+	})
+
+	pages := 0
+
+	err := client.EachCheckinPage(t.Context(), "the-token", newest.AddDate(0, 0, -14),
+		func([]foursquare.Checkin) error {
+			pages++
+
+			return nil
+		})
+	if err != nil {
+		t.Fatalf("EachCheckinPage returned %v, want the short page to end the walk", err)
+	}
+
+	if pages != 2 {
+		t.Errorf("the walk delivered %d pages, want 2", pages)
 	}
 }
 

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -46,8 +47,8 @@ func checkinJSON(id string, createdAt time.Time) string {
 }
 
 // fetchServer answers every check-in request with the given check-ins, as one
-// page, and records the afterTimestamp each request asked for.
-func fetchServer(t *testing.T, windows *[]string, checkins ...string) *foursquare.Client {
+// page.
+func fetchServer(t *testing.T, checkins ...string) *foursquare.Client {
 	t.Helper()
 
 	body := `{"meta":{"code":200},"response":{"checkins":{"count":` +
@@ -63,11 +64,7 @@ func fetchServer(t *testing.T, windows *[]string, checkins ...string) *foursquar
 
 	body += `]}}}`
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if windows != nil {
-			*windows = append(*windows, r.URL.Query().Get("afterTimestamp"))
-		}
-
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(body))
 	}))
 	t.Cleanup(server.Close)
@@ -107,7 +104,7 @@ func TestSyncStoresFetchedCheckins(t *testing.T) {
 	account := linkedAccount(t, st)
 	now := time.Now().UTC().Truncate(time.Second)
 
-	client := fetchServer(t, nil,
+	client := fetchServer(t,
 		checkinJSON("aaa111", now.Add(-time.Hour)),
 		checkinJSON("bbb222", now.Add(-48*time.Hour)),
 	)
@@ -158,7 +155,7 @@ func TestSyncKeepsThePathThatSawTheCheckinFirst(t *testing.T) {
 	fetched := `{"id":"aaa111","createdAt":` + strconv.FormatInt(checkedInAt.Unix(), 10) +
 		`,"shout":"added later","user":{"id":"` + foursquareUserID + `"}}`
 
-	if _, err := checkin.Sync(t.Context(), st, fetchServer(t, nil, fetched), account, testLookback); err != nil {
+	if _, err := checkin.Sync(t.Context(), st, fetchServer(t, fetched), account, testLookback); err != nil {
 		t.Fatalf("Sync returned %v", err)
 	}
 
@@ -173,12 +170,130 @@ func TestSyncKeepsThePathThatSawTheCheckinFirst(t *testing.T) {
 	}
 }
 
+// pagingServer answers like the real endpoint does: newest first, at most
+// the limit the request asks for, skipping the requested offset. After the
+// first request it inserts a check-in at the front, which is what an arriving
+// check-in does to an offset walk underneath it — the page boundary then
+// hands one check-in back a second time.
+// fakeCheckin is one check-in the paging server below serves, before it is
+// rendered as the JSON a page carries.
+type fakeCheckin struct {
+	id        string
+	createdAt time.Time
+}
+
+func pagingServer(t *testing.T, pages *int, checkins func(limit int) []fakeCheckin) *foursquare.Client {
+	t.Helper()
+
+	arrived := false
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		*pages++
+
+		limit, err := strconv.Atoi(r.URL.Query().Get("limit"))
+		if err != nil {
+			t.Errorf("limit = %q, want a number", r.URL.Query().Get("limit"))
+
+			limit = 1
+		}
+
+		offset := 0
+
+		if raw := r.URL.Query().Get("offset"); raw != "" {
+			parsed, err := strconv.Atoi(raw)
+			if err != nil {
+				t.Errorf("offset = %q, want a number", raw)
+			}
+
+			offset = parsed
+		}
+
+		all := checkins(limit)
+
+		// The check-in that arrives mid-walk, pushing everything one place
+		// later and so back across the boundary the last page ended on.
+		if arrived {
+			all = append([]fakeCheckin{{id: "arrived", createdAt: all[0].createdAt.Add(time.Minute)}}, all...)
+		}
+
+		arrived = true
+
+		items := make([]string, 0, limit)
+
+		for i := offset; i < len(all) && len(items) < limit; i++ {
+			items = append(items, checkinJSON(all[i].id, all[i].createdAt))
+		}
+
+		body := fmt.Sprintf(`{"meta":{"code":200},"response":{"checkins":{"count":%d,"items":[%s]}}}`,
+			len(all), strings.Join(items, ","))
+
+		_, _ = w.Write([]byte(body))
+	}))
+	t.Cleanup(server.Close)
+
+	return foursquare.NewClient(server.URL, slog.New(slog.DiscardHandler))
+}
+
+// TestSyncCountsACheckinSeenTwiceOnce pins what the run reports across a page
+// boundary. Paging walks a list by offset, so a check-in arriving mid-walk
+// pushes one back across the boundary the last page ended on, and it is
+// fetched twice. The upsert makes that harmless for the stored rows; this is
+// about the count, which is a count of check-ins collected and not of items
+// fetched.
+func TestSyncCountsACheckinSeenTwiceOnce(t *testing.T) {
+	t.Parallel()
+
+	st := storetest.New(t, testUser())
+	account := linkedAccount(t, st)
+	now := time.Now().UTC().Truncate(time.Second)
+
+	total := 0
+
+	// One full page and a short one after it, whatever page size the client
+	// asks for.
+	checkins := func(limit int) []fakeCheckin {
+		total = limit + 3
+
+		all := make([]fakeCheckin, total)
+
+		for i := range all {
+			all[i].id = fmt.Sprintf("page%03d", i)
+			all[i].createdAt = now.Add(-time.Duration(i+1) * time.Minute)
+		}
+
+		return all
+	}
+
+	pages := 0
+
+	collected, err := checkin.Sync(t.Context(), st, pagingServer(t, &pages, checkins), account, testLookback)
+	if err != nil {
+		t.Fatalf("Sync returned %v", err)
+	}
+
+	// Without a second request there is no boundary, and the count below
+	// would hold however the repeat was handled.
+	if pages < 2 {
+		t.Fatalf("the run made %d requests, want the second page a boundary needs", pages)
+	}
+
+	// total, not total + 1: the check-in pushed back across the boundary is
+	// fetched twice and counted once. The one that arrived mid-walk is never
+	// seen, having been pushed off the front of a page already read.
+	if collected != total {
+		t.Errorf("Sync collected %d check-ins, want %d", collected, total)
+	}
+}
+
 // TestSyncFetchesAWindowRatherThanResumingACursor is the test the whole fetch
 // design rests on: a check-in dated before the last successful run, added
 // after it, is still collected by the next one. The window is computed from
 // the run's own start, so synced_through is a report of how current an
 // account is and never the lower bound of what is asked for — the one change
 // that would silently defeat the fetch path.
+//
+// The lower bound is applied to the pages rather than sent, so the same run
+// has to show it still holds: a check-in older than the window is left alone.
 func TestSyncFetchesAWindowRatherThanResumingACursor(t *testing.T) {
 	t.Parallel()
 
@@ -197,32 +312,29 @@ func TestSyncFetchesAWindowRatherThanResumingACursor(t *testing.T) {
 		t.Fatalf("reading the account back: %v", err)
 	}
 
-	var windows []string
+	client := fetchServer(t,
+		// Inside the window but behind the stored high-water mark, which is
+		// what a cursor would skip and this design collects.
+		checkinJSON("retro01", now.Add(-72*time.Hour)),
+		// Outside it, by a day: the bound is real, not merely computed.
+		checkinJSON("ancient", now.Add(-testLookback-24*time.Hour)),
+	)
 
-	retro := now.Add(-72 * time.Hour)
-	client := fetchServer(t, &windows, checkinJSON("retro01", retro))
-
-	if _, err := checkin.Sync(t.Context(), st, client, account, testLookback); err != nil {
+	collected, err := checkin.Sync(t.Context(), st, client, account, testLookback)
+	if err != nil {
 		t.Fatalf("Sync returned %v", err)
 	}
 
-	if len(windows) != 1 {
-		t.Fatalf("the run made %d requests, want 1", len(windows))
-	}
-
-	asked, err := strconv.ParseInt(windows[0], 10, 64)
-	if err != nil {
-		t.Fatalf("afterTimestamp %q is not a Unix timestamp: %v", windows[0], err)
-	}
-
-	// The window starts a lookback before the run, not at the stored
-	// synced_through — the request itself is where the two designs differ.
-	if want := now.Add(-testLookback).Unix(); asked > want+5 || asked < want-5 {
-		t.Errorf("afterTimestamp = %d, want about %d (a lookback before the run)", asked, want)
+	if collected != 1 {
+		t.Errorf("Sync collected %d check-ins, want only the one inside the window", collected)
 	}
 
 	if stored := probeCheckin(t, st, "retro01"); stored.Source != checkin.SourceSync {
 		t.Errorf("the retroactive check-in was not collected: source = %q", stored.Source)
+	}
+
+	if stored := probeCheckin(t, st, "ancient"); stored.Source == checkin.SourceSync {
+		t.Error("a check-in older than the window was collected")
 	}
 }
 

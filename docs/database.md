@@ -113,10 +113,13 @@ would make the interesting one unfindable.
 
 `country_code` (the payload's `cc`) is kept separately from `country` because the display text
 is localised and `cc` is not. `cc` is the only stable column, so `country`, `city`, `state`,
-`venue_name` and `category_name` are for display only and nothing keys off them. Neither
-collection path asserts a locale, and what actually decides the language a check-in comes back
-in is unknown, so a repeat write can flip these display columns to a different language than the
-first write left them in.
+`venue_name` and `category_name` are for display only and nothing keys off them.
+
+Neither collection path asserts a locale. The fetch could — v2 takes one from an
+`Accept-Language` header or a `locale=` parameter — and deliberately does not: it is the only
+setting that does not assert an answer, and the push carries no locale to match it against
+anyway. So what actually decides the language a check-in comes back in is unknown, and a repeat
+write can flip these display columns to a different language than the first write left them in.
 
 ### Venue data is denormalised
 
