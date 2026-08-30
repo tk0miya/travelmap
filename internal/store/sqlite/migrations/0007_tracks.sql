@@ -31,10 +31,10 @@ CREATE INDEX tracks_user_id_start_at_idx ON tracks (
 );
 
 -- One pending rebuild request per user, drained by internal/track's
--- background worker — the first consumer of the "Background work" row's job
--- table in docs/architecture.md. A user already queued is left alone rather
--- than duplicated: whatever runs next rereads every point that exists by
--- then, so a second request would do no more than the first.
+-- background worker — the "Background workers" row's rare per-item
+-- exception in docs/architecture.md. A user already queued is left alone
+-- rather than duplicated: whatever runs next rereads every point that
+-- exists by then, so a second request would do no more than the first.
 CREATE TABLE track_split_jobs (
     id           INTEGER PRIMARY KEY AUTOINCREMENT, -- NextPending's FIFO order; requested_at alone ties when two requests coalesce within the same second.
     user_id      INTEGER NOT NULL UNIQUE REFERENCES users (id),

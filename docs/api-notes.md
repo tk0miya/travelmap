@@ -230,11 +230,9 @@ reason `dominant_mode` and `dominant_mode_emoji` are always `null`.
 `GET /api/v1/points`, matching the spec's own inline schema for this endpoint rather than the full
 `Point` shape — and that schema types `velocity` as a plain JSON `number`, not the string
 `GET /api/v1/points`' own serializer sends. Both are read directly off the spec, not inferred by
-analogy with the other endpoint.
-
-A track's points are read from `points` by its own `[start_at, end_at]` range rather than a column
-naming which track a point belongs to: `internal/track` builds every track from one ordered walk
-over a user's whole history, so no other track's points ever fall inside another track's own span.
+analogy with the other endpoint. How this endpoint actually finds a track's own points, rather
+than upstream's own shape for the response, is in "Reading a track's own points" under `tracks`
+in `docs/database.md`.
 
 ### Every response carries `Content-Type: application/json; charset=utf-8`
 

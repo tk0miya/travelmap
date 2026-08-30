@@ -9,9 +9,9 @@
 //
 // internal/ingest enqueues a rebuild request through store.TrackRepository
 // whenever it writes a point, and [RunWorker] is the background job that
-// drains those requests — the first genuine consumer of the "Background
-// work" job table described in docs/architecture.md. [RecalculateAll] runs
-// the same rebuild over every user at once, for `travelmap recalculate`,
-// which is what a TRAVELMAP_TRACK_BREAK_MINUTES change needs: it touches no
-// point, so it enqueues nothing on its own.
+// drains those requests — the "Background workers" row's per-item exception
+// in docs/architecture.md. [RecalculateAll] runs the same rebuild over every
+// user at once, for `travelmap recalculate`, which is what a
+// TRAVELMAP_TRACK_BREAK_MINUTES change needs: it touches no point, so it
+// enqueues nothing on its own.
 package track

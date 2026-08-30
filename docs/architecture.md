@@ -107,16 +107,14 @@ below.
 ### Background workers
 
 A ticker goroutine per periodic task, over the signal-cancelled `context.Context`
-`cmd/travelmap/serve.go` already holds, and no job table for a worker that just re-scans on every
-tick. One process, so nothing between ticks needs recording, and `cmd/travelmap/serve.go` is the
-only place holding both that context and the concrete store — which is why every worker of this
-shape starts there. The session sweep (`cmd/travelmap/sweep.go`) is the first; why its interval is
-a constant rather than a setting is commented on `sessionSweepInterval` there. A job table is worth
-its own row only for the rare worker whose work is genuinely per-item rather than a periodic
-re-scan — `internal/track`'s track-splitting worker is that exception, draining one row per user
-that `internal/ingest` enqueued after a point write. What a specific worker's own interval is, and
-whether it is this per-item exception, is documented next to that worker rather than listed here,
-so this row does not grow with every worker added.
+`cmd/travelmap/serve.go` already holds; a job table only for the rare worker whose work is
+genuinely per-item rather than a periodic re-scan. One process, so nothing between ticks needs
+recording for the ordinary case, and `cmd/travelmap/serve.go` is the only place holding both that
+context and the concrete store — which is why every worker of this shape starts there. What a
+specific worker's own interval is, and whether it is the per-item exception, is documented next to
+that worker — a comment on its own file, or (for one with a table of its own) that table's own
+section in `docs/database.md` — rather than listed here, so this section does not grow with every
+worker added.
 
 ### Swarm OAuth linking
 

@@ -113,7 +113,8 @@ in a bug report.
 `recalculate` rebuilds the precomputed statistics (`/stats`, `/points/tracked_months`) and tracks
 (`/tracks`) from the points already stored. Run it after an import, after fixing an inconsistency,
 or after changing `tracking.timezone` or `tracking.track_break_minutes` — see "Configuration"
-above.
+above. Tracks also rebuild in the background as new points arrive, with no setting to configure —
+see "How a rebuild is triggered" under `tracks` in `docs/database.md`.
 
 ## Using Swarm check-ins
 
