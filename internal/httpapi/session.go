@@ -79,11 +79,15 @@ func (a *api) loadSessionUser(next http.Handler) http.Handler {
 // requireSessionUser answers a browser request with no signed-in session by
 // redirecting to the login form, rather than [requireUser]'s empty 401: a
 // browser hitting this route directly has somewhere useful to go, unlike a
-// device calling /api/v1 with no key.
+// device calling /api/v1 with no key. It is a plain GET redirect (302 Found),
+// not the 303 See Other a POST handler uses after processing a form, since
+// none of this middleware's routes are converting a POST into a GET. Every
+// handler behind it can read its user with userFrom's ok discarded, since
+// this is what guarantees one is on the context.
 func requireSessionUser(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if _, ok := userFrom(r.Context()); !ok {
-			http.Redirect(w, r, "/login", http.StatusSeeOther)
+			http.Redirect(w, r, "/login", http.StatusFound)
 
 			return
 		}

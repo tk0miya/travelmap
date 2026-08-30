@@ -68,19 +68,16 @@ func (a *api) renderPage(w http.ResponseWriter, r *http.Request, tmpl *template.
 
 // indexData is what the index page's template renders.
 type indexData struct {
-	// Email is the signed-in account's address, or "" when no session names
-	// one.
+	// Email is the signed-in account's address. [requireSessionUser]
+	// guarantees a user is on the context before index ever renders, so
+	// this is never "".
 	Email string
 }
 
-// index answers GET /, travelmap's own browser entry point. It takes no
-// credential of its own; loadSessionUser is what puts a user on the request
-// context for it to name.
+// index answers GET /, travelmap's own browser entry point.
+// [requireSessionUser] guarantees a user is on the context.
 func (a *api) index(w http.ResponseWriter, r *http.Request) {
-	var data indexData
-	if user, ok := userFrom(r.Context()); ok {
-		data.Email = user.Email
-	}
+	user, _ := userFrom(r.Context())
 
-	a.renderPage(w, r, indexTemplate, data)
+	a.renderPage(w, r, indexTemplate, indexData{Email: user.Email})
 }

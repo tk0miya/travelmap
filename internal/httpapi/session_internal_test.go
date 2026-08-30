@@ -54,9 +54,10 @@ func newSessionTestServer(t *testing.T, st store.Store) *httptest.Server {
 	return srv
 }
 
-// getWithCookie issues a GET to path carrying a "session" cookie of token,
-// and returns the response body.
-func getWithCookie(t *testing.T, srv *httptest.Server, path, token string) []byte {
+// doGetWithCookie issues a GET to path carrying a "session" cookie of token,
+// without following a redirect — a caller checking for one wants its own
+// status and Location, not the page it points to.
+func doGetWithCookie(t *testing.T, srv *httptest.Server, path, token string) *http.Response {
 	t.Helper()
 
 	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, srv.URL+path, nil)
@@ -68,10 +69,25 @@ func getWithCookie(t *testing.T, srv *httptest.Server, path, token string) []byt
 	// meaning on the Cookie header a client sends.
 	req.AddCookie(&http.Cookie{Name: "session", Value: token}) //nolint:gosec
 
-	resp, err := srv.Client().Do(req)
+	client := *srv.Client()
+	client.CheckRedirect = func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	}
+
+	resp, err := client.Do(req)
 	if err != nil {
 		t.Fatalf("GET %s: %v", path, err)
 	}
+
+	return resp
+}
+
+// getWithCookie is [doGetWithCookie] for a caller that only wants the
+// response body.
+func getWithCookie(t *testing.T, srv *httptest.Server, path, token string) []byte {
+	t.Helper()
+
+	resp := doGetWithCookie(t, srv, path, token)
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
@@ -217,9 +233,14 @@ func TestIndexIgnoresExpiredSession(t *testing.T) {
 		t.Fatalf("expiring the session: %v", err)
 	}
 
-	body := getWithCookie(t, newSessionTestServer(t, st), "/", token)
+	resp := doGetWithCookie(t, newSessionTestServer(t, st), "/", token)
+	defer resp.Body.Close()
 
-	if !bytes.Contains(body, []byte("Not signed in.")) {
-		t.Errorf("body = %q, want an expired session treated as none", body)
+	if resp.StatusCode != http.StatusFound {
+		t.Errorf("status = %d, want %d — an expired session treated as none", resp.StatusCode, http.StatusFound)
+	}
+
+	if got, want := resp.Header.Get("Location"), "/login"; got != want {
+		t.Errorf("Location = %q, want %q", got, want)
 	}
 }
