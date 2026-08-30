@@ -37,7 +37,7 @@ func (a *api) signupPage(w http.ResponseWriter, r *http.Request) {
 // confirmation in, a signed-in session and the account's API key out.
 //
 // Open to anyone — no environment variable, no invite code, no
-// first-user-only rule, per "User management" in docs/architecture.md.
+// first-user-only rule.
 func (a *api) signupSubmit(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
 		a.renderPage(w, r, signupTemplate, signupData{EmailError: "the form could not be read; try again"})
