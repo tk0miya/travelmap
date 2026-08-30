@@ -188,6 +188,7 @@ func TestCreatePointsReportsFailures(t *testing.T) {
 	tests := map[string]struct {
 		points     *fakePoints
 		dailyStats *fakeDailyStats
+		tracks     *fakeTracks
 	}{
 		"Create fails": {
 			points:     &fakePoints{createErr: errFake},
@@ -201,6 +202,11 @@ func TestCreatePointsReportsFailures(t *testing.T) {
 			points:     &fakePoints{},
 			dailyStats: &fakeDailyStats{rebuildErr: errFake},
 		},
+		"Enqueue fails": {
+			points:     &fakePoints{},
+			dailyStats: &fakeDailyStats{},
+			tracks:     &fakeTracks{enqueueErr: errFake},
+		},
 	}
 
 	for name, tt := range tests {
@@ -210,7 +216,7 @@ func TestCreatePointsReportsFailures(t *testing.T) {
 			var events []string
 			tt.dailyStats.events = &events
 
-			st := &fakeStore{points: tt.points, dailyStats: tt.dailyStats}
+			st := &fakeStore{points: tt.points, dailyStats: tt.dailyStats, tracks: tt.tracks}
 
 			created, err := ingest.CreatePoints(t.Context(), st, batch, time.UTC, 30*time.Minute)
 			if !errors.Is(err, errFake) {
@@ -221,6 +227,33 @@ func TestCreatePointsReportsFailures(t *testing.T) {
 				t.Errorf("created = %d, want 0 on failure", created)
 			}
 		})
+	}
+}
+
+// TestCreatePointsEnqueuesTrackRebuild pins that a batch enqueues exactly one
+// rebuild per distinct user, deduplicated, regardless of how many points each
+// contributed.
+func TestCreatePointsEnqueuesTrackRebuild(t *testing.T) {
+	t.Parallel()
+
+	var events []string
+
+	tracks := &fakeTracks{}
+	st := &fakeStore{points: &fakePoints{}, dailyStats: &fakeDailyStats{events: &events}, tracks: tracks}
+
+	day := time.Date(2026, time.June, 1, 0, 0, 0, 0, time.UTC)
+	batch := []model.Point{
+		point(1, day),
+		point(1, day.Add(time.Hour)),
+		point(2, day),
+	}
+
+	if _, err := ingest.CreatePoints(t.Context(), st, batch, time.UTC, 30*time.Minute); err != nil {
+		t.Fatalf("CreatePoints returned %v", err)
+	}
+
+	if diff := cmp.Diff([]int64{1, 2}, tracks.enqueued); diff != "" {
+		t.Errorf("enqueued users differ (-want +got):\n%s", diff)
 	}
 }
 

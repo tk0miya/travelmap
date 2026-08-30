@@ -211,7 +211,30 @@ func (f *fakePoints) DeleteBulk(context.Context, int64, []int64) ([]time.Time, e
 	return f.deleteBulkResult, nil
 }
 
-// fakeStore implements [store.Store] over [fakePoints] and [fakeDailyStats].
+// fakeTracks implements [store.TrackRepository] by recording every Enqueue
+// call, for the same reason [fakeDailyStats] records Rebuild calls: what a
+// caller does with the store is what these tests are about.
+type fakeTracks struct {
+	store.TrackRepository
+
+	enqueued []int64
+
+	// enqueueErr, when set, is what Enqueue fails with.
+	enqueueErr error
+}
+
+func (f *fakeTracks) Enqueue(_ context.Context, userID int64) error {
+	if f.enqueueErr != nil {
+		return f.enqueueErr
+	}
+
+	f.enqueued = append(f.enqueued, userID)
+
+	return nil
+}
+
+// fakeStore implements [store.Store] over [fakePoints], [fakeDailyStats] and
+// [fakeTracks].
 //
 // The embedded interface is left nil, for the same reason as
 // [fakeDailyStats]'s: Users, and any repository that store.Store grows
@@ -222,11 +245,20 @@ type fakeStore struct {
 
 	points     *fakePoints
 	dailyStats *fakeDailyStats
+	tracks     *fakeTracks
 }
 
 func (s *fakeStore) Points() store.PointRepository { return s.points }
 
 func (s *fakeStore) DailyStats() store.DailyStatsRepository { return s.dailyStats }
+
+func (s *fakeStore) Tracks() store.TrackRepository {
+	if s.tracks == nil {
+		s.tracks = &fakeTracks{}
+	}
+
+	return s.tracks
+}
 
 // Tx implements [store.Store]. There is nothing here to roll back, so fn
 // always runs against this same store.

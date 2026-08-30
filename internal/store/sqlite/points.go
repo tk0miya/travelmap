@@ -109,6 +109,22 @@ func (r pointRepository) Timestamps(ctx context.Context, userID int64) ([]time.T
 	return timestamps, nil
 }
 
+// AllOrdered implements [store.PointRepository].
+func (r pointRepository) AllOrdered(ctx context.Context, userID int64) ([]model.Point, error) {
+	rows, err := r.q.QueryContext(ctx,
+		`SELECT `+pointColumns+` FROM points WHERE user_id = ? ORDER BY timestamp`, userID)
+	if err != nil {
+		return nil, fmt.Errorf("sqlite: listing all points for user %d: %w", userID, err)
+	}
+
+	points, err := collect(rows, scanPoint)
+	if err != nil {
+		return nil, fmt.Errorf("sqlite: listing all points for user %d: %w", userID, err)
+	}
+
+	return points, nil
+}
+
 // NextTimestamp implements [store.PointRepository].
 //
 // ORDER BY ... LIMIT 1 rather than MIN(timestamp): a MIN() over no matching

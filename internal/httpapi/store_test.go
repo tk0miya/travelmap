@@ -94,3 +94,12 @@ func newStoreWithUnavailableDailyStats(t *testing.T) store.Store {
 
 	return storetest.UnavailableDailyStats(t, testUser(t))
 }
+
+// newStoreWithUnavailableTracks returns a store that authenticates as
+// [testUser] normally but fails every read of tracks, for the tests
+// newUnavailableStore would fail too early for.
+func newStoreWithUnavailableTracks(t *testing.T) store.Store {
+	t.Helper()
+
+	return storetest.UnavailableTracks(t, testUser(t))
+}

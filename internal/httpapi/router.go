@@ -240,6 +240,9 @@ func (a *api) newRouter() http.Handler {
 			r.Post("/overland/batches", a.createOverlandBatch)
 			get(r, "/points/tracked_months", a.trackedMonths)
 			get(r, "/stats", a.stats)
+			get(r, "/tracks", a.listTracks)
+			get(r, "/tracks/{id}", a.getTrack)
+			get(r, "/tracks/{track_id}/points", a.trackPoints)
 		})
 	})
 

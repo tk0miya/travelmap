@@ -49,6 +49,9 @@ type Store interface {
 	// Sessions returns the browser session repository.
 	Sessions() SessionRepository
 
+	// Tracks returns the tracks repository.
+	Tracks() TrackRepository
+
 	// Tx runs fn inside a transaction, committing when it returns nil and
 	// rolling back when it returns an error, which Tx then returns.
 	//
@@ -106,6 +109,11 @@ type PointRepository interface {
 	// because which day a timestamp falls on depends on tracking.timezone,
 	// which this package does not know.
 	Timestamps(ctx context.Context, userID int64) ([]time.Time, error)
+
+	// AllOrdered returns every point recorded for userID, in ascending
+	// timestamp order, coordinates included — what a full track rebuild
+	// segments, unlike Timestamps, which carries no coordinates.
+	AllOrdered(ctx context.Context, userID int64) ([]model.Point, error)
 
 	// NextTimestamp returns the smallest timestamp already stored for userID
 	// that is strictly greater than after, and false when there is none.
@@ -259,4 +267,41 @@ type SessionRepository interface {
 	// DeleteExpired removes every session whose expiry has passed, for the
 	// periodic sweep.
 	DeleteExpired(ctx context.Context) error
+}
+
+// TrackRepository stores the tracks table: one row per contiguous run of a
+// user's points, split from its neighbours by a gap exceeding
+// TRAVELMAP_TRACK_BREAK_MINUTES. internal/track is the only intended caller:
+// it recomputes every one of a user's tracks from scratch whenever a point
+// changes anywhere in that user's history, the same "rebuild, never adjust
+// arithmetically" rule daily_stats follows, since a single inserted point can
+// shift where every later boundary falls.
+type TrackRepository interface {
+	// ReplaceAll deletes every track stored for userID and inserts tracks in
+	// their place.
+	ReplaceAll(ctx context.Context, userID int64, tracks []model.Track) error
+
+	// List returns userID's tracks whose own [StartAt, EndAt] overlaps
+	// [startAt, endAt) — no lower bound where startAt is nil, no upper bound
+	// where endAt is nil — ordered by StartAt ascending, the page'th page
+	// (1-based) of perPage of them, and the total number of matching rows
+	// across every page, for GET /api/v1/tracks to turn into X-Total-Pages.
+	List(ctx context.Context, userID int64, startAt, endAt *time.Time, page, perPage int) ([]model.Track, int, error)
+
+	// ByID finds one of userID's tracks, and reports [ErrNotFound] if there
+	// is none or it belongs to a different user.
+	ByID(ctx context.Context, userID, id int64) (model.Track, error)
+
+	// Enqueue records that userID's tracks need rebuilding, coalescing with
+	// any request already pending for the same user rather than creating a
+	// second one — whatever runs next rereads every point that exists by
+	// then, so only one pending request per user is ever needed.
+	Enqueue(ctx context.Context, userID int64) error
+
+	// NextPending claims and removes the oldest pending rebuild request, and
+	// reports false when none is pending. Claiming removes the row, so a
+	// request enqueued while the claimed rebuild is still running starts a
+	// fresh request rather than being silently absorbed into the one already
+	// running.
+	NextPending(ctx context.Context) (userID int64, ok bool, err error)
 }

@@ -14,6 +14,7 @@ import (
 	foursquareapi "github.com/tk0miya/travelmap/internal/foursquare"
 	"github.com/tk0miya/travelmap/internal/httpapi"
 	"github.com/tk0miya/travelmap/internal/store/sqlite"
+	"github.com/tk0miya/travelmap/internal/track"
 )
 
 // serve runs the HTTP server until the process is asked to stop.
@@ -52,6 +53,7 @@ func serve(configPath string, stderr io.Writer) error {
 	}
 
 	go sweepExpiredSessions(ctx, db, sessionSweepInterval, logger)
+	go track.RunWorker(ctx, db, cfg.TrackBreak(), logger)
 
 	// Zero is foursquare.sync_interval's own way of switching the fetch off,
 	// and time.NewTicker panics on a non-positive duration, so this is where
