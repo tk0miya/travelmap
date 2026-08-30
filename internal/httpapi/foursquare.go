@@ -88,9 +88,9 @@ func foursquareOAuthCallbackURL(baseURL string) string {
 	return strings.TrimSuffix(baseURL, "/") + foursquareOAuthCallbackPath
 }
 
-// foursquareOAuthStart answers GET /foursquare/oauth/start: it sends the
-// browser to Foursquare to link the signed-in session's account to a Swarm
-// one. [requireSessionUser] guarantees a user is on the context.
+// foursquareOAuthStart answers GET /settings/foursquare/connect: it sends
+// the browser to Foursquare to link the signed-in session's account to a
+// Swarm one. [requireSessionUser] guarantees a user is on the context.
 func (a *api) foursquareOAuthStart(w http.ResponseWriter, r *http.Request) {
 	user, _ := userFrom(r.Context())
 
@@ -179,7 +179,11 @@ func (a *api) foursquareOAuthCallback(w http.ResponseWriter, r *http.Request) {
 	switch {
 	// The account or this Foursquare user id is already linked: an operator
 	// repeating themselves, or two accounts racing to claim the same Swarm
-	// id, not a server fault.
+	// id, not a server fault. Re-linking to a different Swarm account is the
+	// settings page's own Disconnect followed by Connect again, not an
+	// upsert here: Create staying Create is what keeps this handler from
+	// having to decide, on every callback, whether a conflicting row is a
+	// repeat or a deliberate switch.
 	case errors.Is(err, store.ErrConflict):
 		a.logger.Warn("linking a Foursquare account that is already linked",
 			"user_id", sessionUser.ID, "foursquare_user_id", foursquareUserID)

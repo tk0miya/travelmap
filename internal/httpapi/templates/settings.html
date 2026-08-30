@@ -1,0 +1,27 @@
+{{define "content"}}
+    <div class="card">
+        <h1>Settings</h1>
+        {{if .FoursquareAvailable}}
+        <h2>Swarm connection</h2>
+        {{if .FoursquareLinked}}
+            <p>Connected as Swarm user {{.FoursquareUserID}}.</p>
+            {{if .FoursquareSyncedThrough}}
+            <p>Check-ins fetched through {{.FoursquareSyncedThrough}}.</p>
+            {{else}}
+            <p>No check-ins fetched yet.</p>
+            {{end}}
+            <form method="post" action="/settings/foursquare/disconnect">
+                <button type="submit">Disconnect</button>
+            </form>
+            <p class="auth-links">Disconnecting keeps the check-ins already collected — it only
+                removes the link, so a different Swarm account can be connected instead.</p>
+        {{else}}
+            <p>No Swarm account is connected yet.</p>
+            <p><a href="/settings/foursquare/connect">Connect your Swarm account</a></p>
+        {{end}}
+        {{else}}
+        <p>No settings are available yet.</p>
+        {{end}}
+        <p class="auth-links"><a href="/">Back</a></p>
+    </div>
+{{end}}

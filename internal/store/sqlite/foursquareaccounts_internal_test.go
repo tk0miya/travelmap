@@ -124,6 +124,84 @@ func TestFoursquareAccountCreateRejectsDuplicates(t *testing.T) {
 	}
 }
 
+// TestFoursquareAccountByUserID covers the Swarm connection page's own
+// lookup, the reverse direction of ByFoursquareUserID.
+func TestFoursquareAccountByUserID(t *testing.T) {
+	t.Parallel()
+
+	db := newTestDB(t)
+
+	user, err := db.Users().Create(t.Context(), testUser("swarm@example.com"))
+	if err != nil {
+		t.Fatalf("creating the user: %v", err)
+	}
+
+	created, err := db.FoursquareAccounts().Create(t.Context(), testFoursquareAccount(user.ID, "1709193"))
+	if err != nil {
+		t.Fatalf("Create returned %v", err)
+	}
+
+	got, err := db.FoursquareAccounts().ByUserID(t.Context(), user.ID)
+	if err != nil {
+		t.Fatalf("ByUserID returned %v", err)
+	}
+
+	if diff := cmp.Diff(created, got); diff != "" {
+		t.Errorf("the account differs (-want +got):\n%s", diff)
+	}
+}
+
+// TestFoursquareAccountByUserIDReportsMissing pins ErrNotFound rather than a
+// zero account, so the connection page can tell a fresh account apart from
+// one that failed to load.
+func TestFoursquareAccountByUserIDReportsMissing(t *testing.T) {
+	t.Parallel()
+
+	db := newTestDB(t)
+
+	if _, err := db.FoursquareAccounts().ByUserID(t.Context(), 404); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("ByUserID returned %v, want ErrNotFound", err)
+	}
+}
+
+// TestFoursquareAccountDelete covers that Delete removes the row a re-link
+// needs gone.
+func TestFoursquareAccountDelete(t *testing.T) {
+	t.Parallel()
+
+	db := newTestDB(t)
+
+	user, err := db.Users().Create(t.Context(), testUser("swarm@example.com"))
+	if err != nil {
+		t.Fatalf("creating the user: %v", err)
+	}
+
+	if _, err := db.FoursquareAccounts().Create(t.Context(), testFoursquareAccount(user.ID, "1709193")); err != nil {
+		t.Fatalf("Create returned %v", err)
+	}
+
+	if err := db.FoursquareAccounts().Delete(t.Context(), user.ID); err != nil {
+		t.Fatalf("Delete returned %v", err)
+	}
+
+	if _, err := db.FoursquareAccounts().ByUserID(t.Context(), user.ID); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("ByUserID after Delete returned %v, want ErrNotFound", err)
+	}
+}
+
+// TestFoursquareAccountDeleteMissingIsNotAnError pins that deleting a userID
+// with no linked account is not an error, the same reasoning as
+// [store.SessionRepository.Delete].
+func TestFoursquareAccountDeleteMissingIsNotAnError(t *testing.T) {
+	t.Parallel()
+
+	db := newTestDB(t)
+
+	if err := db.FoursquareAccounts().Delete(t.Context(), 404); err != nil {
+		t.Fatalf("Delete returned %v, want nil for a userID with nothing linked", err)
+	}
+}
+
 // TestFoursquareAccountAll covers the listing the fetch iterates over: every
 // linked account, in a defined order, and an empty result — the ordinary
 // state of a server nobody has linked an account on — rather than an error.

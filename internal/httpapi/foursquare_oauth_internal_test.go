@@ -131,14 +131,14 @@ func TestFoursquareOAuthStartRequiresASession(t *testing.T) {
 	a := newOAuthTestAPI(t, st, newOAuthFakeServer(t, oauthFakeServer{}))
 	srv := newOAuthTestServer(t, a)
 
-	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, srv.URL+"/foursquare/oauth/start", nil)
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, srv.URL+"/settings/foursquare/connect", nil)
 	if err != nil {
 		t.Fatalf("building the request: %v", err)
 	}
 
 	resp, err := noRedirectClient().Do(req)
 	if err != nil {
-		t.Fatalf("GET /foursquare/oauth/start: %v", err)
+		t.Fatalf("GET /settings/foursquare/connect: %v", err)
 	}
 	defer resp.Body.Close()
 
@@ -163,7 +163,7 @@ func TestFoursquareOAuthStartRedirectsToFoursquare(t *testing.T) {
 
 	token := plantSession(t, st, user.ID)
 
-	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, srv.URL+"/foursquare/oauth/start", nil)
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, srv.URL+"/settings/foursquare/connect", nil)
 	if err != nil {
 		t.Fatalf("building the request: %v", err)
 	}
@@ -172,7 +172,7 @@ func TestFoursquareOAuthStartRedirectsToFoursquare(t *testing.T) {
 
 	resp, err := noRedirectClient().Do(req)
 	if err != nil {
-		t.Fatalf("GET /foursquare/oauth/start: %v", err)
+		t.Fatalf("GET /settings/foursquare/connect: %v", err)
 	}
 	defer resp.Body.Close()
 
@@ -247,7 +247,7 @@ func TestFoursquareOAuthRoutesAbsentWhenUnconfigured(t *testing.T) {
 			srv := httptest.NewServer(a.newRouter())
 			t.Cleanup(srv.Close)
 
-			for _, path := range []string{"/foursquare/oauth/start", "/foursquare/oauth/callback"} {
+			for _, path := range []string{"/settings/foursquare/connect", "/foursquare/oauth/callback"} {
 				resp, err := srv.Client().Get(srv.URL + path)
 				if err != nil {
 					t.Fatalf("GET %s: %v", path, err)
@@ -285,7 +285,7 @@ func TestFoursquareOAuthStartTrimsBaseURLTrailingSlash(t *testing.T) {
 	})
 	srv := newOAuthTestServer(t, a)
 
-	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, srv.URL+"/foursquare/oauth/start", nil)
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, srv.URL+"/settings/foursquare/connect", nil)
 	if err != nil {
 		t.Fatalf("building the request: %v", err)
 	}
@@ -294,7 +294,7 @@ func TestFoursquareOAuthStartTrimsBaseURLTrailingSlash(t *testing.T) {
 
 	resp, err := noRedirectClient().Do(req)
 	if err != nil {
-		t.Fatalf("GET /foursquare/oauth/start: %v", err)
+		t.Fatalf("GET /settings/foursquare/connect: %v", err)
 	}
 	defer resp.Body.Close()
 
