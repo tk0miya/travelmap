@@ -107,7 +107,7 @@ func TestRecalculateCommand(t *testing.T) {
 }
 
 // TestRecalculateOnAnUnmigratedDatabase covers the same mistake `serve` and
-// `foursquare connect` refuse: TRAVELMAP_DATABASE pointing at a file with no
+// `foursquare sync` refuse: TRAVELMAP_DATABASE pointing at a file with no
 // schema.
 func TestRecalculateOnAnUnmigratedDatabase(t *testing.T) {
 	t.Parallel()

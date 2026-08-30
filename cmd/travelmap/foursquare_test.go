@@ -13,20 +13,6 @@ import (
 	"github.com/tk0miya/travelmap/internal/model"
 )
 
-// withFoursquareUser returns the environment of a migrated database holding
-// one user, seeded directly — the account `foursquare connect` expects to
-// find.
-func withFoursquareUser(t *testing.T) (func(string) string, string) {
-	t.Helper()
-
-	env := migrated(t)
-	const email = "alice@example.com"
-
-	seedUser(t, env, email)
-
-	return env, email
-}
-
 // seedUser inserts one user directly into env's already-migrated database —
 // the same reasoning as recalculate_test.go's own seedPoints, since there is
 // no CLI command left that creates a user: signing up needs a browser, which
@@ -52,113 +38,31 @@ func seedUser(t *testing.T, env func(string) string, email string) {
 	}
 }
 
-// TestFoursquareConnectCommand covers the command's own completion
-// condition: linking an account and printing something an operator can
-// confirm.
-func TestFoursquareConnectCommand(t *testing.T) {
-	t.Parallel()
+// seedFoursquareAccount links email to foursquareUserID directly in env's
+// already-migrated database, standing in for what the settings page's OAuth
+// flow does — there is no CLI command left that creates a link either.
+func seedFoursquareAccount(t *testing.T, env func(string) string, email, foursquareUserID, accessToken string) {
+	t.Helper()
 
-	env, email := withFoursquareUser(t)
+	ctx := t.Context()
 
-	var stdout, stderr bytes.Buffer
+	db, _, err := openDatabase(ctx, env)
+	if err != nil {
+		t.Fatalf("opening the database: %v", err)
+	}
+	defer closeDatabase(db)
 
-	args := []string{"foursquare", "connect", "--email", email, "--foursquare-user-id", "1709193"}
-	if err := run(args, env, strings.NewReader("the-access-token\n"), &stdout, &stderr); err != nil {
-		t.Fatalf("foursquare connect returned %v (stderr %q)", err, stderr.String())
+	user, err := db.Users().ByEmail(ctx, email)
+	if err != nil {
+		t.Fatalf("looking up %s: %v", email, err)
 	}
 
-	if got := stdout.String(); !strings.Contains(got, "linked user 1 (alice@example.com) to Foursquare user 1709193") {
-		t.Errorf("foursquare connect printed %q, want the link summary", got)
-	}
-}
-
-// TestFoursquareConnectRequiresAnExistingUser covers the mistake the error
-// message exists for: there is no account to link yet.
-func TestFoursquareConnectRequiresAnExistingUser(t *testing.T) {
-	t.Parallel()
-
-	env := migrated(t)
-
-	var stdout, stderr bytes.Buffer
-
-	args := []string{"foursquare", "connect", "--email", "nobody@example.com", "--foursquare-user-id", "1709193"}
-
-	err := run(args, env, strings.NewReader("the-access-token\n"), &stdout, &stderr)
-	if err == nil {
-		t.Fatal("foursquare connect returned nil for an email with no user")
-	}
-
-	if !strings.Contains(err.Error(), "sign up at /signup first") {
-		t.Errorf("foursquare connect failed with %v, want it to name where to sign up", err)
-	}
-}
-
-// TestFoursquareConnectRejectsADuplicate pins that a second link is refused
-// rather than silently overwriting the first — a travelmap user has at most
-// one Swarm account, and a Swarm account links to at most one travelmap user.
-func TestFoursquareConnectRejectsADuplicate(t *testing.T) {
-	t.Parallel()
-
-	env, email := withFoursquareUser(t)
-
-	args := []string{"foursquare", "connect", "--email", email, "--foursquare-user-id", "1709193"}
-
-	var first bytes.Buffer
-	if err := run(args, env, strings.NewReader("the-access-token\n"), &first, &first); err != nil {
-		t.Fatalf("the first foursquare connect returned %v", err)
-	}
-
-	var second bytes.Buffer
-
-	err := run(args, env, strings.NewReader("another-access-token\n"), &second, &second)
-	if err == nil {
-		t.Fatal("the second foursquare connect returned nil for an account already linked")
-	}
-
-	if !strings.Contains(err.Error(), "already linked") {
-		t.Errorf("the second foursquare connect failed with %v, want it to say the account is already linked", err)
-	}
-}
-
-// TestFoursquareConnectRejectsBadInput covers what has to fail before a
-// database is touched at all, plus the token that never arrives.
-func TestFoursquareConnectRejectsBadInput(t *testing.T) {
-	t.Parallel()
-
-	tests := map[string]struct {
-		args  []string
-		stdin string
-	}{
-		"no email": {
-			args: []string{"foursquare", "connect", "--foursquare-user-id", "1709193"},
-		},
-		"an email that is not an address": {
-			args: []string{"foursquare", "connect", "--email", "alice", "--foursquare-user-id", "1709193"},
-		},
-		"no foursquare user id": {
-			args: []string{"foursquare", "connect", "--email", "alice@example.com"},
-		},
-		"a positional argument": {
-			args: []string{"foursquare", "connect", "alice@example.com"},
-		},
-		"no access token anywhere": {
-			args: []string{"foursquare", "connect", "--email", "alice@example.com", "--foursquare-user-id", "1709193"},
-		},
-	}
-
-	for name, tt := range tests {
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-
-			env := migrated(t)
-
-			var stdout, stderr bytes.Buffer
-
-			err := run(tt.args, env, strings.NewReader(tt.stdin), &stdout, &stderr)
-			if !errors.Is(err, errUsage) {
-				t.Errorf("foursquare connect failed with %v, want errUsage", err)
-			}
-		})
+	if _, err := db.FoursquareAccounts().Create(ctx, model.FoursquareAccount{
+		UserID:           user.ID,
+		FoursquareUserID: foursquareUserID,
+		AccessToken:      accessToken,
+	}); err != nil {
+		t.Fatalf("linking %s to Foursquare user %s: %v", email, foursquareUserID, err)
 	}
 }
 
@@ -169,12 +73,11 @@ func TestFoursquareConnectRejectsBadInput(t *testing.T) {
 func withFoursquareAPI(t *testing.T, checkins string) func(string) string {
 	t.Helper()
 
-	env, email := withFoursquareUser(t)
+	env := migrated(t)
+	const email = "alice@example.com"
 
-	args := []string{"foursquare", "connect", "--email", email, "--foursquare-user-id", "1709193"}
-	if err := run(args, env, strings.NewReader("the-access-token\n"), &bytes.Buffer{}, &bytes.Buffer{}); err != nil {
-		t.Fatalf("foursquare connect returned %v", err)
-	}
+	seedUser(t, env, email)
+	seedFoursquareAccount(t, env, email, "1709193", "the-access-token")
 
 	body := `{"meta":{"code":200},"response":{"checkins":{"count":1,"items":[` + checkins + `]}}}`
 
@@ -241,8 +144,8 @@ func TestFoursquareSyncTakesAWiderWindow(t *testing.T) {
 }
 
 // TestFoursquareSyncWithoutALinkedAccount pins the answer to the state every
-// fresh server is in: nothing to fetch for, said in the words that name the
-// command that fixes it, and not treated as a failure.
+// fresh server is in: nothing to fetch for, said in words that point at where
+// to fix it, and not treated as a failure.
 func TestFoursquareSyncWithoutALinkedAccount(t *testing.T) {
 	t.Parallel()
 
@@ -252,8 +155,8 @@ func TestFoursquareSyncWithoutALinkedAccount(t *testing.T) {
 		t.Fatalf("foursquare sync returned %v (stderr %q)", err, stderr.String())
 	}
 
-	if got := stdout.String(); !strings.Contains(got, `run "travelmap foursquare connect" first`) {
-		t.Errorf("foursquare sync printed %q, want it to name the command that links an account", got)
+	if got := stdout.String(); !strings.Contains(got, "connect one from Settings first") {
+		t.Errorf("foursquare sync printed %q, want it to say where to link an account", got)
 	}
 }
 
@@ -309,11 +212,7 @@ func TestFoursquareSyncContinuesAfterOneAccountFails(t *testing.T) {
 
 	link := func(email, foursquareUserID, token string) {
 		seedUser(t, env, email)
-
-		args := []string{"foursquare", "connect", "--email", email, "--foursquare-user-id", foursquareUserID}
-		if err := run(args, env, strings.NewReader(token+"\n"), &bytes.Buffer{}, &bytes.Buffer{}); err != nil {
-			t.Fatalf("foursquare connect returned %v", err)
-		}
+		seedFoursquareAccount(t, env, email, foursquareUserID, token)
 	}
 
 	link("first@example.com", "1111111", "the-failing-token")

@@ -3,9 +3,8 @@ package model
 import "time"
 
 // FoursquareAccount links a travelmap [User] to a Swarm account, one row per
-// user. Created either by `travelmap foursquare connect` or by completing
-// the browser OAuth flow; nothing is collected for a user until this row
-// exists.
+// user. Created from the settings page's OAuth flow; nothing is collected
+// for a user until this row exists.
 type FoursquareAccount struct {
 	// UserID is the linked [User]'s id, and the primary key: one Swarm
 	// account per travelmap user.

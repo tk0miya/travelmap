@@ -332,58 +332,14 @@ All independent of each other; take them in whatever order the need arises.
 Start once the API has settled. What the screens still need a library for is in "Library Choices
 for the Web UI".
 
-Step 33 is the rest of the browser's way in, and the CLI path it replaces. The Swarm
-link itself already runs on the browser session, with its own section on the settings page —
-`/settings`, its connect at `/settings/foursquare/connect` and its OAuth callback, and its
-disconnect at `/settings/foursquare/disconnect`, all in `internal/httpapi` — built directly
-against the session rather than against `api_key`, since the
-`sessions` table and its repository, the HTML route group and its one page, the session
-middleware, the login screen, `auth.Register` and the sign-up screen were all already in place
-when it was taken. **It adds no data endpoint either**, which is what leaves "Open
-question: how the browser authenticates against `/api/v1`" for the map screen to answer rather
-than this half.
+The Swarm link itself is done: its own section on the settings page, built directly against the
+browser session rather than `api_key` — see "Swarm OAuth linking" in `docs/architecture.md`. It
+added no data endpoint, which is what leaves "Open question: how the browser authenticates
+against `/api/v1`" for the map screen to answer.
 
 The map, statistics and settings screens keep their bullet form below. They are not planned yet,
 and writing a checklist for a screen whose rendering approach is undecided would be inventing the
 plan rather than recording it.
-
-### Ordering
-
-```
-The settings page (already built) ─→ Step 33 (remove foursquare connect)
-```
-
-### Step 33: Remove `travelmap foursquare connect`
-
-Follows the settings page, already in place. Once a logged-in session can link a Swarm
-account from its own page, the CLI path settles nothing a browser cannot: getting an access token
-out of Foursquare's own developer console takes exactly the same human-at-a-browser step as
-clicking through its OAuth consent screen, so the command enables no automation the browser flow
-does not already offer. Kept only as long as it takes to prove that flow out; this step is what
-removes it rather than leaving two paths that can drift.
-
-- [ ] Delete the `foursquare connect` subcommand and its own tests. What that leaves of the
-      `foursquare` dispatcher is `foursquare sync`, its one remaining subcommand
-- [ ] `docs/database.md`'s `foursquare_accounts` entry ("Created by `travelmap foursquare
-      connect`") is rewritten to say created from the settings page instead. Three more
-      places say the same thing and go with it: `internal/model.FoursquareAccount`'s doc comment,
-      `store.FoursquareAccountRepository`'s doc comment, and `0005_checkins.sql`'s leading comment
-      on `foursquare_accounts`, which already reads "created by `travelmap foursquare connect` or
-      a browser-driven OAuth flow" — sitting outside every statement, so still editable after the
-      fact — and now drops the CLI half entirely
-- [ ] README: the `foursquare connect` walkthrough under "Swarm (Foursquare) check-ins" is replaced
-      with signing in and visiting Settings; the "until the OAuth flow exists, get an access token
-      from the Foursquare application's own console" caveat is dropped along with it, since nothing
-      here still needs that console
-- [ ] Tests: neither `travelmap --help` nor `travelmap foursquare --help` lists `connect` any more;
-      `internal/httpapi`'s own `linkFoursquareAccount` test helper already seeds a
-      `foursquare_accounts` row through the store directly rather than the CLI, and is checked here
-      rather than assumed
-
-**Settles**: that a Swarm account links to a travelmap account through exactly one path.
-
-**Done when**: `travelmap foursquare connect` no longer exists, and the README documents the
-settings page as the only way to link an account.
 
 ### Still to plan
 

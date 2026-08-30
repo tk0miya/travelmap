@@ -57,8 +57,8 @@ CREATE INDEX checkins_user_id_checked_in_at_idx ON checkins (
 );
 
 -- Links a travelmap account to a Swarm account, one row per user. Nothing is
--- collected for a user until this row exists, created by `travelmap
--- foursquare connect` or a browser-driven OAuth flow.
+-- collected for a user until this row exists, created by the settings
+-- page's browser-driven OAuth flow.
 CREATE TABLE foursquare_accounts (
     -- One Swarm account per travelmap user.
     user_id            INTEGER PRIMARY KEY REFERENCES users (id),
