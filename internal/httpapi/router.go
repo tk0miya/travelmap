@@ -194,25 +194,29 @@ func (a *api) newRouter() http.Handler {
 		r.Use(a.loadSessionUser)
 		r.Use(a.csrf.Handler)
 
-		r.Get("/", a.index)
 		r.Get("/login", a.loginPage)
 		r.Post("/login", a.loginSubmit)
 		r.Post("/logout", a.logout)
 		r.Get("/signup", a.signupPage)
 		r.Post("/signup", a.signupSubmit)
 
-		// The Foursquare OAuth flow, in the browser's own session group: the
-		// callback is a top-level GET navigation back from Foursquare, which
-		// carries the session cookie, so it can require the session's user
-		// and the state's own user to be the same one rather than resting on
-		// state alone.
-		if a.foursquareOAuth.configured() {
-			r.Group(func(r chi.Router) {
-				r.Use(requireSessionUser)
+		// Every route a signed-out visitor cannot use at all, gated behind
+		// one shared redirect-to-login rather than each handler checking for
+		// itself.
+		r.Group(func(r chi.Router) {
+			r.Use(requireSessionUser)
 
+			r.Get("/", a.index)
+
+			if a.foursquareOAuth.configured() {
 				r.Get("/foursquare/oauth/start", a.foursquareOAuthStart)
-			})
+			}
+		})
 
+		// Not behind requireSessionUser: a missing session is one of the
+		// callback's own refusal cases, alongside a mismatched one — see its
+		// own comment.
+		if a.foursquareOAuth.configured() {
 			r.Get(foursquareOAuthCallbackPath, a.foursquareOAuthCallback)
 		}
 	})
