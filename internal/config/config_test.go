@@ -32,6 +32,7 @@ func TestLoad(t *testing.T) {
 				Timezone: "UTC", TrackBreakMinutes: 30,
 				SessionLifetime: 720 * time.Hour, SessionCookieSecure: true,
 				FoursquareSyncLookbackDays: 14, FoursquareAPIURL: "https://api.foursquare.com",
+				FoursquareSyncInterval: time.Hour,
 			},
 		},
 		"every variable set": {
@@ -51,6 +52,7 @@ func TestLoad(t *testing.T) {
 
 				"TRAVELMAP_FOURSQUARE_SYNC_LOOKBACK_DAYS": "30",
 				"TRAVELMAP_FOURSQUARE_API_URL":            "http://127.0.0.1:9999",
+				"TRAVELMAP_FOURSQUARE_SYNC_INTERVAL":      "30m",
 			},
 			want: config.Config{
 				Addr:                   "127.0.0.1:8080",
@@ -68,6 +70,7 @@ func TestLoad(t *testing.T) {
 
 				FoursquareSyncLookbackDays: 30,
 				FoursquareAPIURL:           "http://127.0.0.1:9999",
+				FoursquareSyncInterval:     30 * time.Minute,
 			},
 		},
 		// Documented as =1, but a shell wrapper writes what it writes, and a
@@ -86,6 +89,7 @@ func TestLoad(t *testing.T) {
 
 				FoursquareSyncLookbackDays: 14,
 				FoursquareAPIURL:           "https://api.foursquare.com",
+				FoursquareSyncInterval:     time.Hour,
 			},
 		},
 		// Info is where the request log writes, so a level above it would
@@ -106,6 +110,7 @@ func TestLoad(t *testing.T) {
 
 				FoursquareSyncLookbackDays: 14,
 				FoursquareAPIURL:           "https://api.foursquare.com",
+				FoursquareSyncInterval:     time.Hour,
 			},
 		},
 		// Down, not to: a level below Info is what an operator debugging
@@ -126,6 +131,7 @@ func TestLoad(t *testing.T) {
 
 				FoursquareSyncLookbackDays: 14,
 				FoursquareAPIURL:           "https://api.foursquare.com",
+				FoursquareSyncInterval:     time.Hour,
 			},
 		},
 		// The off switch is a setting an operator writes down, not just the
@@ -146,6 +152,7 @@ func TestLoad(t *testing.T) {
 
 				FoursquareSyncLookbackDays: 14,
 				FoursquareAPIURL:           "https://api.foursquare.com",
+				FoursquareSyncInterval:     time.Hour,
 			},
 		},
 		"the log level is case-insensitive": {
@@ -155,6 +162,7 @@ func TestLoad(t *testing.T) {
 				Timezone: "UTC", TrackBreakMinutes: 30,
 				SessionLifetime: 720 * time.Hour, SessionCookieSecure: true,
 				FoursquareSyncLookbackDays: 14, FoursquareAPIURL: "https://api.foursquare.com",
+				FoursquareSyncInterval: time.Hour,
 			},
 		},
 		// A variable a wrapper script left blank is not a listen address; an
@@ -166,6 +174,21 @@ func TestLoad(t *testing.T) {
 				Timezone: "UTC", TrackBreakMinutes: 30,
 				SessionLifetime: 720 * time.Hour, SessionCookieSecure: true,
 				FoursquareSyncLookbackDays: 14, FoursquareAPIURL: "https://api.foursquare.com",
+				FoursquareSyncInterval: time.Hour,
+			},
+		},
+		// Unlike the durations above, 0 is a valid value here: it switches the
+		// periodic fetch off rather than meaning "immediately" or "never
+		// expires", which is why it gets its own case instead of a rejection
+		// test.
+		"a zero sync interval disables the periodic fetch": {
+			vars: map[string]string{"TRAVELMAP_FOURSQUARE_SYNC_INTERVAL": "0"},
+			want: config.Config{
+				Addr: ":3000", LogLevel: slog.LevelInfo, DatabasePath: "travelmap.db",
+				Timezone: "UTC", TrackBreakMinutes: 30,
+				SessionLifetime: 720 * time.Hour, SessionCookieSecure: true,
+				FoursquareSyncLookbackDays: 14, FoursquareAPIURL: "https://api.foursquare.com",
+				FoursquareSyncInterval: 0,
 			},
 		},
 	}
@@ -324,6 +347,32 @@ func TestLoadRejectsAnInvalidFoursquareSyncLookback(t *testing.T) {
 			}
 
 			if got := err.Error(); !strings.Contains(got, "TRAVELMAP_FOURSQUARE_SYNC_LOOKBACK_DAYS") {
+				t.Errorf("error = %q, want it to name the variable at fault", got)
+			}
+		})
+	}
+}
+
+// TestLoadRejectsAnInvalidFoursquareSyncInterval covers a value that does not
+// parse as a duration and one that is negative. Unlike the session lifetime
+// and the lookback window, zero is valid here — it disables the periodic
+// fetch — so it is not one of the cases this test rejects.
+func TestLoadRejectsAnInvalidFoursquareSyncInterval(t *testing.T) {
+	t.Parallel()
+
+	for name, value := range map[string]string{
+		"not a duration": "soon",
+		"negative":       "-1h",
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := config.Load(env(map[string]string{"TRAVELMAP_FOURSQUARE_SYNC_INTERVAL": value}))
+			if err == nil {
+				t.Fatal("Load returned nil for an invalid TRAVELMAP_FOURSQUARE_SYNC_INTERVAL")
+			}
+
+			if got := err.Error(); !strings.Contains(got, "TRAVELMAP_FOURSQUARE_SYNC_INTERVAL") {
 				t.Errorf("error = %q, want it to name the variable at fault", got)
 			}
 		})

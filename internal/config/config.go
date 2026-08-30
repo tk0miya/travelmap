@@ -33,6 +33,9 @@ const (
 	// account's check-ins is expected to fit in a single request.
 	defaultFoursquareSyncLookbackDays = 14
 
+	// defaultFoursquareSyncInterval is how often the periodic fetch repeats.
+	defaultFoursquareSyncInterval = time.Hour
+
 	// defaultFoursquareAPIURL is the API itself, which every deployment
 	// talks to: it is configurable so that a test can point the client at a
 	// local server, not because there is a second Foursquare. The value sits
@@ -140,6 +143,13 @@ type Config struct {
 	// flow's own call to /v2/users/self — one setting for the one
 	// Foursquare API host, rather than one per reader of it.
 	FoursquareAPIURL string
+
+	// FoursquareSyncInterval is how often the periodic check-in fetch repeats,
+	// once for every linked account. Defaults to an hour; 0 disables it
+	// entirely, leaving only the push webhook (if configured) to collect
+	// check-ins going forward — `travelmap foursquare sync` still runs the
+	// same fetch by hand regardless.
+	FoursquareSyncInterval time.Duration
 }
 
 // Load reads the configuration from the TRAVELMAP_* environment variables,
@@ -163,6 +173,7 @@ func Load(getenv func(string) string) (Config, error) {
 		SessionCookieSecure:        defaultSessionCookieSecure,
 		FoursquareSyncLookbackDays: defaultFoursquareSyncLookbackDays,
 		FoursquareAPIURL:           lookup(getenv, "FOURSQUARE_API_URL", defaultFoursquareAPIURL),
+		FoursquareSyncInterval:     defaultFoursquareSyncInterval,
 	}
 
 	if raw := lookup(getenv, "LOG_LEVEL", ""); raw != "" {
@@ -237,6 +248,15 @@ func Load(getenv func(string) string) (Config, error) {
 		}
 
 		cfg.FoursquareSyncLookbackDays = days
+	}
+
+	if raw := lookup(getenv, "FOURSQUARE_SYNC_INTERVAL", ""); raw != "" {
+		interval, err := time.ParseDuration(raw)
+		if err != nil || interval < 0 {
+			return Config{}, fmt.Errorf("%sFOURSQUARE_SYNC_INTERVAL: must be a non-negative duration", prefix)
+		}
+
+		cfg.FoursquareSyncInterval = interval
 	}
 
 	return cfg, nil
