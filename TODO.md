@@ -54,7 +54,7 @@ table — unlike `daily_stats`, which is the other table a time range means some
 the MVP's property, not a law: the "Trip proposals" row above leaves open whether an accepted
 candidate becomes a row, and such a row would have been derived from points. What holds either
 way is that a trip is not *re*-derived — once it exists, only the user changes it.
-Added by Milestone J's Step 37.
+Added by Milestone J's Step 44.
 
 **No column holds what a trip contains**, and none is planned: the contents are found by range.
 Upstream's own `trips` is the same shape — a `name`, a range, and no join table to its visits or
@@ -188,12 +188,12 @@ Milestone H below for the conversion itself.
 
 | Purpose | Candidate | Notes |
 | --- | --- | --- |
-| Map rendering | MapLibre GL JS or Leaflet | The one place a map-specific library is unavoidable. Both have React bindings (`react-map-gl`, `react-leaflet`); vendor the chosen one into `embed.FS` rather than fetching it from a CDN, so the built binary still embeds every asset it serves. Milestone J's Step 41 picks one |
+| Map rendering | MapLibre GL JS or Leaflet | The one place a map-specific library is unavoidable. Both have React bindings (`react-map-gl`, `react-leaflet`); vendor the chosen one into `embed.FS` rather than fetching it from a CDN, so the built binary still embeds every asset it serves. Milestone J's Step 48 picks one |
 
-**Milestone J's Step 41 was planned against the superseded esbuild-as-a-Go-library decision**:
+**Milestone J's Step 48 was planned against the superseded esbuild-as-a-Go-library decision**:
 it hands the browser its GeoJSON inline in a server-rendered page, which assumes a page Go
-still renders per request. Once Milestone H's Step 42 makes the served page a static SPA shell,
-Step 41 (and Milestone J's Steps 38 and 40, whose routes return server-rendered HTML forms
+still renders per request. Once Milestone H's Step 37 makes the served page a static SPA shell,
+Step 48 (and Milestone J's Steps 45 and 47, whose routes return server-rendered HTML forms
 today) need to be revisited as React pages fetching JSON — not done here, since this file's
 Milestone J section was authored by a different planning pass and reconciling its own routes is
 its own decision, not a side effect of Milestone H's.
@@ -213,7 +213,7 @@ instead — see Milestone H), so the browser will also call `/api/v1/points` and
   - (c) Hand the api_key to the UI at login and call with Bearer — rejected, since XSS would leak
     the API key.
 
-**Milestone H's Step 45 implements this.** The session middleware already in place is what makes
+**Milestone H's Step 40 implements this.** The session middleware already in place is what makes
 (a) cheap: accepting the cookie there is one more branch in `authenticate`, and
 `CrossOriginProtection` moves from the browser group up to the whole server in that same step.
 
@@ -259,6 +259,9 @@ condition that can be verified by running something.
 were planned after Milestone I's 18 to 22 and so carry higher numbers while appearing earlier in
 this file, and some of them depended on work from the other milestone that has since landed. What
 order to take them in is what each milestone's own ordering note says, never the numbers.
+**Milestone H's Steps 37 to 43 are the one deliberate exception**: numbered ahead of Milestone
+J's Steps 44 to 48 even though Milestone J was planned first, specifically so the numbers double
+as a work-order hint — see Milestone H's own note.
 
 ---
 
@@ -292,7 +295,7 @@ app needs and the community client does not, and it is the input to Milestone F'
 Steps 13 and 14 are independent and can run in parallel. Step 15 needs 13 and 14.
 
 **But all three now depend on Milestone J**, which owns the assembly they project: they need its
-Step 37 (the `internal/timeline` package) and Step 39 (the assembly itself), and Step 13
+Step 44 (the `internal/timeline` package) and Step 46 (the assembly itself), and Step 13
 additionally needs the gap detection deferred there.
 
 ### Step 13: Tracks
@@ -381,27 +384,28 @@ All independent of each other; take them in whatever order the need arises.
 ## Milestone H — Web UI
 
 Start once the API has settled — this applies to the map, statistics and further settings
-sections below, which are not planned yet. It does not apply to Steps 42 to 48: they replace how
+sections below, which are not planned yet. It does not apply to Steps 37 to 43: they replace how
 the four pages that already exist (`/`, `/login`, `/signup`, `/settings`) are built, and none of
 them depends on an API endpoint that is not already implemented.
 
 The Swarm link itself is done: its own section on the settings page, built directly against the
 browser session rather than `api_key` — see "Swarm OAuth linking" in `docs/architecture.md`. It
 added no data endpoint, which is what left "how the browser authenticates against `/api/v1`" open
-until Step 45 settles it (see "Library Choices for the Web UI").
+until Step 40 settles it (see "Library Choices for the Web UI").
 
 The map, statistics and settings screens keep their bullet form below. They are not planned yet,
 and writing a checklist for a screen whose rendering approach is undecided would be inventing the
 plan rather than recording it.
 
-Steps 42 to 48 replace `html/template` with the React + TypeScript SPA decided in "Technical
+Steps 37 to 43 replace `html/template` with the React + TypeScript SPA decided in "Technical
 Decisions", one existing page at a time rather than in a single pull request, so that no step
 carries more than one page's worth of review. Take them in order: each later step assumes the
-frontend toolchain and conventions the earlier ones set up. **Numbered from 42, after Milestone
-J's Steps 37 to 41**, which were planned first even though they appear later in this file — see
-"A step's number says when it was planned, not when to take it" above.
+frontend toolchain and conventions the earlier ones set up. **Numbered 37 to 43, ahead of
+Milestone J's Steps 44 to 48 even though Milestone J was planned first** — a deliberate exception
+to "a step's number says when it was planned, not when to take it" above, made so that handing
+off the next step to work on is as simple as naming the lowest open number.
 
-### Step 42: Frontend toolchain and build pipeline
+### Step 37: Frontend toolchain and build pipeline
 
 - [ ] Scaffold `frontend/` with Vite, React and TypeScript, plus Vitest and React Testing Library
       for component tests
@@ -412,7 +416,7 @@ J's Steps 37 to 41**, which were planned first even though they appear later in 
 - [ ] Add a catch-all route that serves the built `index.html` for any browser-facing `GET` that
       no other route claims. It has no effect until each page's own step below removes that
       page's explicit `GET` handler — chi matches the explicit route first — so this only starts
-      serving `/login` once Step 43 removes `r.Get("/login", a.loginPage)`, and so on for the rest
+      serving `/login` once Step 38 removes `r.Get("/login", a.loginPage)`, and so on for the rest
 - [ ] A local dev workflow: the Vite dev server proxies everything it does not itself serve to
       `go run`, so a frontend change does not need a Go rebuild to see
 - [ ] `docs/toolchain.md` gets a "Frontend toolchain" section, `README.md`'s build instructions
@@ -430,13 +434,13 @@ the pipeline a page's own step can then build on.
 **Done when**: `make check` also runs the frontend's own checks, and a Go test confirms the
 embedded build output is what the server serves.
 
-### Step 43: Sign in and out
+### Step 38: Sign in and out
 
 - [ ] `POST /login` becomes `POST /api/session` (`201` + the session cookie on success, `401` +
       a JSON error on failure) and `POST /logout` becomes `DELETE /api/session` (`204`)
-- [ ] Remove `r.Get("/login", a.loginPage)`, so Step 42's catch-all serves `/login` instead
+- [ ] Remove `r.Get("/login", a.loginPage)`, so Step 37's catch-all serves `/login` instead
 - [ ] Build the shared `Layout`/`Header` component every page renders inside (brand link, and the
-      "Settings" link once Step 45 gives it a real signed-in state to branch on — hard-coded
+      "Settings" link once Step 40 gives it a real signed-in state to branch on — hard-coded
       signed-out until then, since this step's own pages are only ever reached signed-out)
 - [ ] React `LoginPage`: the form, the error message, redirect to `/` on success
 - [ ] Rewrite `login_page_test.go`/`login_page_internal_test.go` (and the session tests that
@@ -451,10 +455,10 @@ action follows this same naming.
 **Done when**: a wrong password shows the same message it does today, pinned by a Go test on the
 JSON body and a frontend test on the rendered error.
 
-### Step 44: Sign up
+### Step 39: Sign up
 
-- [ ] `POST /signup` becomes `POST /api/users` — a new resource, matching Step 43's naming
-- [ ] Remove `r.Get("/signup", a.signupPage)`, so Step 42's catch-all serves `/signup` instead
+- [ ] `POST /signup` becomes `POST /api/users` — a new resource, matching Step 38's naming
+- [ ] Remove `r.Get("/signup", a.signupPage)`, so Step 37's catch-all serves `/signup` instead
 - [ ] React `SignupPage`: the form, the three field-level errors (`EmailError`/`PasswordError`/
       `ConfirmError`), and the API-key confirmation screen after `Done`
 - [ ] Rewrite `signup_page_test.go`/`signup_page_internal_test.go` against the JSON contract; add
@@ -463,43 +467,43 @@ JSON body and a frontend test on the rendered error.
 **Done when**: each of the four states (success, duplicate email, short password, mismatched
 confirmation) is independently testable and matches today's message text.
 
-### Step 45: Session-cookie authentication for `/api/v1`
+### Step 40: Session-cookie authentication for `/api/v1`
 
 - [ ] `/api/v1`'s `authenticate` middleware also accepts the session cookie, per "Library Choices
       for the Web UI"'s decision (a)
 - [ ] Move `CrossOriginProtection` from the browser-only group to the whole server
 - [ ] `Header` calls the existing `GET /api/v1/users/me` to learn whether the browser is signed
-      in and as whom, replacing the hard-coded value from Step 43
+      in and as whom, replacing the hard-coded value from Step 38
 - [ ] Move "Library Choices for the Web UI"'s "Decided: how the browser authenticates against
       `/api/v1`" write-up into `docs/architecture.md`, now that this step implements it
 
 **Settles**: the open question in "Library Choices for the Web UI" — this is the step that
 implements it, for every future screen that reads `/api/v1` data, not only the ones below. The
-first page to actually gate itself on this is Step 46, since no page converted so far needs to
+first page to actually gate itself on this is Step 41, since no page converted so far needs to
 tell a signed-in browser from a signed-out one.
 
 **Done when**: the `Header` shows the "Settings" link once `/api/v1/users/me` reports a
 signed-in user, and an existing `/api/v1/points` test passes with the session cookie standing in
 for `api_key`.
 
-### Step 46: Home page
+### Step 41: Home page
 
-- [ ] Remove `r.Get("/", a.index)`, so Step 42's catch-all serves `/` instead
+- [ ] Remove `r.Get("/", a.index)`, so Step 37's catch-all serves `/` instead
 - [ ] A shared "requires a signed-in browser" route wrapper, redirecting to `/login` client-side
-      when Step 45's auth state reports signed-out — the first protected page needs this, and
-      Step 47 reuses it rather than each page writing its own check
-- [ ] React `HomePage`: "Signed in as {email}", using Step 45's auth state rather than rendering
+      when Step 40's auth state reports signed-out — the first protected page needs this, and
+      Step 42 reuses it rather than each page writing its own check
+- [ ] React `HomePage`: "Signed in as {email}", using Step 40's auth state rather than rendering
       it server-side
 
 **Done when**: the page shows the signed-in address without a dedicated data endpoint for it,
 and a signed-out visit to `/` redirects to `/login` client-side.
 
-### Step 47: Settings page
+### Step 42: Settings page
 
 - [ ] `POST /settings/foursquare/disconnect` becomes `DELETE /api/foursquare_account`, matching
-      Step 43/44's resource naming
-- [ ] Remove `r.Get("/settings", a.settingsPage)`, so Step 42's catch-all serves `/settings`
-      instead, behind Step 46's route wrapper
+      Step 38/39's resource naming
+- [ ] Remove `r.Get("/settings", a.settingsPage)`, so Step 37's catch-all serves `/settings`
+      instead, behind Step 41's route wrapper
 - [ ] React `SettingsPage`: linked/unlinked states, the disconnect button. "Connect" stays a
       plain link to the existing `/settings/foursquare/connect` redirect — that flow and its
       callback are untouched, since neither is a JSON action
@@ -508,7 +512,7 @@ and a signed-out visit to `/` redirects to `/login` client-side.
 **Done when**: connecting and disconnecting a Swarm account both still work end to end through
 the browser, and a signed-out visit to `/settings` also redirects to `/login`.
 
-### Step 48: Retire `html/template`
+### Step 43: Retire `html/template`
 
 - [ ] Delete `internal/httpapi/templates/`, `pageTemplate`, `renderPage` and the four
       `*Template` package vars, and every leftover `bytes.Contains`-style HTML assertion
@@ -524,9 +528,9 @@ green with the React test suite as the only thing covering page-state branches.
 ### Still to plan
 
 - [ ] Map screen (render points / tracks for a selected time range), reusing the existing
-      `GET /api/v1/points` and `/tracks` without adding UI-only APIs — Step 45 has already
+      `GET /api/v1/points` and `/tracks` without adding UI-only APIs — Step 40 has already
       settled how it authenticates those calls. The map library itself is picked and vendored
-      into `embed.FS` by Milestone J's Step 41; if this screen is taken first, it does that
+      into `embed.FS` by Milestone J's Step 48; if this screen is taken first, it does that
       instead
 - [ ] Statistics screen (using `daily_stats`)
 - [ ] Settings screen: more sections beyond the Swarm connection already there — timezone, track
@@ -611,25 +615,27 @@ distance lands in the timeline's own totals. So the timeline's distances read hi
 `daily_stats`, which excludes exactly those intervals. Nothing else reads these numbers, and
 the fix is a step rather than a redesign.
 
-Take them in order. Steps 37 and 39 (the table and the assembly) depend on nothing in Milestone
-H. **Steps 38, 40 and 41 do**, now that Milestone H's Step 42 settles the frontend as a React +
+Take them in order. Steps 44 and 46 (the table and the assembly) depend on nothing in Milestone
+H. **Steps 45, 47 and 48 do**, now that Milestone H's Step 37 settles the frontend as a React +
 TypeScript SPA: those three add three more pages — the trip list, the trip form and the timeline
 screen — and all three were written against the superseded esbuild-as-a-Go-library decision (see
-"Library Choices for the Web UI"). Steps 38 and 40 define the server-rendered HTML routes those
-pages return today, and Step 41's own "hand the browser its GeoJSON inline" approach assumes
+"Library Choices for the Web UI"). Steps 45 and 47 define the server-rendered HTML routes those
+pages return today, and Step 48's own "hand the browser its GeoJSON inline" approach assumes
 that; all of it needs reconciling with a static SPA shell before any of them is taken. Taking
-Milestone H's conversion first is what stops these pages being written twice either way.
+Milestone H's conversion first is what stops these pages being written twice either way. Numbered
+44 to 48 even though this milestone was planned before Milestone H's Steps 37 to 43 — see that
+milestone's own note on why its numbers run ahead of these.
 
 The steps are small on purpose. One of them settles a convention everything after inherits —
 where the trip packages sit — and a convention argued inside a feature diff is a convention
 nobody reviews. How client-side code is written and built is no longer this milestone's own
 decision to settle; see "Technical Decisions" and Milestone H.
 
-### Step 37: The trips table
+### Step 44: The trips table
 
 - [ ] `trips` migration, per "Data Model"
 - [ ] `store.TripRepository` and its sqlite implementation, plus `storetest.UnavailableTrips`
-- [ ] `internal/timeline`, holding trip CRUD now and the assembly from Step 39. **It writes no
+- [ ] `internal/timeline`, holding trip CRUD now and the assembly from Step 46. **It writes no
       derived state**, so it sits beside `ingest` / `checkin` rather than below them, and only
       `internal/httpapi` imports it. Add it to CLAUDE.md's layering diagram
 
@@ -639,15 +645,15 @@ config change invalidates it — and where the package that owns trips and the t
 **Done when**: a trip round-trips through the repository, and dropping the table is what makes
 the failure path return 500.
 
-### Step 38: The trip screens
+### Step 45: The trip screens
 
 - [ ] `GET /trips`, `GET /trips/new`, `POST /trips`, `GET /trips/{id}`,
       `GET /trips/{id}/edit`, `POST /trips/{id}` and `POST /trips/{id}/delete`, in the browser
       group so they carry the session and CSRF middleware. The form gets its own two GETs
-      rather than being embedded: `GET /trips/{id}` is the timeline screen from Step 40, and
+      rather than being embedded: `GET /trips/{id}` is the timeline screen from Step 47, and
       putting an edit form on it would make that screen mean two things
 - [ ] The pages those routes render: the trip list, and the form that creates and edits one.
-      `GET /trips/{id}` shows the trip itself and carries no timeline until Step 40, which
+      `GET /trips/{id}` shows the trip itself and carries no timeline until Step 47, which
       renders it by handing the row's range to the one timeline screen
 - [ ] Handlers read through `internal/timeline` and receive `internal/model` types, never
       reaching the store directly. **This is a new rule, not what the existing handlers do** —
@@ -657,7 +663,7 @@ the failure path return 500.
 
 **Done when**: a trip can be declared from a browser, edited, deleted, and survives a restart.
 
-### Step 39: Assembling the timeline
+### Step 46: Assembling the timeline
 
 - [ ] `CheckinRepository.List(ctx, userID, from, to)`. The repository is write-only today; the
       `checkins_user_id_checked_in_at_idx` index the query needs already exists. Its doc comment
@@ -690,7 +696,7 @@ about it.
 **Done when**: table-driven tests cover a check-in with no points around it, points with no
 check-in, an entry crossing midnight, and a check-in carrying no `timezone_offset`.
 
-### Step 40: The timeline screen
+### Step 47: The timeline screen
 
 - [ ] **One screen, taking a range.** `GET /timeline` renders the assembly for whatever range it
       is given, and `GET /trips/{id}` fills that range and the heading from the `trips` row and
@@ -703,18 +709,18 @@ check-in, an entry crossing midnight, and a check-in carrying no `timezone_offse
 range reached through `/timeline` shows the same entries, differing only in the heading the trip
 row supplies; and a day with check-ins but no points still renders.
 
-### Step 41: The trip map
+### Step 48: The trip map
 
 - [ ] **Not yet decided**: this step was planned to hand the browser its GeoJSON inline in a
-      server-rendered page, which no longer fits once Milestone H's Step 42 makes the served
-      page a static SPA shell. Once Steps 38 and 40's own routes are reconciled with that shell
+      server-rendered page, which no longer fits once Milestone H's Step 37 makes the served
+      page a static SPA shell. Once Steps 45 and 47's own routes are reconciled with that shell
       (see "Library Choices for the Web UI"), pick how this screen fetches its route — through
-      `/api/v1/points` (Milestone H's Step 45 covers authenticating a browser against it) or a
+      `/api/v1/points` (Milestone H's Step 40 covers authenticating a browser against it) or a
       travelmap-own resource under `/api` — as this step's own decision, not inherited from
       Milestone H
 - [ ] Pick the map library from "Library Choices for the Web UI" and vendor it into `embed.FS`,
       for Milestone H's own map screen as well as this one
-- [ ] Build the map as a React component, using the toolchain Milestone H's Step 42 sets up —
+- [ ] Build the map as a React component, using the toolchain Milestone H's Step 37 sets up —
       how client-side code is written and built is settled there, not here
 
 **Done when**: opening a trip draws its route, the initial view fits the whole trip, and
