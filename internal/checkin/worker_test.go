@@ -1,11 +1,13 @@
 package checkin_test
 
 import (
+	"bytes"
 	"context"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -189,5 +191,88 @@ func TestRunPeriodicSyncRestartLosesNoTick(t *testing.T) {
 
 	if got := probeCheckin(t, st, "bbb222"); got.Source != checkin.SourceSync {
 		t.Errorf("bbb222 has source %q, want %q", got.Source, checkin.SourceSync)
+	}
+}
+
+// syncedBuffer is a bytes.Buffer safe for the worker goroutine's concurrent
+// writes and the test's own polling reads.
+type syncedBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *syncedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	return b.buf.Write(p)
+}
+
+func (b *syncedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	return b.buf.String()
+}
+
+// waitForLog blocks until buf contains want, or fails the test after timeout.
+func waitForLog(t *testing.T, buf *syncedBuffer, want string, timeout time.Duration) {
+	t.Helper()
+
+	deadline := time.After(timeout)
+	for {
+		if strings.Contains(buf.String(), want) {
+			return
+		}
+
+		select {
+		case <-deadline:
+			t.Fatalf("the log did not contain %q before the deadline; got %q", want, buf.String())
+		case <-time.After(time.Millisecond):
+		}
+	}
+}
+
+// TestRunPeriodicSyncReportsRevokedAuthorization covers the branch a status
+// code alone cannot make: a 403 with errorType not_authorized is reported as
+// a revoked authorisation rather than the rate limit the same status would
+// otherwise suggest.
+func TestRunPeriodicSyncReportsRevokedAuthorization(t *testing.T) {
+	t.Parallel()
+
+	st := storetest.New(t, testUser())
+	linkedUser(t, st)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`{"meta":{"code":403,"errorType":"not_authorized"},"response":{}}`))
+	}))
+	t.Cleanup(server.Close)
+
+	fetcher := foursquare.NewClient(server.URL, slog.New(slog.DiscardHandler))
+
+	var buf syncedBuffer
+	logger := slog.New(slog.NewTextHandler(&buf, nil))
+
+	ctx, cancel := context.WithCancel(t.Context())
+
+	done := make(chan struct{})
+	go func() {
+		checkin.RunPeriodicSync(ctx, st, fetcher, time.Millisecond, testLookback, logger)
+		close(done)
+	}()
+
+	waitForLog(t, &buf, "revoked", time.Second)
+
+	if got := buf.String(); strings.Contains(got, "rate limit") {
+		t.Errorf("the log contains %q, want a revoked authorisation not called a rate limit", got)
+	}
+
+	cancel()
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("RunPeriodicSync kept running after its context was cancelled")
 	}
 }

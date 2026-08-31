@@ -115,15 +115,6 @@ Pages read on 2026-08-24, all under `https://docs.foursquare.com/developer/`:
 `reference/personalization-apis-rate-limits`, `reference/personalization-apis-localization`,
 `reference/upcoming-changes`, `docs/configure-server-webhooks`.
 
-### Errors this client does not branch on yet
-
-**Branch on `errorType`, not on the status.** A 403 carries two meanings on this API:
-`not_authorized`, which is a revoked authorisation and permanent, and `rate_limit_exceeded`, which
-is transient. Only `meta.errorType` tells them apart, so a client reading the status alone either
-keeps trying against an account that will never answer again, or reports a passing refusal as a
-permissions failure. An account whose authorisation is gone needs its operator told, and nothing
-can tell them from a 403.
-
 ### Whether the two paths agree on a check-in's language
 
 Neither collection path asserts a locale, and what that means for the display columns is under
@@ -381,14 +372,14 @@ arrived by both paths to compare. It extends the client already in `internal/fou
 depends on a check-in already collected by the push webhook for the locale bullet to compare
 against.
 
-- [ ] **Branch on `meta.errorType`, never on the status alone**: 403 is both
+- [x] **Branch on `meta.errorType`, never on the status alone**: 403 is both
       `rate_limit_exceeded` and `not_authorized`. A revoked authorisation, which is permanent,
       must not be reported as the transient one
 - [ ] **Measure whether the fetch's rendering matches the push's**: fetch a check-in that also
       arrived by push and compare `venue_name`, `country`, `city`, `state` and `category_name`.
       If they differ, take those columns out of what a repeat write refreshes, and record the
       outcome under "Whether the two paths agree on a check-in's language"
-- [ ] A test that a 403 is distinguished by `errorType` between the two meanings it carries — the
+- [x] A test that a 403 is distinguished by `errorType` between the two meanings it carries — the
       case the status code alone hides, and the one the client's existing `meta` handling stops
       short of
 

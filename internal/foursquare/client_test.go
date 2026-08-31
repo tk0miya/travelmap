@@ -219,6 +219,44 @@ func TestCheckinsReportsARefusal(t *testing.T) {
 	}
 }
 
+// TestAPIErrorAuthorizationRevoked covers the one thing a 403 alone cannot
+// say: rate_limit_exceeded and not_authorized are not the same failure, and
+// only AuthorizationRevoked, reading errorType, tells them apart.
+func TestAPIErrorAuthorizationRevoked(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		errorType string
+		want      bool
+	}{
+		"a revoked authorisation": {errorType: "not_authorized", want: true},
+		"a passing rate limit":    {errorType: "rate_limit_exceeded", want: false},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			client := serve(t, func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusForbidden)
+				fmt.Fprintf(w, `{"meta":{"code":403,"errorType":%q},"response":{}}`, tt.errorType)
+			})
+
+			_, err := client.Checkins(t.Context(), "the-token", foursquare.CheckinsQuery{})
+
+			var apiErr *foursquare.APIError
+
+			if !errors.As(err, &apiErr) {
+				t.Fatalf("Checkins returned %v, want an *APIError", err)
+			}
+
+			if got := apiErr.AuthorizationRevoked(); got != tt.want {
+				t.Errorf("AuthorizationRevoked() = %v for errorType %q, want %v", got, tt.errorType, tt.want)
+			}
+		})
+	}
+}
+
 // TestCheckinsLogsADeprecationNotice covers the one case the documentation
 // names as arriving on a 200: the pinned version, or a field read out of it,
 // being on its way out. It is the only warning this client gets before a
