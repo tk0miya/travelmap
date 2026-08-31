@@ -16,6 +16,7 @@ it lands.
 | --- | --- | --- |
 | Background work | Goroutines + a job table in SQLite | Keeps a single process, with no Sidekiq/Redis equivalent |
 | Reverse geocoding | Off by default; optionally point at a Nominatim/Photon URL | Does not make an external service mandatory |
+| Templating | Replace `html/template` with templ (or gomponents) before the remaining screens are written | `html/template` has no component model and no type checking. `internal/httpapi/web.go` already works around the first: its `pageTemplate` builds a separate `*template.Template` per page, because every page defines a `"content"` block and one set would collide on the name. Four pages exist today, and the map and statistics screens Milestone H still has to plan add one each, so the workaround grows with the UI. templ's generator is a Go binary and fits `go.mod`'s `tool` directives; gomponents needs no generator at all. Either way a fresh checkout still needs nothing but Go |
 
 These are the defaults as of planning. If any turns out to be wrong during implementation,
 change it — after updating this file.
@@ -147,9 +148,11 @@ those columns from what a repeat write refreshes, leaving the first writer's ren
 
 ## Library Choices for the Web UI
 
-Sessions, CSRF and HTML rendering are settled and already implemented; their rows moved to
-`docs/architecture.md`, which also covers the router, for the reasoning that applies here as
-well. What is left undecided is what the remaining screens need.
+Sessions and CSRF are settled and already implemented; their rows moved to
+`docs/architecture.md`, which also covers the router and HTML rendering, for the reasoning that
+applies here as well. HTML rendering is implemented but not closed: the engine itself is being
+replaced, for the reason in "Technical Decisions" above. What is left undecided is what the
+remaining screens need.
 
 **Still open, for Milestone H's remaining screens**
 
@@ -332,6 +335,61 @@ The map, statistics and settings screens keep their bullet form below. They are 
 and writing a checklist for a screen whose rendering approach is undecided would be inventing the
 plan rather than recording it.
 
+Steps 35 and 36 are not screens. What is decided is that `html/template` goes, and that is
+plannable now precisely because it does not depend on how any screen renders; **which engine
+replaces it is Step 36's own decision**, which is the one thing that step is worth reviewing
+for. They also do not wait on "start once the API has settled" above: neither touches the API,
+and the argument for taking them is that the cost grows with every screen added, so waiting is
+what makes them expensive. Take them in order — the pin has to exist before the conversion it
+judges.
+
+### Step 35: Pin the current HTML
+
+- [ ] Pin what the browser pages render today, before any conversion touches them.
+      `assertGolden` compares JSON bodies and every file in `internal/httpapi/testdata/golden/`
+      is a `.json`, so nothing pins this HTML — only scattered `bytes.Contains` assertions in
+      `session_internal_test.go`, `login_page_test.go`, `signup_page_test.go` and
+      `settings_page_test.go`, none of which is a picture of a whole page. Find every one of
+      them rather than trusting this list
+- [ ] **Pin states, not URLs.** Four pages render more than four things: `base.html` branches on
+      `.Header.SignedIn`, `login.html` on `.Error`, `signup.html` on `.Done` and then on each of
+      `.EmailError` / `.PasswordError` / `.ConfirmError`, and `settings.html` on
+      `.FoursquareLinked` and `.FoursquareSyncedThrough` — `signup_page.go` alone renders from
+      seven places. A branch nobody pinned is what the conversion can drop while Step 36's own
+      completion condition still passes
+- [ ] **Compare elements, attributes and text, not bytes.** `base.html`'s own indentation and
+      newlines reach the response verbatim, and no engine that builds the page from Go
+      reproduces them, so a byte comparison would fail on whitespace nobody cares about
+
+**Settles**: what "the same page" means, while `html/template` is still the thing producing it.
+Written in the same pull request as the conversion, this pin would be shaped by its output
+rather than judging it — which is the whole reason it is a step of its own rather than the first
+half of the next one.
+
+**Done when**: removing an element from a template fails a test that named neither the element
+nor the template.
+
+### Step 36: Type-safe templates
+
+- [ ] Replace `html/template` with templ (or gomponents). If the engine has a generator it goes
+      in `go.mod`'s `tool` directives and is invoked from the `Makefile`; gomponents has none,
+      being ordinary Go functions. Either way no step may require installing a binary, so an
+      engine whose generator is not a Go tool is not a candidate
+- [ ] Convert every template in `internal/httpapi/templates/` and drop `pageTemplate`'s per-page
+      `*template.Template` in `internal/httpapi/web.go`
+- [ ] Rewrite `docs/architecture.md`'s "HTML rendering" section, sentence by sentence. "Keeps
+      deployment a single binary" and "nor a Node build chain" both survive, and the second is
+      the promise this whole decision exists to protect. What does not: templates become Go
+      code, so "parsed once at startup" describes nothing and the `embed.FS` holds the CSS and
+      static files rather than the templates, and "adds neither a code-generation step" is
+      exactly what stops being true if templ is the choice. Type checking is what replaces it in
+      the rationale
+
+**Settles**: how every screen after this is written.
+
+**Done when**: Step 35's pin passes unchanged, and a template referencing a field the data does
+not have fails to compile.
+
 ### Still to plan
 
 - [ ] Map screen (render points / tracks for a selected time range), reusing the existing
@@ -343,8 +401,8 @@ plan rather than recording it.
       break, etc. — on the page and header link this milestone already built. An import screen
       only if Milestone G's `/api/v1/imports` was implemented
 - [ ] Vendor the map library into `embed.FS` to preserve the single binary, alongside the
-      templates and the stylesheet already there; what is left is the one dependency that has to
-      be fetched rather than written
+      stylesheet already there; what is left is the one dependency that has to be fetched rather
+      than written
 
 **Done when**: logging in from a browser shows the user's history on a map, and deployment is
 still one binary plus one SQLite file.
