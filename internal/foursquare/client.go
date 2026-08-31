@@ -78,6 +78,13 @@ func (e *APIError) Error() string {
 		e.StatusCode, e.Code, e.ErrorType, e.ErrorDetail, e.RequestID)
 }
 
+const notAuthorizedErrorType = "not_authorized"
+
+// AuthorizationRevoked reads the ErrorType that APIError's own doc comment explains.
+func (e *APIError) AuthorizationRevoked() bool {
+	return e.ErrorType == notAuthorizedErrorType
+}
+
 // Client calls the Foursquare v2 API on behalf of one access token at a time:
 // the token is a per-account credential and is passed per call, where the
 // endpoint and the HTTP client are the server's own and are held here.

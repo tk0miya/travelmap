@@ -2,9 +2,11 @@ package checkin
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"time"
 
+	"github.com/tk0miya/travelmap/internal/foursquare"
 	"github.com/tk0miya/travelmap/internal/store"
 )
 
@@ -42,6 +44,15 @@ func syncAll(ctx context.Context, st store.Store, fetcher Fetcher, lookback time
 
 	for _, account := range accounts {
 		if _, err := Sync(ctx, st, fetcher, account, lookback); err != nil {
+			var apiErr *foursquare.APIError
+
+			if errors.As(err, &apiErr) && apiErr.AuthorizationRevoked() {
+				logger.Error("Foursquare authorisation revoked, reconnect Swarm from Settings",
+					"user_id", account.UserID)
+
+				continue
+			}
+
 			logger.Error("syncing Foursquare check-ins", "user_id", account.UserID, "error", err)
 		}
 	}

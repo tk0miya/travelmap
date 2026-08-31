@@ -251,3 +251,43 @@ func TestFoursquareSyncContinuesAfterOneAccountFails(t *testing.T) {
 		t.Errorf("foursquare sync printed %q, want no summary line for the failing account", got)
 	}
 }
+
+// TestFoursquareSyncReportsRevokedAuthorization covers the one thing a status
+// code alone cannot say: a 403 with errorType not_authorized is a revoked
+// authorisation, not the rate limit the same status would otherwise suggest,
+// and the run reports it as one rather than the other.
+func TestFoursquareSyncReportsRevokedAuthorization(t *testing.T) {
+	t.Parallel()
+
+	configPath, dbPath := migrated(t)
+	const email = "alice@example.com"
+
+	seedUser(t, configPath, email)
+	seedFoursquareAccount(t, configPath, email, "1709193", "the-access-token")
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`{"meta":{"code":403,"errorType":"not_authorized"},"response":{}}`))
+	}))
+	t.Cleanup(server.Close)
+
+	extra := fmt.Sprintf("api_url = %q\n", server.URL)
+	if err := rewriteConfigWithDB(configPath, dbPath, extra); err != nil {
+		t.Fatalf("rewriting %s: %v", configPath, err)
+	}
+
+	var stdout, stderr bytes.Buffer
+
+	err := run(withConfig(configPath, "foursquare", "sync"), noStdin(), &stdout, &stderr)
+	if err == nil {
+		t.Fatal("foursquare sync returned nil, want the revoked account's error")
+	}
+
+	if got := stderr.String(); !strings.Contains(got, "was revoked, reconnect Swarm from Settings") {
+		t.Errorf("foursquare sync printed stderr %q, want it to report the revoked authorisation", got)
+	}
+
+	if got := stderr.String(); strings.Contains(got, "rate limit") {
+		t.Errorf("foursquare sync printed stderr %q, want it not to call a revoked authorisation a rate limit", got)
+	}
+}

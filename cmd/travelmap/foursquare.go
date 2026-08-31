@@ -135,6 +135,13 @@ func foursquareSync(args []string, configPath string, stdout, stderr io.Writer) 
 	for _, account := range accounts {
 		collected, err := checkin.Sync(ctx, db, client, account, cfg.FoursquareSyncLookback())
 		if err != nil {
+			var apiErr *foursquareapi.APIError
+
+			if errors.As(err, &apiErr) && apiErr.AuthorizationRevoked() {
+				fmt.Fprintf(stderr, "%s: Foursquare authorisation for user %d (Foursquare user %s) was revoked, reconnect Swarm from Settings\n",
+					path, account.UserID, account.FoursquareUserID)
+			}
+
 			failures = append(failures, err)
 
 			continue
