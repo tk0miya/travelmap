@@ -70,7 +70,7 @@ func (a *api) signupSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, err := auth.Register(r.Context(), a.store.Users(), email, password)
+	user, err := auth.Register(r.Context(), a.store, email, password)
 	if err != nil {
 		if errors.Is(err, store.ErrConflict) {
 			a.renderPage(w, r, signupTemplate, signupData{Email: email, EmailError: "already registered"})

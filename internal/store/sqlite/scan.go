@@ -61,6 +61,32 @@ func (s jsonStrings) Value() (driver.Value, error) {
 	return string(b), nil
 }
 
+// sqliteBool scans and stores a Go bool as the 0/1 every boolean column in
+// this schema holds — STRICT tables restrict a column to INTEGER, REAL, TEXT,
+// BLOB or ANY, so there is no BOOLEAN type of its own to declare one with.
+type sqliteBool bool
+
+// Scan implements [sql.Scanner].
+func (b *sqliteBool) Scan(src any) error {
+	v, ok := src.(int64)
+	if !ok {
+		return fmt.Errorf("sqlite: scanning a boolean: %T is not an int64", src)
+	}
+
+	*b = v != 0
+
+	return nil
+}
+
+// Value implements [driver.Valuer].
+func (b sqliteBool) Value() (driver.Value, error) {
+	if b {
+		return int64(1), nil
+	}
+
+	return int64(0), nil
+}
+
 // nullString converts a nullable TEXT column, read as [sql.NullString], into
 // the *string form an optional model field holds.
 func nullString(v sql.NullString) *string {

@@ -232,6 +232,10 @@ func (a *api) newRouter() http.Handler {
 			r.Use(requireUser)
 
 			get(r, "/users/me", a.usersMe)
+			get(r, "/settings/mobile", a.getMobileSettings)
+			r.Patch("/settings/mobile", a.patchMobileSettings)
+			get(r, "/settings", a.getSettings)
+			r.Patch("/settings", a.patchSettings)
 			get(r, "/points", a.listPoints)
 			r.Post("/points", a.createPoints)
 			r.Patch("/points/{id}", a.patchPoint)

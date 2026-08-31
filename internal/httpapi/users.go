@@ -13,30 +13,14 @@ import (
 // the zeroes are sent rather than dropped.
 const timestampFormat = "2006-01-02T15:04:05.000Z07:00"
 
-// The settings GET /api/v1/users/me reports.
-//
-// Nothing here is stored yet: these are upstream's own defaults, from
-// Users::SafeSettings::DEFAULT_VALUES, so that a client reading one finds the
-// value it would find against a fresh upstream instance. The map and
-// route-drawing settings belong to the web UI, and the Immich and Photoprism
-// URLs to a non-goal, so those stay constants regardless of whether the rest
-// ever gains its own storage. Timezone is already the exception: it is
-// reported from [api.timezone] (tracking.timezone), not a constant.
+// defaultTimezone is [Options.Timezone]'s own default; see its doc comment.
+const defaultTimezone = "UTC"
+
+// The settings GET /api/v1/users/me reports that GET/PATCH /api/v1/settings
+// has no field for at all, so nothing PATCHes them away from upstream's own
+// defaults, from Users::SafeSettings::DEFAULT_VALUES.
 const (
-	defaultTimezone                 = "UTC"
-	defaultDistanceUnit             = "km"
-	defaultFogOfWarMeters           = 50
-	defaultMetersBetweenRoutes      = 500
-	defaultPreferredMapLayer        = "OpenStreetMap"
-	defaultSpeedColoredRoutes       = false
-	defaultPointsRenderingMode      = "raw"
-	defaultMinutesBetweenRoutes     = 30
-	defaultTimeThresholdMinutes     = 30
-	defaultMergeThresholdMinutes    = 15
-	defaultLiveMapEnabled           = true
-	defaultRouteOpacity             = 0.6
 	defaultVisitsSuggestionsEnabled = true
-	defaultFogOfWarThreshold        = 50
 	defaultGlobeProjection          = true
 )
 
@@ -66,6 +50,17 @@ func (a *api) usersMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	settings, err := a.store.Settings().Get(r.Context(), user.ID)
+	if err != nil {
+		a.logger.Error("loading settings failed",
+			"path", r.URL.Path,
+			"error", err,
+		)
+		a.writeError(w, r, http.StatusInternalServerError, "internal server error")
+
+		return
+	}
+
 	a.writeJSON(w, r, http.StatusOK, dto.UserEnvelope{User: dto.User{
 		Email:     user.Email,
 		Theme:     defaultTheme,
@@ -73,19 +68,20 @@ func (a *api) usersMe(w http.ResponseWriter, r *http.Request) {
 		UpdatedAt: formatTimestamp(user.UpdatedAt),
 		Settings: dto.UserSettings{
 			Timezone:                 a.timezone,
-			Maps:                     dto.MapsPref{DistanceUnit: defaultDistanceUnit},
-			FogOfWarMeters:           defaultFogOfWarMeters,
-			MetersBetweenRoutes:      defaultMetersBetweenRoutes,
-			PreferredMapLayer:        defaultPreferredMapLayer,
-			SpeedColoredRoutes:       defaultSpeedColoredRoutes,
-			PointsRenderingMode:      defaultPointsRenderingMode,
-			MinutesBetweenRoutes:     defaultMinutesBetweenRoutes,
-			TimeThresholdMinutes:     defaultTimeThresholdMinutes,
-			MergeThresholdMinutes:    defaultMergeThresholdMinutes,
-			LiveMapEnabled:           defaultLiveMapEnabled,
-			RouteOpacity:             defaultRouteOpacity,
+			Maps:                     dto.MapsPref{DistanceUnit: settings.DistanceUnit},
+			FogOfWarMeters:           settings.FogOfWarMeters,
+			MetersBetweenRoutes:      settings.MetersBetweenRoutes,
+			PreferredMapLayer:        settings.PreferredMapLayer,
+			SpeedColoredRoutes:       settings.SpeedColoredRoutes,
+			PointsRenderingMode:      settings.PointsRenderingMode,
+			MinutesBetweenRoutes:     settings.MinutesBetweenRoutes,
+			TimeThresholdMinutes:     settings.TimeThresholdMinutes,
+			MergeThresholdMinutes:    settings.MergeThresholdMinutes,
+			LiveMapEnabled:           settings.LiveMapEnabled,
+			RouteOpacity:             settings.RouteOpacity,
 			VisitsSuggestionsEnabled: defaultVisitsSuggestionsEnabled,
-			FogOfWarThreshold:        defaultFogOfWarThreshold,
+			SpeedColorScale:          settings.SpeedColorScale,
+			FogOfWarThreshold:        settings.FogOfWarThreshold,
 			GlobeProjection:          defaultGlobeProjection,
 		},
 	}})

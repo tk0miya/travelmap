@@ -49,6 +49,9 @@ type Store interface {
 	// Sessions returns the browser session repository.
 	Sessions() SessionRepository
 
+	// Settings returns the settings repository.
+	Settings() SettingsRepository
+
 	// Tx runs fn inside a transaction, committing when it returns nil and
 	// rolling back when it returns an error, which Tx then returns.
 	//
@@ -259,4 +262,26 @@ type SessionRepository interface {
 	// DeleteExpired removes every session whose expiry has passed, for the
 	// periodic sweep.
 	DeleteExpired(ctx context.Context) error
+}
+
+// SettingsRepository stores a user's settings: the union of what
+// GET/PATCH /api/v1/settings/mobile and GET/PATCH /api/v1/settings answer
+// with.
+type SettingsRepository interface {
+	// Get returns userID's stored settings, and [ErrNotFound] if none has
+	// been stored — see internal/auth.Register for why that does not happen
+	// for a real account.
+	Get(ctx context.Context, userID int64) (model.Settings, error)
+
+	// Create stores settings and returns it as stored, with CreatedAt and
+	// UpdatedAt filled in. Called only by internal/auth.Register, for a
+	// UserID no row exists for yet; it returns [ErrConflict] if one already
+	// does.
+	Create(ctx context.Context, settings model.Settings) (model.Settings, error)
+
+	// Update overwrites the stored row for settings.UserID and returns it as
+	// stored, with UpdatedAt bumped. It returns [ErrNotFound] if no row
+	// exists — which does not happen for a real account, per
+	// internal/auth.Register.
+	Update(ctx context.Context, settings model.Settings) (model.Settings, error)
 }

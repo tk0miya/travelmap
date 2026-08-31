@@ -1,0 +1,18 @@
+{
+  "settings": {
+    "tracking_mode": "precise",
+    "tracking_visits": true,
+    "track_visits_independently": false,
+    "auto_start": true,
+    "distance_filter": 100,
+    "time_filter": 10,
+    "track_break": 30,
+    "accuracy": 3,
+    "show_background_location_indicator": true,
+    "upload_automatically": true,
+    "upload_all_on_tracking_stop": false,
+    "batch_size": 100
+  },
+  "updated_at": "2026-03-04T05:06:07.000Z",
+  "status": "success"
+}

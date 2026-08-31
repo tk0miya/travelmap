@@ -35,11 +35,6 @@ Upstream quirks for endpoints not yet implemented. For an endpoint already imple
 
 ### Per-endpoint
 
-- **`GET/PATCH /api/v1/settings/mobile`** — GET wraps as
-  `{settings: {...}, updated_at, status}`. For PATCH the **spec contradicts itself**: the schema
-  puts fields at the top level while the example wraps them in `{"settings": {...}}`.
-  **Accept both forms** so neither breaks. Assuming only one means that when the other arrives,
-  every field is silently ignored — no error — and settings sync quietly breaks.
 - **`GET /api/v1/tracks`** — GeoJSON `FeatureCollection` of LineStrings. Properties are `id`,
   `color`, `start_at`, `end_at`, `distance` (metres), `avg_speed` (km/h), `duration` (seconds),
   `dominant_mode`, `dominant_mode_emoji`.
@@ -260,9 +255,7 @@ app needs and the community client does not, and it is the input to Milestone F'
 
 ## Milestone F — The app's remaining screens
 
-Steps 13, 14 and 16 are independent and can run in parallel. Step 15 needs 13 and 14.
-
-Step 16 in fact only needs authentication, so it can be pulled forward at any time.
+Steps 13 and 14 are independent and can run in parallel. Step 15 needs 13 and 14.
 
 ### Step 13: Tracks
 
@@ -279,19 +272,6 @@ Step 16 in fact only needs authentication, so it can be pulled forward at any ti
 ### Step 15: Timeline
 
 - [ ] `GET /api/v1/timeline` (including validation of the 31-day cap)
-
-### Step 16: Settings sync
-
-- [ ] `GET/PATCH /api/v1/settings/mobile` (12 fields with range validation; PATCH accepts both
-      the top-level and `settings`-wrapped forms)
-  - `tracking_mode` (precise|significant), `tracking_visits`, `track_visits_independently`,
-    `auto_start`, `distance_filter` (1–10000 m), `time_filter` (1–3600 s),
-    `track_break` (1–1440 min), `accuracy` (1–6), `show_background_location_indicator`,
-    `upload_automatically`, `upload_all_on_tracking_stop`, `batch_size` (1–1000)
-- [ ] `GET/PATCH /api/v1/settings`. Note that the settings block inside
-      `GET /api/v1/users/me` is a **different, smaller set** than this endpoint answers with
-      (see its bullet under "Per-endpoint"); both are fed from whatever this step stores, and
-      the hard-coded settings defaults in `internal/httpapi` go away with it
 
 **Milestone done when**: the app's timeline and track screens render without breaking, and
 settings changed in the app survive a reinstall.

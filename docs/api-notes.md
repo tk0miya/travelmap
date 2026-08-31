@@ -31,8 +31,8 @@ For this part, upstream's own OpenAPI document is the compatibility source of tr
 `docs/openapi.yaml` is travelmap's contract against it.
 
 - Source: `https://raw.githubusercontent.com/Freika/dawarich/master/swagger/v1/swagger.yaml`
-- Fetched: 2026-08-17
-- Fingerprint: 5680 lines / `sha256:a16411a389e0130d9e0b04b54cfc80726c234b8a017cc76d9d921bfc91adc89a`
+- Fetched: 2026-08-31
+- Fingerprint: 6139 lines / `sha256:4eab650061e594a5ec2c95def15e3d19c6212db0b6b43e5d27a3c9fcaab3e8d5`
 
 Upstream changes continuously, so update the fingerprint above whenever the spec is re-fetched.
 A running Dawarich instance also serves the same document at `/api-docs`.
@@ -89,13 +89,21 @@ off upstream's own implementation instead. Three things follow. The user object 
 id** — a client that needs one has the `user_id` of `auth/login`. The `subscription` key beside
 `user` is Cloud-only, so it is not sent on a self-hosted instance. And `settings` is a **smaller
 set than `GET /api/v1/settings` answers with**: the keys upstream picks (`maps` among them), in
-its order. Nothing stores them yet, so this endpoint answers upstream's own defaults;
-`immich_url`, `photoprism_url` and `speed_color_scale` are `null`, and the first two stay that
-way, being a non-goal.
+its order — see `docs/openapi.yaml`'s `UserSettings` schema for which of them are fed from
+stored settings and which stay constant.
 
 Timestamps are written **RFC 3339 with milliseconds** (`2026-02-03T04:05:06.000Z`), matching
 upstream's own encoding — a client parsing with a fixed format string would fail on a value
 without them.
+
+### `GET/PATCH /api/v1/settings/mobile`
+
+**`capabilities.photo_library_import` is not answered at all**, though the current spec
+documents it on both GET and PATCH's 200. No other endpoint in the spec has a corresponding
+photo-library feature to negotiate, and Immich/Photoprism photo integration is already a
+declared non-goal (`docs/README.md`) — advertising a version for a feature with no
+implementation behind it would tell a client to try flows that do not exist. This was not yet
+in the spec the last time it was read (2026-08-17); it is new in the fingerprint above.
 
 ### `POST /api/v1/points` and `POST /api/v1/overland/batches`
 
