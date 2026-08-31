@@ -16,12 +16,11 @@ it lands.
 | --- | --- | --- |
 | Background work | Goroutines + a job table in SQLite | Keeps a single process, with no Sidekiq/Redis equivalent |
 | Reverse geocoding | Off by default; optionally point at a Nominatim/Photon URL | Does not make an external service mandatory |
-| Templating | Replace `html/template` with templ (or gomponents) before the remaining screens are written | `html/template` has no component model and no type checking. `internal/httpapi/web.go` already works around the first: its `pageTemplate` builds a separate `*template.Template` per page, because every page defines a `"content"` block and one set would collide on the name. Four pages exist today, and the map and statistics screens Milestone H still has to plan add one each, so the workaround grows with the UI. templ's generator is a Go binary and fits `go.mod`'s `tool` directives; gomponents needs no generator at all. Either way a fresh checkout still needs nothing but Go |
+| Frontend | Replace `html/template` with a React + TypeScript SPA, built with Vite and embedded into `embed.FS` | `html/template` has no component model and no type checking. `internal/httpapi/web.go` already works around the first: its `pageTemplate` builds a separate `*template.Template` per page, because every page defines a `"content"` block and one set would collide on the name. Four pages exist today, and page count is about to grow quickly — Milestone J's own trip and timeline screens among them — which favors component reuse and a client-side ecosystem (map and chart libraries with React bindings) over a template engine's or a hand-rolled esbuild pipeline's more modest gains. Chosen over templ/gomponents, and over keeping the client side in Go's own toolchain, because the team is already fluent in React/TypeScript, which removes a Node toolchain's main cost. This trades away "a fresh checkout needs nothing but Go": building the frontend needs Node. The binary itself keeps embedding the build output, so it stays a single binary at runtime — only the build step changes |
 | Trip boundaries | **The MVP creates a trip only from what the user enters** — a title and a time range. Detection is left out, not ruled out | Detecting a trip needs a "home" cluster, which needs stay detection, and the MVP builds neither. Nothing about detection is wrong in principle: the bar is proposal accuracy and what the detector costs, and stay detection landing is when there is something to judge against. Upstream agrees on the shape — its own `trips.name` is `NOT NULL`, so a Dawarich trip is user-named too (Milestone J) |
 | Trip proposals | Open: **whether a candidate is stored is decided when proposals are built**, not now | Computing candidates on read keeps a mis-tuned threshold from putting rows in the trip list — a bad threshold misorders a list instead of corrupting data. Storing them is what lets a dismissal be remembered, which matters once the list is long enough that the same commute at the top becomes a nuisance. Upstream stores its equivalent for exactly that reason (`visits.status`), so neither side is obviously right until the list exists |
 | The timeline | Assembled on read from `checkins` and `points`. **No derived table** | With stay and gap detection deferred there is nothing to derive, so no re-derivation, no `travelmap recalculate` pass, and no coupling to `internal/ingest` |
 | Annotations (`notes`, later `photos`) | Always carry **their own timestamp**, and may *also* point at a trip. Never at the id of a derived row | The timestamp is what stops user-written text from being orphaned: a derived table such as `visits` is rebuilt id and all, so a note pointing into one loses its anchor. A trip is not derived, so pointing at one is safe, and it is what expresses "this note is about that trip" rather than "about that instant". Upstream's `notes` does both — `noted_at` (nullable as a column but required by the model), a polymorphic `attachable`, and a `lonlat` — but it allows that attachable to be a `Visit`, i.e. a derived row, which is the half not to copy. **travelmap narrows the target to a trip deliberately.** Worth settling before the table exists, since it cannot be changed cheaply afterwards |
-| Client-side code | TypeScript, built by esbuild **as a Go library** (`github.com/evanw/esbuild/pkg/api`) | Puts types where client state lives without an npm/Node toolchain, so "a fresh checkout needs nothing but Go" survives. Rules out neither an SPA later nor htmx now; it removes the build chain from the argument |
 
 These are the defaults as of planning. If any turns out to be wrong during implementation,
 change it — after updating this file.
@@ -182,55 +181,41 @@ those columns from what a repeat write refreshes, leaving the first writer's ren
 Sessions and CSRF are settled and already implemented; their rows moved to
 `docs/architecture.md`, which also covers the router and HTML rendering, for the reasoning that
 applies here as well. HTML rendering is implemented but not closed: the engine itself is being
-replaced, for the reason in "Technical Decisions" above. What is left undecided is what the
-remaining screens need.
+replaced by a React + TypeScript SPA, for the reason in "Technical Decisions" above — see
+Milestone H below for the conversion itself.
 
 **Still open, for Milestone H's remaining screens**
 
 | Purpose | Candidate | Notes |
 | --- | --- | --- |
-| Map rendering | MapLibre GL JS or Leaflet | The one place a library has to be fetched rather than written. Vendor it into `embed.FS` rather than using a CDN, to keep a single binary. Milestone J's Step 41 picks one |
+| Map rendering | MapLibre GL JS or Leaflet | The one place a map-specific library is unavoidable. Both have React bindings (`react-map-gl`, `react-leaflet`); vendor the chosen one into `embed.FS` rather than fetching it from a CDN, so the built binary still embeds every asset it serves. Milestone J's Step 41 picks one |
 
-Templating and client-side code are settled in "Technical Decisions" above: `html/template` is
-replaced with a type-safe engine before the screens multiply, and what runs in the browser is
-TypeScript built by esbuild as a Go library. htmx is worth adding only if partial page updates
-turn out to want it — not to avoid a build chain, which esbuild-as-a-Go-library already avoids.
+**Milestone J's Step 41 was planned against the superseded esbuild-as-a-Go-library decision**:
+it hands the browser its GeoJSON inline in a server-rendered page, which assumes a page Go
+still renders per request. Once Milestone H's Step 42 makes the served page a static SPA shell,
+Step 41 (and Milestone J's Steps 38 and 40, whose routes return server-rendered HTML forms
+today) need to be revisited as React pages fetching JSON — not done here, since this file's
+Milestone J section was authored by a different planning pass and reconciling its own routes is
+its own decision, not a side effect of Milestone H's.
 
-**What decides whether the UI is ever split from the server is not the single-binary
-property.** An SPA keeps that just as well, by embedding its build output in `embed.FS`; the
-binary that runs is still one file. What a Node build chain actually costs is the other promise
-— "a fresh checkout needs nothing but Go" (see "Working on a change" in CLAUDE.md) — which is
-why the front end stays in Go's own toolchain for as long as that promise is worth keeping.
-
-The question that settles it is what the screens turn out to be: documents to look at, or an
-application to operate. Milestone J's Step 41 is the first screen with client-side state of its
-own, so it is the honest place to judge, and it says so.
-
-**Open question: how the browser authenticates against `/api/v1`**
+**Decided: how the browser authenticates against `/api/v1`**
 
 **The policy is to reuse the existing `/api/v1` rather than add UI-only data endpoints**
-(browser-specific routes such as login and sessions are added in this milestone instead), so the
-browser will also call `/api/v1/points` and friends — but `/api/v1` accepts only Bearer /
-`api_key`, with the session cookie planned for everything else. The current front-runner is
-**(a)**.
+(browser-specific actions such as signing in and out are their own resources under `/api`
+instead — see Milestone H), so the browser will also call `/api/v1/points` and friends directly.
+`/api/v1` accepts only Bearer / `api_key` today; the browser instead authenticates with **(a)**:
 
-- **(a) The `/api/v1` middleware also accepts the session cookie** — lets the UI simply fetch.
+- **(a) The `/api/v1` middleware also accepts the session cookie** — lets the SPA simply fetch.
   Accepting cookies means `/api/v1` needs CSRF protection too, but Go 1.25's
-  `CrossOriginProtection` can be applied server-wide, so the added cost is small.
-- (b) The UI calls handlers/store directly in-process — keeps the authentication split, but
-  changes "reuse the API" from reusing the HTTP API to reusing the implementation.
-- (c) Hand the api_key to the UI at login and call with Bearer — not recommended, since XSS
-  would leak the API key.
+  `CrossOriginProtection` can be applied server-wide, so the added cost is small. Chosen over:
+  - (b) The UI calls handlers/store directly in-process — rejected, since it would change "reuse
+    the API" from reusing the HTTP API to reusing the implementation.
+  - (c) Hand the api_key to the UI at login and call with Bearer — rejected, since XSS would leak
+    the API key.
 
-**Steps 27 to 34 do not settle this and do not need to**: none of them adds a data endpoint, so
-`/api/v1` is left exactly as it is and keeps needing no CSRF protection. It is the first screen
-that reads a point *through the HTTP API* — Milestone H's own map screen, listed under "Still to
-plan" — that has to answer it. Milestone J's Step 41 draws a map without answering it and
-without deferring it either: it reads through `internal/timeline` in process and hands the
-browser its GeoJSON inside the page, so it adds no data endpoint and `/api/v1` stays
-untouched. The session middleware already in place is what makes (a) cheap when that day
-comes: accepting the cookie there is one more branch in `authenticate`, and
-`CrossOriginProtection` can then be moved from the browser group up to the whole server.
+**Milestone H's Step 45 implements this.** The session middleware already in place is what makes
+(a) cheap: accepting the cookie there is one more branch in `authenticate`, and
+`CrossOriginProtection` moves from the browser group up to the whole server in that same step.
 
 ## Distribution
 
@@ -395,82 +380,154 @@ All independent of each other; take them in whatever order the need arises.
 
 ## Milestone H — Web UI
 
-Start once the API has settled. What the screens still need a library for is in "Library Choices
-for the Web UI".
+Start once the API has settled — this applies to the map, statistics and further settings
+sections below, which are not planned yet. It does not apply to Steps 42 to 48: they replace how
+the four pages that already exist (`/`, `/login`, `/signup`, `/settings`) are built, and none of
+them depends on an API endpoint that is not already implemented.
 
 The Swarm link itself is done: its own section on the settings page, built directly against the
 browser session rather than `api_key` — see "Swarm OAuth linking" in `docs/architecture.md`. It
-added no data endpoint, which is what leaves "Open question: how the browser authenticates
-against `/api/v1`" for the map screen to answer.
+added no data endpoint, which is what left "how the browser authenticates against `/api/v1`" open
+until Step 45 settles it (see "Library Choices for the Web UI").
 
-The map, statistics and settings screens keep their bullet form below. How they are rendered is
-settled — see Templating and Client-side code under "Technical Decisions" — but what each of
-them shows is not, and neither is how the browser authenticates against `/api/v1`, which the map
-screen has to answer. Writing a checklist before those are decided would be inventing the plan
-rather than recording it.
+The map, statistics and settings screens keep their bullet form below. They are not planned yet,
+and writing a checklist for a screen whose rendering approach is undecided would be inventing the
+plan rather than recording it.
 
-Steps 35 and 36 are not screens. What is decided is that `html/template` goes, and that is
-plannable now precisely because it does not depend on how any screen renders; **which engine
-replaces it is Step 36's own decision**, which is the one thing that step is worth reviewing
-for. They also do not wait on "start once the API has settled" above: neither touches the API,
-and the argument for taking them is that the cost grows with every screen added, so waiting is
-what makes them expensive. Take them in order — the pin has to exist before the conversion it
-judges.
+Steps 42 to 48 replace `html/template` with the React + TypeScript SPA decided in "Technical
+Decisions", one existing page at a time rather than in a single pull request, so that no step
+carries more than one page's worth of review. Take them in order: each later step assumes the
+frontend toolchain and conventions the earlier ones set up. **Numbered from 42, after Milestone
+J's Steps 37 to 41**, which were planned first even though they appear later in this file — see
+"A step's number says when it was planned, not when to take it" above.
 
-### Step 35: Pin the current HTML
+### Step 42: Frontend toolchain and build pipeline
 
-- [ ] Pin what the browser pages render today, before any conversion touches them.
-      `assertGolden` compares JSON bodies and every file in `internal/httpapi/testdata/golden/`
-      is a `.json`, so nothing pins this HTML — only scattered `bytes.Contains` assertions in
-      `session_internal_test.go`, `login_page_test.go`, `signup_page_test.go` and
-      `settings_page_test.go`, none of which is a picture of a whole page. Find every one of
-      them rather than trusting this list
-- [ ] **Pin states, not URLs.** Four pages render more than four things: `base.html` branches on
-      `.Header.SignedIn`, `login.html` on `.Error`, `signup.html` on `.Done` and then on each of
-      `.EmailError` / `.PasswordError` / `.ConfirmError`, and `settings.html` on
-      `.FoursquareLinked` and `.FoursquareSyncedThrough` — `signup_page.go` alone renders from
-      seven places. A branch nobody pinned is what the conversion can drop while Step 36's own
-      completion condition still passes
-- [ ] **Compare elements, attributes and text, not bytes.** `base.html`'s own indentation and
-      newlines reach the response verbatim, and no engine that builds the page from Go
-      reproduces them, so a byte comparison would fail on whitespace nobody cares about
+- [ ] Scaffold `frontend/` with Vite, React and TypeScript, plus Vitest and React Testing Library
+      for component tests
+- [ ] Wire the `Makefile` to build the frontend and embed its output into `embed.FS`, replacing
+      `internal/httpapi/static` and `internal/httpapi/templates` once later steps stop needing
+      them. Carry `style.css` over unchanged, imported once from the frontend's entry point —
+      this step does not redesign anything, only relocates it
+- [ ] Add a catch-all route that serves the built `index.html` for any browser-facing `GET` that
+      no other route claims. It has no effect until each page's own step below removes that
+      page's explicit `GET` handler — chi matches the explicit route first — so this only starts
+      serving `/login` once Step 43 removes `r.Get("/login", a.loginPage)`, and so on for the rest
+- [ ] A local dev workflow: the Vite dev server proxies everything it does not itself serve to
+      `go run`, so a frontend change does not need a Go rebuild to see
+- [ ] `docs/toolchain.md` gets a "Frontend toolchain" section, `README.md`'s build instructions
+      are updated, and CI installs Node and runs the frontend's build, lint and test alongside
+      `make check`
+- [ ] Update CLAUDE.md's "Working on a change": "a fresh checkout needs nothing but Go" no
+      longer holds once this step lands, so the rule that follows from it ("do not add a step
+      that requires installing a binary") needs restating for what actually stays true — the
+      backend's own tools still need nothing beyond `go tool`, only the frontend build needs Node
 
-**Settles**: what "the same page" means, while `html/template` is still the thing producing it.
-Written in the same pull request as the conversion, this pin would be shaped by its output
-rather than judging it — which is the whole reason it is a step of its own rather than the first
-half of the next one.
+**Settles**: that a fresh checkout no longer needs only Go — the frontend build needs Node — and
+what replaces `make check`'s Go-only guarantee. No page is converted here; this step only proves
+the pipeline a page's own step can then build on.
 
-**Done when**: removing an element from a template fails a test that named neither the element
-nor the template.
+**Done when**: `make check` also runs the frontend's own checks, and a Go test confirms the
+embedded build output is what the server serves.
 
-### Step 36: Type-safe templates
+### Step 43: Sign in and out
 
-- [ ] Replace `html/template` with templ (or gomponents). If the engine has a generator it goes
-      in `go.mod`'s `tool` directives and is invoked from the `Makefile`; gomponents has none,
-      being ordinary Go functions. Either way no step may require installing a binary, so an
-      engine whose generator is not a Go tool is not a candidate
-- [ ] Convert every template in `internal/httpapi/templates/` and drop `pageTemplate`'s per-page
-      `*template.Template` in `internal/httpapi/web.go`
-- [ ] Rewrite `docs/architecture.md`'s "HTML rendering" section, sentence by sentence. "Keeps
-      deployment a single binary" and "nor a Node build chain" both survive, and the second is
-      the promise this whole decision exists to protect. What does not: templates become Go
-      code, so "parsed once at startup" describes nothing and the `embed.FS` holds the CSS and
-      static files rather than the templates, and "adds neither a code-generation step" is
-      exactly what stops being true if templ is the choice. Type checking is what replaces it in
-      the rationale
+- [ ] `POST /login` becomes `POST /api/session` (`201` + the session cookie on success, `401` +
+      a JSON error on failure) and `POST /logout` becomes `DELETE /api/session` (`204`)
+- [ ] Remove `r.Get("/login", a.loginPage)`, so Step 42's catch-all serves `/login` instead
+- [ ] Build the shared `Layout`/`Header` component every page renders inside (brand link, and the
+      "Settings" link once Step 45 gives it a real signed-in state to branch on — hard-coded
+      signed-out until then, since this step's own pages are only ever reached signed-out)
+- [ ] React `LoginPage`: the form, the error message, redirect to `/` on success
+- [ ] Rewrite `login_page_test.go`/`login_page_internal_test.go` (and the session tests that
+      asserted logout) against the JSON contract; add `LoginPage.test.tsx` for the rendered states
 
-**Settles**: how every screen after this is written.
+**Settles**: that a browser action gets a resource-shaped name under `/api` — the unversioned
+surface for travelmap's own browser actions, distinct from the Dawarich-compatible `/api/v1` —
+rather than a verb. `session` reads naturally here since a browser holds one at a time, and it
+matches the `sessions` table and `scs` terminology already in place. Every later step's own
+action follows this same naming.
 
-**Done when**: Step 35's pin passes unchanged, and a template referencing a field the data does
-not have fails to compile.
+**Done when**: a wrong password shows the same message it does today, pinned by a Go test on the
+JSON body and a frontend test on the rendered error.
+
+### Step 44: Sign up
+
+- [ ] `POST /signup` becomes `POST /api/users` — a new resource, matching Step 43's naming
+- [ ] Remove `r.Get("/signup", a.signupPage)`, so Step 42's catch-all serves `/signup` instead
+- [ ] React `SignupPage`: the form, the three field-level errors (`EmailError`/`PasswordError`/
+      `ConfirmError`), and the API-key confirmation screen after `Done`
+- [ ] Rewrite `signup_page_test.go`/`signup_page_internal_test.go` against the JSON contract; add
+      `SignupPage.test.tsx` covering all four terminal states
+
+**Done when**: each of the four states (success, duplicate email, short password, mismatched
+confirmation) is independently testable and matches today's message text.
+
+### Step 45: Session-cookie authentication for `/api/v1`
+
+- [ ] `/api/v1`'s `authenticate` middleware also accepts the session cookie, per "Library Choices
+      for the Web UI"'s decision (a)
+- [ ] Move `CrossOriginProtection` from the browser-only group to the whole server
+- [ ] `Header` calls the existing `GET /api/v1/users/me` to learn whether the browser is signed
+      in and as whom, replacing the hard-coded value from Step 43
+- [ ] Move "Library Choices for the Web UI"'s "Decided: how the browser authenticates against
+      `/api/v1`" write-up into `docs/architecture.md`, now that this step implements it
+
+**Settles**: the open question in "Library Choices for the Web UI" — this is the step that
+implements it, for every future screen that reads `/api/v1` data, not only the ones below. The
+first page to actually gate itself on this is Step 46, since no page converted so far needs to
+tell a signed-in browser from a signed-out one.
+
+**Done when**: the `Header` shows the "Settings" link once `/api/v1/users/me` reports a
+signed-in user, and an existing `/api/v1/points` test passes with the session cookie standing in
+for `api_key`.
+
+### Step 46: Home page
+
+- [ ] Remove `r.Get("/", a.index)`, so Step 42's catch-all serves `/` instead
+- [ ] A shared "requires a signed-in browser" route wrapper, redirecting to `/login` client-side
+      when Step 45's auth state reports signed-out — the first protected page needs this, and
+      Step 47 reuses it rather than each page writing its own check
+- [ ] React `HomePage`: "Signed in as {email}", using Step 45's auth state rather than rendering
+      it server-side
+
+**Done when**: the page shows the signed-in address without a dedicated data endpoint for it,
+and a signed-out visit to `/` redirects to `/login` client-side.
+
+### Step 47: Settings page
+
+- [ ] `POST /settings/foursquare/disconnect` becomes `DELETE /api/foursquare_account`, matching
+      Step 43/44's resource naming
+- [ ] Remove `r.Get("/settings", a.settingsPage)`, so Step 42's catch-all serves `/settings`
+      instead, behind Step 46's route wrapper
+- [ ] React `SettingsPage`: linked/unlinked states, the disconnect button. "Connect" stays a
+      plain link to the existing `/settings/foursquare/connect` redirect — that flow and its
+      callback are untouched, since neither is a JSON action
+- [ ] Rewrite `settings_page_test.go` against the JSON contract; add `SettingsPage.test.tsx`
+
+**Done when**: connecting and disconnecting a Swarm account both still work end to end through
+the browser, and a signed-out visit to `/settings` also redirects to `/login`.
+
+### Step 48: Retire `html/template`
+
+- [ ] Delete `internal/httpapi/templates/`, `pageTemplate`, `renderPage` and the four
+      `*Template` package vars, and every leftover `bytes.Contains`-style HTML assertion
+- [ ] Rewrite `docs/architecture.md`'s "HTML rendering" section for the new stack: `embed.FS`
+      embeds the frontend's build output rather than templates, and Node is a build-time
+      dependency the runtime binary does not carry
+- [ ] Move the "Frontend" row out of this file's "Technical Decisions" table into
+      `docs/architecture.md`
+
+**Done when**: no `html/template` import remains in `internal/httpapi`, and `make check` is
+green with the React test suite as the only thing covering page-state branches.
 
 ### Still to plan
 
 - [ ] Map screen (render points / tracks for a selected time range), reusing the existing
-      `GET /api/v1/points` and `/tracks` without adding UI-only APIs. **This is the step that has
-      to answer "Open question: how the browser authenticates against `/api/v1`"**, being the
-      first to read data from it. The map library itself is picked and vendored into `embed.FS`
-      by Milestone J's Step 41; if this screen is taken first, it does that instead
+      `GET /api/v1/points` and `/tracks` without adding UI-only APIs — Step 45 has already
+      settled how it authenticates those calls. The map library itself is picked and vendored
+      into `embed.FS` by Milestone J's Step 41; if this screen is taken first, it does that
+      instead
 - [ ] Statistics screen (using `daily_stats`)
 - [ ] Settings screen: more sections beyond the Swarm connection already there — timezone, track
       break, etc. — on the page and header link this milestone already built. An import screen
@@ -554,13 +611,19 @@ distance lands in the timeline's own totals. So the timeline's distances read hi
 `daily_stats`, which excludes exactly those intervals. Nothing else reads these numbers, and
 the fix is a step rather than a redesign.
 
-Take them in order. Nothing here depends on Milestone H's Steps 35 and 36, but the screens
-this milestone adds are three more pages to convert — the trip list, the trip form and the
-timeline screen — so taking the conversion first is what stops them being written twice.
+Take them in order. Steps 37 and 39 (the table and the assembly) depend on nothing in Milestone
+H. **Steps 38, 40 and 41 do**, now that Milestone H's Step 42 settles the frontend as a React +
+TypeScript SPA: those three add three more pages — the trip list, the trip form and the timeline
+screen — and all three were written against the superseded esbuild-as-a-Go-library decision (see
+"Library Choices for the Web UI"). Steps 38 and 40 define the server-rendered HTML routes those
+pages return today, and Step 41's own "hand the browser its GeoJSON inline" approach assumes
+that; all of it needs reconciling with a static SPA shell before any of them is taken. Taking
+Milestone H's conversion first is what stops these pages being written twice either way.
 
-The steps are small on purpose. Two of them settle a convention everything after inherits —
-where the trip packages sit, and how client-side code is written and built — and a convention
-argued inside a feature diff is a convention nobody reviews.
+The steps are small on purpose. One of them settles a convention everything after inherits —
+where the trip packages sit — and a convention argued inside a feature diff is a convention
+nobody reviews. How client-side code is written and built is no longer this milestone's own
+decision to settle; see "Technical Decisions" and Milestone H.
 
 ### Step 37: The trips table
 
@@ -642,28 +705,20 @@ row supplies; and a day with check-ins but no points still renders.
 
 ### Step 41: The trip map
 
-- [ ] Build the route's GeoJSON from `PointRepository.InRange`, which Step 39 added, and hand it
-      to the page in a `<script type="application/json">` block, so the screen adds no data
-      endpoint and makes no `/api/v1` call
+- [ ] **Not yet decided**: this step was planned to hand the browser its GeoJSON inline in a
+      server-rendered page, which no longer fits once Milestone H's Step 42 makes the served
+      page a static SPA shell. Once Steps 38 and 40's own routes are reconciled with that shell
+      (see "Library Choices for the Web UI"), pick how this screen fetches its route — through
+      `/api/v1/points` (Milestone H's Step 45 covers authenticating a browser against it) or a
+      travelmap-own resource under `/api` — as this step's own decision, not inherited from
+      Milestone H
 - [ ] Pick the map library from "Library Choices for the Web UI" and vendor it into `embed.FS`,
       for Milestone H's own map screen as well as this one
-- [ ] Write the initialisation in TypeScript, built by esbuild as a Go library. The pipeline
-      arrives here rather than as a step of its own because until there is a map to draw there
-      is nothing for it to build, and a build step with no input is scaffolding — the same shape
-      of argument the "Background work" row above is still owed, where a job table is planned
-      and nothing yet queues anything into it
-
-**Settles**: how client-side code is written and built, for every screen after this.
+- [ ] Build the map as a React component, using the toolchain Milestone H's Step 42 sets up —
+      how client-side code is written and built is settled there, not here
 
 **Done when**: opening a trip draws its route, the initial view fits the whole trip, and
 deployment is still one binary plus one SQLite file.
-
-**This is the step that says whether the UI is a document or an application.** It is the first
-screen with client-side state of its own, so once it exists there is something real to judge:
-whether server-rendered Go plus TypeScript islands is enough, or whether the front end should be
-split off. Record the answer in `docs/architecture.md` either way — and if it is a split, that
-is when "how the browser authenticates against `/api/v1`" has to be answered for real, and when
-travelmap's own JSON namespace has to be named.
 
 ### Deferred: gap and stay
 
