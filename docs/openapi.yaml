@@ -108,6 +108,82 @@ paths:
         "500":
           $ref: "#/components/responses/InternalServerError"
 
+  /api/v1/settings/mobile:
+    get:
+      summary: The mobile app's own tracking settings
+      operationId: getMobileSettings
+      responses:
+        "200":
+          $ref: "#/components/responses/MobileSettingsOK"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    patch:
+      summary: Update the mobile app's own tracking settings
+      description: >
+        A field the body carries overwrites the stored value; one it omits
+        is left as it was. Accepts both forms the published spec's schema
+        and example disagree on: flat fields at the top level, or the same
+        fields wrapped in a settings object.
+      operationId: patchMobileSettings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MobileSettingsUpdateRequest"
+      responses:
+        "200":
+          $ref: "#/components/responses/MobileSettingsUpdated"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/InvalidMobileSettings"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /api/v1/settings:
+    get:
+      summary: The map and route-drawing settings
+      operationId: getSettings
+      responses:
+        "200":
+          $ref: "#/components/responses/SettingsOK"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    patch:
+      summary: Update the map and route-drawing settings
+      description: >
+        A field the body carries overwrites the stored value; one it omits
+        is left as it was. Accepts both forms the published spec's schema
+        and example disagree on, the same contradiction settings/mobile's
+        has. immich_url, immich_api_key, photoprism_url and
+        photoprism_api_key are accepted without failing the request, but
+        stored nowhere — Immich/Photoprism integration is a non-goal. The
+        published spec documents no response body for this one, so it
+        answers `{}`.
+      operationId: patchSettings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SettingsUpdateRequest"
+      responses:
+        "200":
+          $ref: "#/components/responses/SettingsUpdated"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
   /api/v1/points:
     get:
       summary: List the authenticated user's points
@@ -524,6 +600,73 @@ components:
           schema:
             $ref: "#/components/schemas/UserEnvelope"
 
+    MobileSettingsOK:
+      description: The mobile app's own tracking settings.
+      headers:
+        X-Dawarich-Response:
+          $ref: "#/components/headers/DawarichResponse"
+        X-Dawarich-Version:
+          $ref: "#/components/headers/DawarichVersion"
+      content:
+        application/json; charset=utf-8:
+          schema:
+            $ref: "#/components/schemas/MobileSettingsEnvelope"
+
+    MobileSettingsUpdated:
+      description: The mobile app's own tracking settings, as stored.
+      headers:
+        X-Dawarich-Response:
+          $ref: "#/components/headers/DawarichResponse"
+        X-Dawarich-Version:
+          $ref: "#/components/headers/DawarichVersion"
+      content:
+        application/json; charset=utf-8:
+          schema:
+            $ref: "#/components/schemas/MobileSettingsEnvelope"
+
+    InvalidMobileSettings:
+      description: >
+        A field was outside the range or enum documented for it. Reports
+        the first field found out of range; example shows tracking_mode.
+      headers:
+        X-Dawarich-Response:
+          $ref: "#/components/headers/DawarichResponse"
+        X-Dawarich-Version:
+          $ref: "#/components/headers/DawarichVersion"
+      content:
+        application/json; charset=utf-8:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error: invalid tracking_mode
+
+    SettingsOK:
+      description: The map and route-drawing settings.
+      headers:
+        X-Dawarich-Response:
+          $ref: "#/components/headers/DawarichResponse"
+        X-Dawarich-Version:
+          $ref: "#/components/headers/DawarichVersion"
+      content:
+        application/json; charset=utf-8:
+          schema:
+            $ref: "#/components/schemas/SettingsEnvelope"
+
+    SettingsUpdated:
+      description: >
+        The settings were stored. The published spec documents no response
+        body for this one, so the body is an empty object.
+      headers:
+        X-Dawarich-Response:
+          $ref: "#/components/headers/DawarichResponse"
+        X-Dawarich-Version:
+          $ref: "#/components/headers/DawarichVersion"
+      content:
+        application/json; charset=utf-8:
+          schema:
+            type: object
+          example: {}
+
     PointsCreated:
       description: The points were stored.
       headers:
@@ -824,6 +967,9 @@ components:
           type: string
         theme:
           type: string
+          description: >
+            Upstream's own constant default; nothing here stores one yet.
+            Not part of settings — a sibling field of user's own.
         created_at:
           type: string
           description: RFC 3339 with millisecond precision.
@@ -837,8 +983,9 @@ components:
       type: object
       description: >
         A smaller set than GET /api/v1/settings answers with — the fields
-        upstream's user serializer sends, in its order. Nothing here is
-        stored yet; values are upstream's own defaults.
+        upstream's user serializer sends, in its order. Most of them are fed
+        from the same stored settings GET/PATCH /api/v1/settings reads and
+        writes.
       required:
         - timezone
         - maps
@@ -861,6 +1008,7 @@ components:
       properties:
         timezone:
           type: string
+          description: tracking.timezone; not a stored setting.
         maps:
           $ref: "#/components/schemas/MapsPref"
         fog_of_war_meters:
@@ -893,6 +1041,9 @@ components:
           description: Always null; Photoprism integration is a non-goal.
         visits_suggestions_enabled:
           type: boolean
+          description: >
+            Upstream's own constant default; neither /api/v1/settings nor
+            /api/v1/settings/mobile has a field for it.
         speed_color_scale:
           type: string
           nullable: true
@@ -901,6 +1052,9 @@ components:
           type: integer
         globe_projection:
           type: boolean
+          description: >
+            Upstream's own constant default; neither /api/v1/settings nor
+            /api/v1/settings/mobile has a field for it.
 
     MapsPref:
       type: object
@@ -909,6 +1063,236 @@ components:
       properties:
         distance_unit:
           type: string
+
+    MobileSettingsEnvelope:
+      type: object
+      required:
+        - settings
+        - updated_at
+        - status
+      properties:
+        settings:
+          $ref: "#/components/schemas/MobileSettings"
+        updated_at:
+          type: string
+          description: >
+            Stamped when the account is created and again on every PATCH —
+            never absent, since every account has a settings row from the
+            moment it exists.
+        status:
+          type: string
+        message:
+          type: string
+          description: Only sent by PATCH.
+
+    MobileSettings:
+      type: object
+      description: The 12 fields GET/PATCH /api/v1/settings/mobile answers with.
+      required:
+        - tracking_mode
+        - tracking_visits
+        - track_visits_independently
+        - auto_start
+        - distance_filter
+        - time_filter
+        - track_break
+        - accuracy
+        - show_background_location_indicator
+        - upload_automatically
+        - upload_all_on_tracking_stop
+        - batch_size
+      properties:
+        tracking_mode:
+          type: string
+          enum: [precise, significant]
+        tracking_visits:
+          type: boolean
+        track_visits_independently:
+          type: boolean
+        auto_start:
+          type: boolean
+        distance_filter:
+          type: integer
+          minimum: 1
+          maximum: 10000
+        time_filter:
+          type: integer
+          minimum: 1
+          maximum: 3600
+        track_break:
+          type: integer
+          minimum: 1
+          maximum: 1440
+          description: The device's own track-splitting setting. Not tracking.track_break_minutes.
+        accuracy:
+          type: integer
+          minimum: 1
+          maximum: 6
+        show_background_location_indicator:
+          type: boolean
+        upload_automatically:
+          type: boolean
+        upload_all_on_tracking_stop:
+          type: boolean
+        batch_size:
+          type: integer
+          minimum: 1
+          maximum: 1000
+
+    MobileSettingsUpdateRequest:
+      type: object
+      description: >
+        Every field is optional; one left out keeps its stored value. Also
+        accepts these same fields wrapped in a top-level settings object —
+        see the PATCH operation's own description.
+      properties:
+        tracking_mode:
+          type: string
+          enum: [precise, significant]
+        tracking_visits:
+          type: boolean
+        track_visits_independently:
+          type: boolean
+        auto_start:
+          type: boolean
+        distance_filter:
+          type: integer
+        time_filter:
+          type: integer
+        track_break:
+          type: integer
+        accuracy:
+          type: integer
+        show_background_location_indicator:
+          type: boolean
+        upload_automatically:
+          type: boolean
+        upload_all_on_tracking_stop:
+          type: boolean
+        batch_size:
+          type: integer
+
+    SettingsEnvelope:
+      type: object
+      required:
+        - settings
+      properties:
+        settings:
+          $ref: "#/components/schemas/Settings"
+
+    Settings:
+      type: object
+      description: The fields GET/PATCH /api/v1/settings answers with.
+      required:
+        - route_opacity
+        - meters_between_routes
+        - minutes_between_routes
+        - fog_of_war_meters
+        - time_threshold_minutes
+        - merge_threshold_minutes
+        - preferred_map_layer
+        - speed_colored_routes
+        - points_rendering_mode
+        - live_map_enabled
+        - immich_url
+        - immich_api_key
+        - photoprism_url
+        - photoprism_api_key
+        - speed_color_scale
+        - fog_of_war_threshold
+        - maps
+      properties:
+        route_opacity:
+          type: number
+          description: >
+            A 0-100 percentage — unlike GET /api/v1/users/me's own
+            settings.route_opacity, a 0.0-1.0 fraction of the same value.
+        meters_between_routes:
+          type: integer
+        minutes_between_routes:
+          type: integer
+        fog_of_war_meters:
+          type: integer
+        time_threshold_minutes:
+          type: integer
+        merge_threshold_minutes:
+          type: integer
+        preferred_map_layer:
+          type: string
+        speed_colored_routes:
+          type: boolean
+        points_rendering_mode:
+          type: string
+        live_map_enabled:
+          type: boolean
+        immich_url:
+          type: string
+          nullable: true
+          description: Always null; Immich integration is a non-goal.
+        immich_api_key:
+          type: string
+          nullable: true
+          description: Always null; Immich integration is a non-goal.
+        photoprism_url:
+          type: string
+          nullable: true
+          description: Always null; Photoprism integration is a non-goal.
+        photoprism_api_key:
+          type: string
+          nullable: true
+          description: Always null; Photoprism integration is a non-goal.
+        speed_color_scale:
+          type: string
+          nullable: true
+          description: Null unless the user picked a scale; upstream has no default for it.
+        fog_of_war_threshold:
+          type: integer
+        maps:
+          $ref: "#/components/schemas/MapsPref"
+
+    SettingsUpdateRequest:
+      type: object
+      description: >
+        Every field is optional; one left out keeps its stored value. Also
+        accepts these same fields wrapped in a top-level settings object —
+        see the PATCH operation's own description. immich_url,
+        immich_api_key, photoprism_url and photoprism_api_key are accepted
+        but stored nowhere.
+      properties:
+        route_opacity:
+          type: number
+        meters_between_routes:
+          type: integer
+        minutes_between_routes:
+          type: integer
+        fog_of_war_meters:
+          type: integer
+        time_threshold_minutes:
+          type: integer
+        merge_threshold_minutes:
+          type: integer
+        preferred_map_layer:
+          type: string
+        speed_colored_routes:
+          type: boolean
+        points_rendering_mode:
+          type: string
+        live_map_enabled:
+          type: boolean
+        immich_url:
+          type: string
+        immich_api_key:
+          type: string
+        photoprism_url:
+          type: string
+        photoprism_api_key:
+          type: string
+        speed_color_scale:
+          type: string
+        fog_of_war_threshold:
+          type: integer
+        maps:
+          $ref: "#/components/schemas/MapsPref"
 
     LocationsRequest:
       type: object

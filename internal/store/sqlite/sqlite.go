@@ -120,6 +120,11 @@ func (db *DB) Sessions() store.SessionRepository {
 	return sessionRepository{q: db.q}
 }
 
+// Settings implements [store.Store].
+func (db *DB) Settings() store.SettingsRepository {
+	return settingsRepository{q: db.q}
+}
+
 // Tx implements [store.Store].
 func (db *DB) Tx(ctx context.Context, fn func(ctx context.Context, tx store.Store) error) error {
 	// A nested call joins the transaction already running rather than opening a

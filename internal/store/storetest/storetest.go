@@ -88,6 +88,21 @@ func UnavailableFoursquareAccounts(t *testing.T, users ...model.User) store.Stor
 	return open(t, path)
 }
 
+// UnavailableSettings returns a store holding users whose settings table has
+// been dropped, so that authenticating still works but a settings read or
+// write fails.
+func UnavailableSettings(t *testing.T, users ...model.User) store.Store {
+	t.Helper()
+
+	path := prepare(t, users)
+
+	// Dropped before the store is opened, for the same reason as
+	// UnavailablePoints.
+	exec(t, path, `DROP TABLE settings`)
+
+	return open(t, path)
+}
+
 // NewWithPoints is [New], plus points seeded directly with their own ID,
 // CreatedAt and UpdatedAt — not [store.PointRepository.Create]'s, which
 // stamps the timestamps with the current time — so a caller can pin what a
@@ -180,7 +195,8 @@ var template = sync.OnceValues(func() ([]byte, error) {
 
 // seed writes users directly, rather than through the repository, because
 // UserRepository.Create sets the timestamps to the current time and a caller
-// needs the ones it asked for.
+// needs the ones it asked for. Each user also gets a default settings row,
+// matching what internal/auth.Register stores for every real account.
 func seed(t *testing.T, path string, users []model.User) {
 	t.Helper()
 
@@ -196,6 +212,52 @@ func seed(t *testing.T, path string, users []model.User) {
 			user.CreatedAt.Unix(), user.UpdatedAt.Unix(),
 		)
 	}
+
+	seedSettings(t, path, users)
+}
+
+// seedSettings writes a default settings row for each user directly, at the
+// user's own CreatedAt/UpdatedAt rather than the current time —
+// [store.SettingsRepository.Create] would stamp "now", and a caller pinning
+// a golden file needs the timestamps it asked for.
+func seedSettings(t *testing.T, path string, users []model.User) {
+	t.Helper()
+
+	for _, user := range users {
+		s := model.DefaultSettings(user.ID)
+
+		exec(t, path,
+			`INSERT INTO settings (
+				user_id, tracking_mode, tracking_visits, track_visits_independently,
+				auto_start, distance_filter, time_filter, track_break, accuracy,
+				show_background_location_indicator, upload_automatically, upload_all_on_tracking_stop,
+				batch_size, route_opacity, meters_between_routes, minutes_between_routes, fog_of_war_meters,
+				time_threshold_minutes, merge_threshold_minutes, preferred_map_layer, speed_colored_routes,
+				points_rendering_mode, live_map_enabled, speed_color_scale, fog_of_war_threshold,
+				distance_unit, created_at, updated_at
+			 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			s.UserID, s.TrackingMode, boolInt(s.TrackingVisits), boolInt(s.TrackVisitsIndependently),
+			boolInt(s.AutoStart), s.DistanceFilter, s.TimeFilter, s.TrackBreak, s.Accuracy,
+			boolInt(s.ShowBackgroundLocationIndicator), boolInt(s.UploadAutomatically),
+			boolInt(s.UploadAllOnTrackingStop), s.BatchSize, s.RouteOpacity,
+			s.MetersBetweenRoutes, s.MinutesBetweenRoutes, s.FogOfWarMeters,
+			s.TimeThresholdMinutes, s.MergeThresholdMinutes, s.PreferredMapLayer,
+			boolInt(s.SpeedColoredRoutes), s.PointsRenderingMode, boolInt(s.LiveMapEnabled),
+			s.SpeedColorScale, s.FogOfWarThreshold, s.DistanceUnit,
+			user.CreatedAt.Unix(), user.UpdatedAt.Unix(),
+		)
+	}
+}
+
+// boolInt converts a Go bool into the 0/1 the settings table's boolean
+// columns hold — this package writes through a plain *sql.DB rather than
+// internal/store/sqlite's own sqliteBool, which is unexported.
+func boolInt(b bool) int {
+	if b {
+		return 1
+	}
+
+	return 0
 }
 
 // seedPoints writes points directly, rather than through the repository, for

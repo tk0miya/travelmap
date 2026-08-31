@@ -1,0 +1,23 @@
+{
+  "settings": {
+    "route_opacity": 60,
+    "meters_between_routes": 500,
+    "minutes_between_routes": 30,
+    "fog_of_war_meters": 50,
+    "time_threshold_minutes": 30,
+    "merge_threshold_minutes": 15,
+    "preferred_map_layer": "OpenStreetMap",
+    "speed_colored_routes": false,
+    "points_rendering_mode": "raw",
+    "live_map_enabled": true,
+    "immich_url": null,
+    "immich_api_key": null,
+    "photoprism_url": null,
+    "photoprism_api_key": null,
+    "speed_color_scale": null,
+    "fog_of_war_threshold": 50,
+    "maps": {
+      "distance_unit": "km"
+    }
+  }
+}

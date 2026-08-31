@@ -29,12 +29,9 @@ type User struct {
 	Settings UserSettings `json:"settings"`
 }
 
-// UserSettings is the settings block inside [User].
-//
-// These are the fields upstream's user serializer sends, in its order, and not
-// the larger set GET /api/v1/settings answers with. Nothing here is stored yet,
-// so the handler fills them in with upstream's own defaults; the fields that
-// belong to a non-goal — the Immich and Photoprism URLs — stay null for good.
+// UserSettings is the settings block inside [User]: a smaller set of fields
+// than GET /api/v1/settings answers with, in upstream's user serializer's
+// own order.
 type UserSettings struct {
 	Timezone string   `json:"timezone"`
 	Maps     MapsPref `json:"maps"`
