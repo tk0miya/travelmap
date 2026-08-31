@@ -10,7 +10,7 @@ tool (
 
 require (
 	github.com/alexedwards/scs/v2 v2.9.0
-	github.com/go-chi/chi/v5 v5.3.1
+	github.com/go-chi/chi/v5 v5.3.2
 	github.com/google/go-cmp v0.7.0
 	github.com/pelletier/go-toml/v2 v2.4.3
 	github.com/pressly/goose/v3 v3.27.3
