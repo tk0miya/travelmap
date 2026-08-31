@@ -17,6 +17,11 @@ it lands.
 | Background work | Goroutines + a job table in SQLite | Keeps a single process, with no Sidekiq/Redis equivalent |
 | Reverse geocoding | Off by default; optionally point at a Nominatim/Photon URL | Does not make an external service mandatory |
 | Templating | Replace `html/template` with templ (or gomponents) before the remaining screens are written | `html/template` has no component model and no type checking. `internal/httpapi/web.go` already works around the first: its `pageTemplate` builds a separate `*template.Template` per page, because every page defines a `"content"` block and one set would collide on the name. Four pages exist today, and the map and statistics screens Milestone H still has to plan add one each, so the workaround grows with the UI. templ's generator is a Go binary and fits `go.mod`'s `tool` directives; gomponents needs no generator at all. Either way a fresh checkout still needs nothing but Go |
+| Trip boundaries | **The MVP creates a trip only from what the user enters** — a title and a time range. Detection is left out, not ruled out | Detecting a trip needs a "home" cluster, which needs stay detection, and the MVP builds neither. Nothing about detection is wrong in principle: the bar is proposal accuracy and what the detector costs, and stay detection landing is when there is something to judge against. Upstream agrees on the shape — its own `trips.name` is `NOT NULL`, so a Dawarich trip is user-named too (Milestone J) |
+| Trip proposals | Open: **whether a candidate is stored is decided when proposals are built**, not now | Computing candidates on read keeps a mis-tuned threshold from putting rows in the trip list — a bad threshold misorders a list instead of corrupting data. Storing them is what lets a dismissal be remembered, which matters once the list is long enough that the same commute at the top becomes a nuisance. Upstream stores its equivalent for exactly that reason (`visits.status`), so neither side is obviously right until the list exists |
+| The timeline | Assembled on read from `checkins` and `points`. **No derived table** | With stay and gap detection deferred there is nothing to derive, so no re-derivation, no `travelmap recalculate` pass, and no coupling to `internal/ingest` |
+| Annotations (`notes`, later `photos`) | Always carry **their own timestamp**, and may *also* point at a trip. Never at the id of a derived row | The timestamp is what stops user-written text from being orphaned: a derived table such as `visits` is rebuilt id and all, so a note pointing into one loses its anchor. A trip is not derived, so pointing at one is safe, and it is what expresses "this note is about that trip" rather than "about that instant". Upstream's `notes` does both — `noted_at` (nullable as a column but required by the model), a polymorphic `attachable`, and a `lonlat` — but it allows that attachable to be a `Visit`, i.e. a derived row, which is the half not to copy. **travelmap narrows the target to a trip deliberately.** Worth settling before the table exists, since it cannot be changed cheaply afterwards |
+| Client-side code | TypeScript, built by esbuild **as a Go library** (`github.com/evanw/esbuild/pkg/api`) | Puts types where client state lives without an npm/Node toolchain, so "a fresh checkout needs nothing but Go" survives. Rules out neither an SPA later nor htmx now; it removes the build chain from the argument |
 
 These are the defaults as of planning. If any turns out to be wrong during implementation,
 change it — after updating this file.
@@ -27,6 +32,37 @@ Columns and indexes for the tables already migrated are in `internal/store/sqlit
 kept current by `TestSchema`; the rationale for how a column or index is shaped is a comment in
 the migration that adds it. Behaviour that spans tables or does not attach to a single column —
 invariants, algorithms, config effects — is in `docs/database.md`.
+
+A table not yet migrated has its data model here instead, until the step that adds it.
+
+### `trips`
+
+Columns: `id`, `user_id`, `title`, `started_at`, `ended_at`, `description`, `created_at`,
+`updated_at`. `description` is free text about the trip as a whole, and is deliberately not
+called `note`: the deferred `notes` below are a different thing, carrying their own timestamp,
+and one word for both would blur which of the two a reader is looking at.
+One index: `(user_id, started_at)`. `started_at` and `ended_at` are Unix seconds UTC like every
+other time in the schema, and `ended_at` is an exclusive upper bound.
+
+**Ranges may overlap, and nothing rejects one that does.** "Europe" containing "Paris" is the
+case a traveller actually has, and since the timeline is assembled from a time range rather
+than from rows that point at a trip, two trips covering the same hour is not an ambiguity
+anything has to resolve.
+
+**In the MVP nothing derives a trip and nothing rebuilds one.** Every row comes from what the
+user typed, so no config change invalidates one and `travelmap recalculate` does not touch the
+table — unlike `daily_stats`, which is the other table a time range means something to. This is
+the MVP's property, not a law: the "Trip proposals" row above leaves open whether an accepted
+candidate becomes a row, and such a row would have been derived from points. What holds either
+way is that a trip is not *re*-derived — once it exists, only the user changes it.
+Added by Milestone J's Step 37.
+
+**No column holds what a trip contains**, and none is planned: the contents are found by range.
+Upstream's own `trips` is the same shape — a `name`, a range, and no join table to its visits or
+tracks — which is worth knowing because it also shows where this goes if reading the range ever
+gets slow: it caches `distance`, `path` and `visited_countries` on the row beside a
+`last_recalculated_at`. That is the answer to a performance problem, not the starting point,
+and it is the one thing that would make a trip row hold derived state.
 
 ## Dawarich API Compatibility Notes
 
@@ -153,12 +189,22 @@ remaining screens need.
 
 | Purpose | Candidate | Notes |
 | --- | --- | --- |
-| Page updates | htmx | Avoids pulling in a Node build chain |
-| Map rendering | MapLibre GL JS or Leaflet | The one place JS is unavoidable. Vendor it into `embed.FS` rather than using a CDN, to keep a single binary |
+| Map rendering | MapLibre GL JS or Leaflet | The one place a library has to be fetched rather than written. Vendor it into `embed.FS` rather than using a CDN, to keep a single binary. Milestone J's Step 41 picks one |
 
-An SPA (React, etc.) can also keep the single-binary property by embedding the build output in
-`embed.FS`. The only trade-off there is needing a Node build chain, and the router choice is the
-same either way.
+Templating and client-side code are settled in "Technical Decisions" above: `html/template` is
+replaced with a type-safe engine before the screens multiply, and what runs in the browser is
+TypeScript built by esbuild as a Go library. htmx is worth adding only if partial page updates
+turn out to want it — not to avoid a build chain, which esbuild-as-a-Go-library already avoids.
+
+**What decides whether the UI is ever split from the server is not the single-binary
+property.** An SPA keeps that just as well, by embedding its build output in `embed.FS`; the
+binary that runs is still one file. What a Node build chain actually costs is the other promise
+— "a fresh checkout needs nothing but Go" (see "Working on a change" in CLAUDE.md) — which is
+why the front end stays in Go's own toolchain for as long as that promise is worth keeping.
+
+The question that settles it is what the screens turn out to be: documents to look at, or an
+application to operate. Milestone J's Step 41 is the first screen with client-side state of its
+own, so it is the honest place to judge, and it says so.
 
 **Open question: how the browser authenticates against `/api/v1`**
 
@@ -178,10 +224,13 @@ browser will also call `/api/v1/points` and friends — but `/api/v1` accepts on
 
 **Steps 27 to 34 do not settle this and do not need to**: none of them adds a data endpoint, so
 `/api/v1` is left exactly as it is and keeps needing no CSRF protection. It is the first screen
-that reads a point — the map — that has to answer it. The session middleware already in place is
-what makes (a) cheap when that day comes: accepting the cookie there is one more branch in
-`authenticate`, and `CrossOriginProtection` can then be moved from the browser group up to the
-whole server.
+that reads a point *through the HTTP API* — Milestone H's own map screen, listed under "Still to
+plan" — that has to answer it. Milestone J's Step 41 draws a map without answering it and
+without deferring it either: it reads through `internal/timeline` in process and hands the
+browser its GeoJSON inside the page, so it adds no data endpoint and `/api/v1` stays
+untouched. The session middleware already in place is what makes (a) cheap when that day
+comes: accepting the cookie there is one more branch in `authenticate`, and
+`CrossOriginProtection` can then be moved from the browser group up to the whole server.
 
 ## Distribution
 
@@ -257,21 +306,64 @@ app needs and the community client does not, and it is the input to Milestone F'
 
 Steps 13 and 14 are independent and can run in parallel. Step 15 needs 13 and 14.
 
+**But all three now depend on Milestone J**, which owns the assembly they project: they need its
+Step 37 (the `internal/timeline` package) and Step 39 (the assembly itself), and Step 13
+additionally needs the gap detection deferred there.
+
 ### Step 13: Tracks
 
-- [ ] Track-splitting logic (split on `tracking.track_break_minutes` of inactivity) as a
-      background job. **Not `track_break` from `settings/mobile`** (see "Data Model")
+- [ ] Track-splitting logic (split on `tracking.track_break_minutes` of inactivity).
+      **Not `track_break` from `settings/mobile`** (see "Data Model")
 - [ ] `GET /api/v1/tracks` (GeoJSON FeatureCollection)
 - [ ] `GET /api/v1/tracks/{id}`, `GET /api/v1/tracks/{track_id}/points`
 
+**These endpoints are a projection, not a second implementation.** The splitting belongs to the
+one assembly in `internal/timeline` (see Milestone J), and these routes render its move entries
+in upstream's shape at the DTO boundary. Upstream materialises its own equivalent — a `tracks`
+table holding `original_path` as a LineString plus `distance`, `duration`, `avg_speed` and
+elevation — which is where this goes if reading the points per request turns out to be too slow,
+not where it starts.
+
 ### Step 14: Visits
 
-- [ ] Stay detection → `visits` table
-- [ ] `GET /api/v1/visits`
+- [ ] Stay detection → `visits` table. **This step owns the detector**, so it also owns what
+      one costs: `tracking.stay_radius_meters` and `tracking.stay_minimum_minutes`,
+      re-derivation driven from `internal/ingest` and `internal/checkin` the way `daily_stats`
+      already is, and a pass in `travelmap recalculate` — changing either threshold invalidates
+      every stored row
+- [ ] `GET /api/v1/visits`, a projection of the same assembly's stay entries into upstream's
+      shape at the DTO boundary — not a second reader of the table. **It reports every stay,
+      `declined` included**, because upstream's response requires `status` and a client filters
+      on it itself; hiding one is a screen's policy and belongs above the assembly, never inside
+      it (see "Deferred: gap and stay" in Milestone J)
+
+`visits` is upstream's own concept and keeps upstream's shape, `status` included. travelmap gets
+no stay table beside it: when Milestone J takes up stay detection it reads these rows rather
+than deriving its own — see "Deferred: gap and stay" there.
+
+**Upstream's `visits` carries more than `status`, and this step needs the same two mechanisms.**
+`confidence`, with a `confidence_breakdown` beside it, records how sure the detector was;
+`detection_version` is what lets the detector be re-run over old rows without touching the ones
+a user has already ruled on. Upstream also soft-deletes (`deleted_at`) rather than removing a
+row, and joins candidate places through a `place_visits` table with one chosen `place_id` —
+neither is needed
+until reverse geocoding is, but both explain why `visits` is not shaped like a plain detection
+output.
 
 ### Step 15: Timeline
 
-- [ ] `GET /api/v1/timeline` (including validation of the 31-day cap)
+- [ ] `GET /api/v1/timeline` (including validation of the 31-day cap), grouping the same
+      assembly's entries by day rather than assembling anything of its own
+
+**Blocked on knowing the shape, not on the code.** Upstream's spec defines the response as
+`{days: [...]}` where each item is a bare `type: object` with no properties at all, so there is
+nothing to implement faithfully against: the real contract lives in the client, which is what
+Step 6 exists to observe. The description also says the day covers "visits, tracks, and
+**photos**" — and photo APIs are a non-goal in `docs/README.md`, so what this endpoint reports
+for photos has to be answered before it can be written.
+
+Note that upstream has no `timelines` table: its timeline is a range query, and the named,
+persisted thing is its `trips` — the same split travelmap makes.
 
 **Milestone done when**: the app's timeline and track screens render without breaking, and
 settings changed in the app survive a reinstall.
@@ -311,9 +403,11 @@ browser session rather than `api_key` — see "Swarm OAuth linking" in `docs/arc
 added no data endpoint, which is what leaves "Open question: how the browser authenticates
 against `/api/v1`" for the map screen to answer.
 
-The map, statistics and settings screens keep their bullet form below. They are not planned yet,
-and writing a checklist for a screen whose rendering approach is undecided would be inventing the
-plan rather than recording it.
+The map, statistics and settings screens keep their bullet form below. How they are rendered is
+settled — see Templating and Client-side code under "Technical Decisions" — but what each of
+them shows is not, and neither is how the browser authenticates against `/api/v1`, which the map
+screen has to answer. Writing a checklist before those are decided would be inventing the plan
+rather than recording it.
 
 Steps 35 and 36 are not screens. What is decided is that `html/template` goes, and that is
 plannable now precisely because it does not depend on how any screen renders; **which engine
@@ -375,14 +469,12 @@ not have fails to compile.
 - [ ] Map screen (render points / tracks for a selected time range), reusing the existing
       `GET /api/v1/points` and `/tracks` without adding UI-only APIs. **This is the step that has
       to answer "Open question: how the browser authenticates against `/api/v1`"**, being the
-      first to read data from it
+      first to read data from it. The map library itself is picked and vendored into `embed.FS`
+      by Milestone J's Step 41; if this screen is taken first, it does that instead
 - [ ] Statistics screen (using `daily_stats`)
 - [ ] Settings screen: more sections beyond the Swarm connection already there — timezone, track
       break, etc. — on the page and header link this milestone already built. An import screen
       only if Milestone G's `/api/v1/imports` was implemented
-- [ ] Vendor the map library into `embed.FS` to preserve the single binary, alongside the
-      stylesheet already there; what is left is the one dependency that has to be fetched rather
-      than written
 
 **Done when**: logging in from a browser shows the user's history on a map, and deployment is
 still one binary plus one SQLite file.
@@ -432,6 +524,241 @@ step lands sees the run fail with an error that already names the `errorType` an
 **Done when**: a fake server answering 403 with `errorType: not_authorized` is reported as a
 revoked authorisation rather than as a rate limit, and a check-in observed by both paths either
 matches on the five columns or has them recorded as excluded from refresh.
+
+---
+
+## Milestone J — Trips and the timeline
+
+travelmap's own feature, not upstream's: the trip a traveller actually looks at, assembled from
+the GPS trace and the Swarm check-ins already being collected. It gets its own table and its own
+routes at the top level, never a path under `/api/v1` — see "Keeping the two parts apart" in
+`docs/api-notes.md`.
+
+**The MVP deliberately derives nothing.** A trip is a range the user declares; the timeline is
+assembled on read from the two tables that already exist. That is what keeps this milestone to
+one new table, with no change to `internal/ingest`, `internal/checkin` or `daily_stats`, and no
+re-derivation to trigger, invalidate or rebuild.
+
+**There is one timeline model, and the compatibility endpoints are projections of it.**
+`internal/timeline` owns the entry type and one assembly over a set of sources; what a surface
+returns is decided at the DTO boundary, where every response shape in this project already
+stops. So the browser reads entries directly, `GET /api/v1/timeline` groups the same entries by
+day, and `/api/v1/visits` and `/api/v1/tracks` render the stay and move entries in upstream's
+shape. Their fixed response formats constrain the DTOs, never the model — writing two nearly
+identical models because one surface cannot change its JSON is the mistake this paragraph
+exists to prevent.
+
+It also accepts a known inaccuracy, and the accepting is the point: with gap detection deferred
+(see below), an untracked stretch is drawn on the map as a straight line and its straight-line
+distance lands in the timeline's own totals. So the timeline's distances read higher than
+`daily_stats`, which excludes exactly those intervals. Nothing else reads these numbers, and
+the fix is a step rather than a redesign.
+
+Take them in order. Nothing here depends on Milestone H's Steps 35 and 36, but the screens
+this milestone adds are three more pages to convert — the trip list, the trip form and the
+timeline screen — so taking the conversion first is what stops them being written twice.
+
+The steps are small on purpose. Two of them settle a convention everything after inherits —
+where the trip packages sit, and how client-side code is written and built — and a convention
+argued inside a feature diff is a convention nobody reviews.
+
+### Step 37: The trips table
+
+- [ ] `trips` migration, per "Data Model"
+- [ ] `store.TripRepository` and its sqlite implementation, plus `storetest.UnavailableTrips`
+- [ ] `internal/timeline`, holding trip CRUD now and the assembly from Step 39. **It writes no
+      derived state**, so it sits beside `ingest` / `checkin` rather than below them, and only
+      `internal/httpapi` imports it. Add it to CLAUDE.md's layering diagram
+
+**Settles**: that a trip is user-owned data and never derived, so nothing rebuilds it and no
+config change invalidates it — and where the package that owns trips and the timeline sits.
+
+**Done when**: a trip round-trips through the repository, and dropping the table is what makes
+the failure path return 500.
+
+### Step 38: The trip screens
+
+- [ ] `GET /trips`, `GET /trips/new`, `POST /trips`, `GET /trips/{id}`,
+      `GET /trips/{id}/edit`, `POST /trips/{id}` and `POST /trips/{id}/delete`, in the browser
+      group so they carry the session and CSRF middleware. The form gets its own two GETs
+      rather than being embedded: `GET /trips/{id}` is the timeline screen from Step 40, and
+      putting an edit form on it would make that screen mean two things
+- [ ] The pages those routes render: the trip list, and the form that creates and edits one.
+      `GET /trips/{id}` shows the trip itself and carries no timeline until Step 40, which
+      renders it by handing the row's range to the one timeline screen
+- [ ] Handlers read through `internal/timeline` and receive `internal/model` types, never
+      reaching the store directly. **This is a new rule, not what the existing handlers do** —
+      `points.go` and `stats.go` read the store themselves — and it applies to the trip and
+      timeline routes only. It is the whole cost of keeping a future JSON API, or a separate
+      front end, an addition rather than a refactor
+
+**Done when**: a trip can be declared from a browser, edited, deleted, and survives a restart.
+
+### Step 39: Assembling the timeline
+
+- [ ] `CheckinRepository.List(ctx, userID, from, to)`. The repository is write-only today; the
+      `checkins_user_id_checked_in_at_idx` index the query needs already exists. Its doc comment
+      says `internal/checkin` is the only caller, which stops being true here — reword it to say
+      that every *write* goes through `internal/checkin`, which is what the layering rule in
+      CLAUDE.md actually requires, and that `internal/timeline` reads
+- [ ] `PointRepository.InRange(ctx, userID, from, to)`, for the points between one check-in and
+      the next. The existing `List` is paginated and returns a total count for `X-Total-Pages`,
+      which does not fit reading an interval whole. **No new index**: this is a time-range scan
+      on `points_user_id_timestamp_key`, not a bounding-box query, so the note in
+      `0002_points.sql` about adding neither a lat/lon index nor an `R*Tree` still holds
+- [ ] The assembly itself: one entry per check-in, with the elapsed time and the distance to the
+      next one summed from that interval's points
+- [ ] **An entry carries its kind**, even though the MVP produces only one of them. Stay and
+      move are what Steps 13 and 14 project into upstream's shapes, and a type that cannot say
+      which it is would force those steps to invent the distinction separately — the exact
+      duplication this milestone's one-model rule exists to prevent
+- [ ] **Take the sources as a set, not as two fixed reads.** The MVP has two — check-ins and
+      points — and stay detection later adds `visits`. Written so that a source is added rather
+      than the assembly rewritten, "one engine" is a property of the signature instead of a
+      promise a later step has to keep
+- [ ] Local time per entry from the check-in's own `timezone_offset`, falling back to
+      `tracking.timezone` where it is absent. Without this a trip abroad renders entirely in
+      the home zone, which is what makes a travel log unreadable
+
+**Settles**: what a timeline entry is — its fields and its kinds — and that everything reading
+a time range reads it through here, before a template or a compatibility DTO has an opinion
+about it.
+
+**Done when**: table-driven tests cover a check-in with no points around it, points with no
+check-in, an entry crossing midnight, and a check-in carrying no `timezone_offset`.
+
+### Step 40: The timeline screen
+
+- [ ] **One screen, taking a range.** `GET /timeline` renders the assembly for whatever range it
+      is given, and `GET /trips/{id}` fills that range and the heading from the `trips` row and
+      renders the same screen. Two screens over one assembly would only raise the question of
+      which of them an annotation belongs on
+- [ ] A default range for `GET /timeline` with no parameters — one day — since that is how a
+      user finds what is worth declaring as a trip in the first place
+
+**Done when**: opening a trip lists when, where and what in time order, in local time; the same
+range reached through `/timeline` shows the same entries, differing only in the heading the trip
+row supplies; and a day with check-ins but no points still renders.
+
+### Step 41: The trip map
+
+- [ ] Build the route's GeoJSON from `PointRepository.InRange`, which Step 39 added, and hand it
+      to the page in a `<script type="application/json">` block, so the screen adds no data
+      endpoint and makes no `/api/v1` call
+- [ ] Pick the map library from "Library Choices for the Web UI" and vendor it into `embed.FS`,
+      for Milestone H's own map screen as well as this one
+- [ ] Write the initialisation in TypeScript, built by esbuild as a Go library. The pipeline
+      arrives here rather than as a step of its own because until there is a map to draw there
+      is nothing for it to build, and a build step with no input is scaffolding — the same shape
+      of argument the "Background work" row above is still owed, where a job table is planned
+      and nothing yet queues anything into it
+
+**Settles**: how client-side code is written and built, for every screen after this.
+
+**Done when**: opening a trip draws its route, the initial view fits the whole trip, and
+deployment is still one binary plus one SQLite file.
+
+**This is the step that says whether the UI is a document or an application.** It is the first
+screen with client-side state of its own, so once it exists there is something real to judge:
+whether server-rendered Go plus TypeScript islands is enough, or whether the front end should be
+split off. Record the answer in `docs/architecture.md` either way — and if it is a split, that
+is when "how the browser authenticates against `/api/v1`" has to be answered for real, and when
+travelmap's own JSON namespace has to be named.
+
+### Deferred: gap and stay
+
+Both are real and both are left out on purpose. Each has its own trigger, so neither is a
+prerequisite for the other.
+
+**gap — splitting on `tracking.track_break_minutes`.** Take it when the straight lines drawn
+across untracked stretches start to mislead on the map, or when the timeline's distances
+disagreeing with `daily_stats` becomes a problem rather than a footnote. It cuts the polyline at
+the break, excludes those intervals from the distance the way `daily_stats` already does, and
+lets a row say "not recorded" instead of a number that is not one. **Step 13's
+`GET /api/v1/tracks` is the same computation**, so that endpoint arrives with it — and note that
+the splitting is computed on read, so it needs no job to run it. That matters beyond Step 13:
+the "Background work" row above still plans a job table, and
+`docs/architecture.md` has since settled that periodic work is a ticker goroutine with no job
+table. Track splitting was the one per-item consumer that would have justified one, and
+computing it on read removes it, so whichever step lands first has to say whether that row
+survives at all.
+
+**stay — dwell detection.** Take it when a duration is wanted (a check-in is an instant, so the
+MVP can say "arrived at 11:27" but never "stayed 43 minutes"), or when places nobody checked
+into — the hotel slept in, the shop browsed — should appear on the timeline at all. This is the
+expensive one, and the only part of the original design with thresholds to tune and failure
+modes to live with — but **the detector itself is Step 14's**, and that step's checklist carries
+what it costs. It fills `visits`, upstream's concept in upstream's shape, and travelmap gets no
+stay table beside it: two detectors would disagree, and a second table would make "which stay" a
+question nobody should have to answer.
+
+What is left here is the fusing: the timeline reads those rows alongside `checkins`, exactly as
+it already reads `points` alongside them, and `internal/timeline` moves below `internal/ingest`
+and `internal/checkin` in the layering if reading them means being re-derived with them.
+`docs/database.md` already records why a Swarm check-in is not one of these rows.
+
+**These two cannot be split the way the rest of this file's steps can.** Step 14's first bullet
+is the detector and its second is a projection of the assembly's stay entries, so finishing that
+step needs the fusing described here — and the fusing needs the detector. Whichever is picked up
+first carries the other with it, and the pair is one step's worth of work however it is
+numbered.
+
+**`status` is the one thing the fusing has to interpret**, and Step 14 can leave it alone because
+upstream's own endpoint just reports the column. **The assembly emits every stay and carries
+`status` on the entry; the browser timeline is what hides a `declined` one**, since a stay the
+user has ruled out is not something to put in a travel log. Filtering inside the assembly would
+break `GET /api/v1/visits`, which has to report those rows. `suggested` and `confirmed` both
+show, kept apart so a screen can mark which of them a human has looked at.
+The asymmetry to be honest about is that **`status` cannot be moved while visit editing is out
+of scope** — nothing in travelmap can turn `suggested` into `confirmed` or `declined`, so the
+column reads a constant and the timeline's quality is whatever the detector's is. That is a
+consequence of the current scope, not a position: implementing `POST /api/v1/visits/bulk_update`
+is the answer the moment a wrong stay in a travel log is worth removing, and nothing here argues
+against doing it.
+
+Neither is blocked by the MVP's shape. `trips` does not change, annotations carry their own
+timestamp rather than pointing at anything derived, and the assembly moving from
+computed-on-read to read-from-a-table stays inside `internal/timeline`.
+
+**A trip proposal and a suggested visit are the same shape at different layers, and should not
+be built as one thing.** Both are a machine guess a human rules on, and both have to survive the
+detector being re-run. But a suggested visit proposes *content* — a stay that either happened or
+did not — while a trip candidate proposes a *selection over* content, a range worth naming.
+Upstream keeps its own equivalents apart for the same reason. So if trip candidates ever need to
+remember a dismissal, that is a decision about trip candidates and gets its own state; reusing
+`visits.status` for it would be the mistake `docs/database.md` already declined to make when it
+kept Swarm check-ins out of `visits`.
+
+### Deferred: notes and photos
+
+The point of a trip is eventually to carry what the traveller wrote and photographed, not only
+where they went. Neither is planned as a step, and photos may not be built at all — but the one
+decision they need is already in "Technical Decisions" above: **both carry their own timestamp,
+and may also point at a trip, never at the id of a derived row.** It is settled now because it
+is the part that cannot be changed cheaply once rows exist.
+
+Upstream's `notes` is a worked example of most of it, and a caution on the rest. It carries
+`noted_at`, a polymorphic `attachable` and a `lonlat`, requires the timestamp in the model even
+though the column is nullable, and validates that an attached note's date falls inside the
+attachable's own range — all worth copying. But its `ALLOWED_ATTACHABLE_TYPES` is
+`Trip Area Visit Place`, so it permits anchoring to a `Visit`, which is exactly the derived row
+the rule above keeps out. Narrowing that set is the deliberate difference.
+
+**Both run into `docs/README.md`'s non-goals first, and that is what has to be settled before
+either can be a step** — not the schema, which is the easy part.
+
+`Notes` is named there outright, among "Areas, Places, Notes, Tags, Digests, Insights —
+upstream's own concepts". The carve-out beside it covers travelmap's own check-ins and nothing
+else. A note anchored to a moment on a trip is arguably not upstream's Notes at all, but the
+list does not say that, so either the carve-out is widened to say what travelmap's own
+annotations are, or the feature is dropped.
+
+Photos hit the neighbouring line, "Immich / Photoprism integration and photo-related APIs".
+Storing travelmap's own images is arguably not what that excludes either, but again the wording
+does not say so.
+
+**Milestone done when**: a trip declared in a browser shows its check-ins in order and its route
+on a map, and deployment is still one binary plus one SQLite file.
 
 ## Risks and Open Questions
 
