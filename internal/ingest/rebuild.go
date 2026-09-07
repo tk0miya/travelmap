@@ -86,6 +86,7 @@ func affectedDays(ctx context.Context, tx store.Store, points []model.Point, loc
 }
 
 // rebuildAffectedDays rebuilds every day [affectedDays] finds owed by
+// touched, and enqueues a track rebuild for every distinct user among
 // touched — the shared second half of every point mutation, insert, update
 // or delete alike. It must run after the write touched describes, in the
 // same transaction, so [affectedDays]' own NextTimestamp lookups see the
@@ -98,6 +99,29 @@ func rebuildAffectedDays(ctx context.Context, tx store.Store, touched []model.Po
 
 	for _, day := range days {
 		if err := tx.DailyStats().Rebuild(ctx, day.userID, day.day, trackBreak); err != nil {
+			return err
+		}
+	}
+
+	return enqueueTrackRebuilds(ctx, tx, touched)
+}
+
+// enqueueTrackRebuilds records a pending track rebuild for every distinct
+// user among touched, so internal/track's worker recomputes their tracks
+// once a point anywhere in their history has changed. touched is usually all
+// one user's points — every ingest caller acts on a single authenticated
+// user — but this holds regardless.
+func enqueueTrackRebuilds(ctx context.Context, tx store.Store, touched []model.Point) error {
+	seen := make(map[int64]bool, len(touched))
+
+	for _, p := range touched {
+		if seen[p.UserID] {
+			continue
+		}
+
+		seen[p.UserID] = true
+
+		if err := tx.Tracks().Enqueue(ctx, p.UserID); err != nil {
 			return err
 		}
 	}

@@ -9,6 +9,27 @@ rationale as a comment where one exists. Read it first; what follows here is wha
 fit there — too long for a schema.sql comment, or not attached to any single column or index at
 all.
 
+## Points, tracks and visits
+
+These three build on each other, in one direction: `points` is the only one written from device
+data, and the other two are computed from it, never the other way around. (`daily_stats`,
+`checkins` and `foursquare_accounts`, covered further down, are a different kind of table —
+`daily_stats` is also computed from `points`, but `checkins` and `foursquare_accounts` hold Swarm
+data with no relationship to any of the three below at all.)
+
+- **`points`** — one row per GPS sample a device reported. The source of truth: `tracks` and
+  `visits` are both derived from it and rebuilt from it wholesale, never adjusted by hand.
+- **`tracks`** — a user's points grouped into contiguous runs, split wherever the gap between two
+  consecutive points exceeds `TRAVELMAP_TRACK_BREAK_MINUTES`. A track represents **movement**: the
+  device was recording while the user was travelling.
+- **`visits`** — not built yet (`TODO.md`'s Step 14). Where a track represents movement, a visit
+  is meant to represent the opposite: a dwell, where the device stayed in roughly one place long
+  enough to count as a stop rather than a gap in tracking.
+
+Neither `tracks` nor `visits` is recorded as a column on `points` itself — a point does not know
+which track or visit it belongs to, only its own timestamp and coordinates. Each is computed by
+reading `points` fresh; see `tracks`' own section below for how it does it today.
+
 ## `points`
 
 ### Deduplication
@@ -76,6 +97,48 @@ therefore exists twice: share the Earth-radius constant and pin agreement with a
 
 The spec does not say how upstream computes distance, so compare against the app's own display
 and revisit if the numbers diverge.
+
+## `tracks`
+
+A track is a contiguous run of one user's points recorded while they were travelling — see
+"Points, tracks and visits" above for what that means next to `points` and the not-yet-built
+`visits`. The table is precomputed from `points`, the same reason `daily_stats` is: reading its
+rows costs no join against `points` at request time. Rebuilt from scratch whenever a point changes
+anywhere in a user's history, never adjusted arithmetically — a single inserted point can shift
+where every later track boundary falls, the same argument `daily_stats` makes for its own rebuild.
+
+`geometry` stores the JSON-encoded `[longitude, latitude]` pairs of every point in the track, in
+timestamp order — `GET /api/v1/tracks` reads it directly rather than reconstructing a polyline from
+`points`. `avg_speed` and `duration` are not stored: both follow from `start_at`, `end_at` and
+`distance` alone, so they are derived at the response boundary instead.
+
+### How a track is split
+
+The gap that starts a new track is `TRAVELMAP_TRACK_BREAK_MINUTES` — the same value `daily_stats`'
+own segment attribution uses (see "Segment attribution" above), and, like it, **not**
+`settings/mobile`'s own `track_break`, which is the device's own splitting setting. A run of a
+single point is not a track: a GeoJSON LineString needs at least two coordinates, and a lone point
+measures no distance or duration, so it is dropped rather than kept as a degenerate one-point
+track.
+
+### No `track_id` column on `points`
+
+There is no column, and no join table, linking a point to the track it belongs to. What makes
+that safe is how a track is built: one ordered walk over a user's whole point history, splitting
+it into runs that never overlap — so a track's own `[start_at, end_at]` range can never include
+another track's points, and that range alone is enough to find them again.
+`GET /api/v1/tracks/{track_id}/points` is what currently relies on this.
+
+### How a rebuild is triggered
+
+`internal/ingest` enqueues a rebuild request (`track_split_jobs`, one row per user, coalesced on a
+repeat request) after every point mutation, in the same transaction as the write. A background
+worker in `internal/track` drains that table — the "Background workers" row's rare per-item
+exception in `docs/architecture.md`: the same ticker every worker there uses, except this one
+also polls the job table on each tick rather than only re-scanning "now". `travelmap
+recalculate` also rebuilds every user's tracks directly, without going through the job table: a
+`TRAVELMAP_TRACK_BREAK_MINUTES` change touches no point, so it never reaches the enqueue a write
+triggers.
 
 ## `checkins`
 

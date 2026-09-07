@@ -82,7 +82,7 @@ func TestRecalculateCommand(t *testing.T) {
 		t.Fatalf("recalculate returned %v (output %q)", err, out.String())
 	}
 
-	if got := out.String(); !strings.Contains(got, "daily_stats recalculated") {
+	if got := out.String(); !strings.Contains(got, "daily_stats and tracks recalculated") {
 		t.Errorf("recalculate printed %q, want it to report the recalculation", got)
 	}
 
@@ -103,6 +103,19 @@ func TestRecalculateCommand(t *testing.T) {
 
 	if stat.KM <= 0 {
 		t.Errorf("KM = %v, want the Tokyo-Osaka segment counted", stat.KM)
+	}
+
+	tracks, _, err := db.Tracks().List(t.Context(), userID, nil, nil, 1, 10)
+	if err != nil {
+		t.Fatalf("listing tracks: %v", err)
+	}
+
+	if len(tracks) != 1 {
+		t.Fatalf("len(tracks) = %d, want 1", len(tracks))
+	}
+
+	if tracks[0].DistanceMeters <= 0 {
+		t.Errorf("DistanceMeters = %v, want the Tokyo-Osaka segment counted", tracks[0].DistanceMeters)
 	}
 }
 

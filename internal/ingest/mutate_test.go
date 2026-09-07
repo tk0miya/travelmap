@@ -83,6 +83,7 @@ func TestUpdatePointReportsFailures(t *testing.T) {
 	tests := map[string]struct {
 		points     *fakePoints
 		dailyStats *fakeDailyStats
+		tracks     *fakeTracks
 	}{
 		"Update fails": {
 			points:     &fakePoints{updateErr: errFake},
@@ -96,6 +97,11 @@ func TestUpdatePointReportsFailures(t *testing.T) {
 			points:     &fakePoints{},
 			dailyStats: &fakeDailyStats{rebuildErr: errFake},
 		},
+		"Enqueue fails": {
+			points:     &fakePoints{},
+			dailyStats: &fakeDailyStats{},
+			tracks:     &fakeTracks{enqueueErr: errFake},
+		},
 	}
 
 	for name, tt := range tests {
@@ -105,12 +111,36 @@ func TestUpdatePointReportsFailures(t *testing.T) {
 			var events []string
 			tt.dailyStats.events = &events
 
-			st := &fakeStore{points: tt.points, dailyStats: tt.dailyStats}
+			st := &fakeStore{points: tt.points, dailyStats: tt.dailyStats, tracks: tt.tracks}
 
 			if _, err := ingest.UpdatePoint(t.Context(), st, 1, 1, 9, 10, time.UTC, 30*time.Minute); !errors.Is(err, errFake) {
 				t.Errorf("UpdatePoint returned %v, want it to wrap %v", err, errFake)
 			}
 		})
+	}
+}
+
+// TestUpdatePointEnqueuesTrackRebuild pins that an update enqueues a track
+// rebuild for the point's owner.
+func TestUpdatePointEnqueuesTrackRebuild(t *testing.T) {
+	t.Parallel()
+
+	var events []string
+
+	updated := model.Point{ID: 1, UserID: 1, Timestamp: time.Now()}
+	tracks := &fakeTracks{}
+	st := &fakeStore{
+		points:     &fakePoints{updateResult: &updated},
+		dailyStats: &fakeDailyStats{events: &events},
+		tracks:     tracks,
+	}
+
+	if _, err := ingest.UpdatePoint(t.Context(), st, 1, 1, 9, 10, time.UTC, 30*time.Minute); err != nil {
+		t.Fatalf("UpdatePoint returned %v", err)
+	}
+
+	if diff := cmp.Diff([]int64{1}, tracks.enqueued); diff != "" {
+		t.Errorf("enqueued users differ (-want +got):\n%s", diff)
 	}
 }
 
@@ -155,6 +185,7 @@ func TestDeletePointReportsFailures(t *testing.T) {
 	tests := map[string]struct {
 		points     *fakePoints
 		dailyStats *fakeDailyStats
+		tracks     *fakeTracks
 	}{
 		"Delete fails": {
 			points:     &fakePoints{deleteErr: errFake},
@@ -168,6 +199,11 @@ func TestDeletePointReportsFailures(t *testing.T) {
 			points:     &fakePoints{},
 			dailyStats: &fakeDailyStats{rebuildErr: errFake},
 		},
+		"Enqueue fails": {
+			points:     &fakePoints{},
+			dailyStats: &fakeDailyStats{},
+			tracks:     &fakeTracks{enqueueErr: errFake},
+		},
 	}
 
 	for name, tt := range tests {
@@ -177,12 +213,35 @@ func TestDeletePointReportsFailures(t *testing.T) {
 			var events []string
 			tt.dailyStats.events = &events
 
-			st := &fakeStore{points: tt.points, dailyStats: tt.dailyStats}
+			st := &fakeStore{points: tt.points, dailyStats: tt.dailyStats, tracks: tt.tracks}
 
 			if err := ingest.DeletePoint(t.Context(), st, 1, 1, time.UTC, 30*time.Minute); !errors.Is(err, errFake) {
 				t.Errorf("DeletePoint returned %v, want it to wrap %v", err, errFake)
 			}
 		})
+	}
+}
+
+// TestDeletePointEnqueuesTrackRebuild pins that a delete enqueues a track
+// rebuild for the deleted point's owner.
+func TestDeletePointEnqueuesTrackRebuild(t *testing.T) {
+	t.Parallel()
+
+	var events []string
+
+	tracks := &fakeTracks{}
+	st := &fakeStore{
+		points:     &fakePoints{deleteResult: time.Now()},
+		dailyStats: &fakeDailyStats{events: &events},
+		tracks:     tracks,
+	}
+
+	if err := ingest.DeletePoint(t.Context(), st, 1, 1, time.UTC, 30*time.Minute); err != nil {
+		t.Fatalf("DeletePoint returned %v", err)
+	}
+
+	if diff := cmp.Diff([]int64{1}, tracks.enqueued); diff != "" {
+		t.Errorf("enqueued users differ (-want +got):\n%s", diff)
 	}
 }
 
@@ -257,6 +316,7 @@ func TestDeletePointsReportsFailures(t *testing.T) {
 	tests := map[string]struct {
 		points     *fakePoints
 		dailyStats *fakeDailyStats
+		tracks     *fakeTracks
 	}{
 		"DeleteBulk fails": {
 			points:     &fakePoints{deleteBulkErr: errFake},
@@ -265,6 +325,11 @@ func TestDeletePointsReportsFailures(t *testing.T) {
 		"Rebuild fails": {
 			points:     &fakePoints{deleteBulkResult: []time.Time{time.Now()}},
 			dailyStats: &fakeDailyStats{rebuildErr: errFake},
+		},
+		"Enqueue fails": {
+			points:     &fakePoints{deleteBulkResult: []time.Time{time.Now()}},
+			dailyStats: &fakeDailyStats{},
+			tracks:     &fakeTracks{enqueueErr: errFake},
 		},
 	}
 
@@ -275,11 +340,35 @@ func TestDeletePointsReportsFailures(t *testing.T) {
 			var events []string
 			tt.dailyStats.events = &events
 
-			st := &fakeStore{points: tt.points, dailyStats: tt.dailyStats}
+			st := &fakeStore{points: tt.points, dailyStats: tt.dailyStats, tracks: tt.tracks}
 
 			if _, err := ingest.DeletePoints(t.Context(), st, 1, []int64{1}, time.UTC, 30*time.Minute); !errors.Is(err, errFake) {
 				t.Errorf("DeletePoints returned %v, want it to wrap %v", err, errFake)
 			}
 		})
+	}
+}
+
+// TestDeletePointsEnqueuesTrackRebuild pins that a bulk delete enqueues one
+// track rebuild for the caller's user, regardless of how many points it
+// touched.
+func TestDeletePointsEnqueuesTrackRebuild(t *testing.T) {
+	t.Parallel()
+
+	var events []string
+
+	tracks := &fakeTracks{}
+	st := &fakeStore{
+		points:     &fakePoints{deleteBulkResult: []time.Time{time.Now(), time.Now().Add(time.Hour)}},
+		dailyStats: &fakeDailyStats{events: &events},
+		tracks:     tracks,
+	}
+
+	if _, err := ingest.DeletePoints(t.Context(), st, 1, []int64{1, 2}, time.UTC, 30*time.Minute); err != nil {
+		t.Fatalf("DeletePoints returned %v", err)
+	}
+
+	if diff := cmp.Diff([]int64{1}, tracks.enqueued); diff != "" {
+		t.Errorf("enqueued users differ (-want +got):\n%s", diff)
 	}
 }
