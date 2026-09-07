@@ -222,3 +222,31 @@ first one succeeds. Each fetch computes its own window by looking back a fixed i
 now, rather than resuming from wherever `synced_through` left off, so this column's own purpose
 is only reporting how current an account is, and recognising when an account has gone long
 enough without a successful fetch that a wider one-off catch-up is needed to close the gap.
+
+## `trips`
+
+A trip is a time range the user declared: a title and a range, nothing more — travelmap's own
+feature, built on top of the GPS trace and Swarm check-ins above rather than a Dawarich concept.
+Unlike `points`, `daily_stats` and `tracks`, **nothing derives a trip and nothing rebuilds one**:
+every row comes from what the user typed, so no config change invalidates it and no
+recalculation pass touches this table. `internal/timeline` is the only writer, the same
+single-writer rule `internal/checkin` and `internal/track` already follow for the tables they own.
+
+**Detection is left out, not ruled out.** A detector needs a "home" cluster, which needs stay
+detection landing first — before that there is nothing to judge a candidate's accuracy against,
+and accuracy is the bar a detector has to clear before it beats simply typing the title in.
+Upstream agrees on the shape: its own `trips.name` is `NOT NULL`, so a Dawarich trip is
+user-named too.
+
+**Ranges may overlap, and nothing rejects one that does.** "Europe" containing "Paris" is a real
+case a traveller has, and the timeline built from a trip is assembled from its time range rather
+than from rows that point at it, so two trips covering the same hour is not an ambiguity anything
+has to resolve.
+
+**No column holds what a trip contains, and none is planned**: its contents are found by reading
+`points` and `checkins` against the range, not stored as a join. Upstream's own `trips` is the
+same shape — a `name`, a range, and no join table to its visits or tracks — which also shows
+where this goes if reading the range ever gets slow: it caches `distance`, `path` and
+`visited_countries` on the row beside a `last_recalculated_at`. That is the answer to a
+performance problem, not the starting point, and it is the one thing that would make a trip row
+hold derived state.

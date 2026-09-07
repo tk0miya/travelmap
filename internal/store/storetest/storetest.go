@@ -148,6 +148,21 @@ func UnavailableTracks(t *testing.T, users ...model.User) store.Store {
 	return open(t, path)
 }
 
+// UnavailableTrips returns a store holding users whose trips table has been
+// dropped, so that authenticating still works but a trip read or write
+// fails, for the same reason [UnavailablePoints] exists.
+func UnavailableTrips(t *testing.T, users ...model.User) store.Store {
+	t.Helper()
+
+	path := prepare(t, users)
+
+	// Dropped before the store is opened, for the same reason as
+	// UnavailablePoints.
+	exec(t, path, `DROP TABLE trips`)
+
+	return open(t, path)
+}
+
 // NewWithTracks is [New], plus points and tracks seeded directly with their
 // own ID, CreatedAt and UpdatedAt — not what
 // [store.PointRepository.Create]/[store.TrackRepository.ReplaceAll] would

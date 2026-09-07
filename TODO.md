@@ -16,7 +16,6 @@ it lands.
 | --- | --- | --- |
 | Reverse geocoding | Off by default; optionally point at a Nominatim/Photon URL | Does not make an external service mandatory |
 | Frontend | Replace `html/template` with a React + TypeScript SPA, built with Vite and embedded into `embed.FS` | `html/template` has no component model and no type checking. `internal/httpapi/web.go` already works around the first: its `pageTemplate` builds a separate `*template.Template` per page, because every page defines a `"content"` block and one set would collide on the name. Four pages exist today, and page count is about to grow quickly — Milestone J's own trip and timeline screens among them — which favors component reuse and a client-side ecosystem (map and chart libraries with React bindings) over a template engine's or a hand-rolled esbuild pipeline's more modest gains. Chosen over templ/gomponents, and over keeping the client side in Go's own toolchain, because the team is already fluent in React/TypeScript, which removes a Node toolchain's main cost. This trades away "a fresh checkout needs nothing but Go": building the frontend needs Node. The binary itself keeps embedding the build output, so it stays a single binary at runtime — only the build step changes |
-| Trip boundaries | **The MVP creates a trip only from what the user enters** — a title and a time range. Detection is left out, not ruled out | Detecting a trip needs a "home" cluster, which needs stay detection, and the MVP builds neither. Nothing about detection is wrong in principle: the bar is proposal accuracy and what the detector costs, and stay detection landing is when there is something to judge against. Upstream agrees on the shape — its own `trips.name` is `NOT NULL`, so a Dawarich trip is user-named too (Milestone J) |
 | Trip proposals | Open: **whether a candidate is stored is decided when proposals are built**, not now | Computing candidates on read keeps a mis-tuned threshold from putting rows in the trip list — a bad threshold misorders a list instead of corrupting data. Storing them is what lets a dismissal be remembered, which matters once the list is long enough that the same commute at the top becomes a nuisance. Upstream stores its equivalent for exactly that reason (`visits.status`), so neither side is obviously right until the list exists |
 | The timeline | Assembled on read from `checkins` and `points`. **No derived table** | With stay and gap detection deferred there is nothing to derive, so no re-derivation, no `travelmap recalculate` pass, and no coupling to `internal/ingest` |
 | Annotations (`notes`, later `photos`) | Always carry **their own timestamp**, and may *also* point at a trip. Never at the id of a derived row | The timestamp is what stops user-written text from being orphaned: a derived table such as `visits` is rebuilt id and all, so a note pointing into one loses its anchor. A trip is not derived, so pointing at one is safe, and it is what expresses "this note is about that trip" rather than "about that instant". Upstream's `notes` does both — `noted_at` (nullable as a column but required by the model), a polymorphic `attachable`, and a `lonlat` — but it allows that attachable to be a `Visit`, i.e. a derived row, which is the half not to copy. **travelmap narrows the target to a trip deliberately.** Worth settling before the table exists, since it cannot be changed cheaply afterwards |
@@ -32,35 +31,6 @@ the migration that adds it. Behaviour that spans tables or does not attach to a 
 invariants, algorithms, config effects — is in `docs/database.md`.
 
 A table not yet migrated has its data model here instead, until the step that adds it.
-
-### `trips`
-
-Columns: `id`, `user_id`, `title`, `started_at`, `ended_at`, `description`, `created_at`,
-`updated_at`. `description` is free text about the trip as a whole, and is deliberately not
-called `note`: the deferred `notes` below are a different thing, carrying their own timestamp,
-and one word for both would blur which of the two a reader is looking at.
-One index: `(user_id, started_at)`. `started_at` and `ended_at` are Unix seconds UTC like every
-other time in the schema, and `ended_at` is an exclusive upper bound.
-
-**Ranges may overlap, and nothing rejects one that does.** "Europe" containing "Paris" is the
-case a traveller actually has, and since the timeline is assembled from a time range rather
-than from rows that point at a trip, two trips covering the same hour is not an ambiguity
-anything has to resolve.
-
-**In the MVP nothing derives a trip and nothing rebuilds one.** Every row comes from what the
-user typed, so no config change invalidates one and `travelmap recalculate` does not touch the
-table — unlike `daily_stats`, which is the other table a time range means something to. This is
-the MVP's property, not a law: the "Trip proposals" row above leaves open whether an accepted
-candidate becomes a row, and such a row would have been derived from points. What holds either
-way is that a trip is not *re*-derived — once it exists, only the user changes it.
-Added by Milestone J's Step 44.
-
-**No column holds what a trip contains**, and none is planned: the contents are found by range.
-Upstream's own `trips` is the same shape — a `name`, a range, and no join table to its visits or
-tracks — which is worth knowing because it also shows where this goes if reading the range ever
-gets slow: it caches `distance`, `path` and `visited_countries` on the row beside a
-`last_recalculated_at`. That is the answer to a performance problem, not the starting point,
-and it is the one thing that would make a trip row hold derived state.
 
 ## Dawarich API Compatibility Notes
 
@@ -295,8 +265,8 @@ app needs and the community client does not, and it is the input to Milestone F'
 
 Step 13 is done. Step 14 is independent and can run on its own; Step 15 needs it.
 
-**Both still depend on Milestone J**, which owns the assembly they project: they need its
-Step 44 (the `internal/timeline` package) and Step 46 (the assembly itself).
+**Both still depend on Milestone J**, which owns the assembly they project: `internal/timeline`
+now exists (Milestone J's Step 44), but they still need Step 46 (the assembly itself).
 
 ### Step 14: Visits
 
@@ -603,7 +573,7 @@ distances read higher than `daily_stats`, which excludes exactly those intervals
 reads these numbers, and the fix — whether that means reading `internal/track`'s tracks here too,
 or something else — is a step rather than a redesign.
 
-Take them in order. Steps 44 and 46 (the table and the assembly) depend on nothing in Milestone
+Step 44 is done. Take the rest in order. Step 46 (the assembly) depends on nothing in Milestone
 H. **Steps 45, 47 and 48 do**, now that Milestone H's Step 37 settles the frontend as a React +
 TypeScript SPA: those three add three more pages — the trip list, the trip form and the timeline
 screen — and all three were written against the superseded esbuild-as-a-Go-library decision (see
@@ -618,20 +588,6 @@ The steps are small on purpose. One of them settles a convention everything afte
 where the trip packages sit — and a convention argued inside a feature diff is a convention
 nobody reviews. How client-side code is written and built is no longer this milestone's own
 decision to settle; see "Technical Decisions" and Milestone H.
-
-### Step 44: The trips table
-
-- [ ] `trips` migration, per "Data Model"
-- [ ] `store.TripRepository` and its sqlite implementation, plus `storetest.UnavailableTrips`
-- [ ] `internal/timeline`, holding trip CRUD now and the assembly from Step 46. **It writes no
-      derived state**, so it sits beside `ingest` / `checkin` rather than below them, and only
-      `internal/httpapi` imports it. Add it to CLAUDE.md's layering diagram
-
-**Settles**: that a trip is user-owned data and never derived, so nothing rebuilds it and no
-config change invalidates it — and where the package that owns trips and the timeline sits.
-
-**Done when**: a trip round-trips through the repository, and dropping the table is what makes
-the failure path return 500.
 
 ### Step 45: The trip screens
 

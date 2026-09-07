@@ -95,7 +95,7 @@ cmd/travelmap
     ↓
 httpapi  →  httpapi/dto
     ↓
-ingest   checkin   track   auth
+ingest   checkin   track   auth   timeline
     ↓
 store  ←  store/sqlite  ←  store/storetest (tests only)
     ↓
@@ -127,6 +127,10 @@ The rules that matter, stated directly:
 - **Every rebuild of a user's tracks goes through `internal/track`.** `internal/ingest` enqueues a
   request rather than rebuilding tracks itself, keeping the two concerns — and the two tables they
   write — apart, the same split that keeps `internal/checkin` out of `internal/ingest`.
+- **Every write of a trip goes through `internal/timeline`.** A trip is user-owned data, so unlike
+  `internal/checkin` and `internal/track`, nothing here rebuilds or invalidates one — but it is
+  still the single path to `store.TripRepository`, for the same reason a second writer anywhere
+  else would eventually settle a duplicate or a scoping check differently.
 - **`internal/foursquare` returns the shapes Foursquare sends**, and the package that owns the
   record converts them into `internal/model` types — check-ins in `internal/checkin`, the account
   row in the handler that writes it. Being a leaf it cannot name a `model` type itself, and the
