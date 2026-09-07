@@ -14,7 +14,6 @@ it lands.
 
 | Item | Decision | Rationale |
 | --- | --- | --- |
-| Background work | Goroutines + a job table in SQLite | Keeps a single process, with no Sidekiq/Redis equivalent |
 | Reverse geocoding | Off by default; optionally point at a Nominatim/Photon URL | Does not make an external service mandatory |
 | Frontend | Replace `html/template` with a React + TypeScript SPA, built with Vite and embedded into `embed.FS` | `html/template` has no component model and no type checking. `internal/httpapi/web.go` already works around the first: its `pageTemplate` builds a separate `*template.Template` per page, because every page defines a `"content"` block and one set would collide on the name. Four pages exist today, and page count is about to grow quickly — Milestone J's own trip and timeline screens among them — which favors component reuse and a client-side ecosystem (map and chart libraries with React bindings) over a template engine's or a hand-rolled esbuild pipeline's more modest gains. Chosen over templ/gomponents, and over keeping the client side in Go's own toolchain, because the team is already fluent in React/TypeScript, which removes a Node toolchain's main cost. This trades away "a fresh checkout needs nothing but Go": building the frontend needs Node. The binary itself keeps embedding the build output, so it stays a single binary at runtime — only the build step changes |
 | Trip boundaries | **The MVP creates a trip only from what the user enters** — a title and a time range. Detection is left out, not ruled out | Detecting a trip needs a "home" cluster, which needs stay detection, and the MVP builds neither. Nothing about detection is wrong in principle: the bar is proposal accuracy and what the detector costs, and stay detection landing is when there is something to judge against. Upstream agrees on the shape — its own `trips.name` is `NOT NULL`, so a Dawarich trip is user-named too (Milestone J) |
@@ -70,9 +69,11 @@ Upstream quirks for endpoints not yet implemented. For an endpoint already imple
 
 ### Per-endpoint
 
-- **`GET /api/v1/tracks`** — GeoJSON `FeatureCollection` of LineStrings. Properties are `id`,
-  `color`, `start_at`, `end_at`, `distance` (metres), `avg_speed` (km/h), `duration` (seconds),
-  `dominant_mode`, `dominant_mode_emoji`.
+- **`GET/PATCH /api/v1/settings/mobile`** — GET wraps as
+  `{settings: {...}, updated_at, status}`. For PATCH the **spec contradicts itself**: the schema
+  puts fields at the top level while the example wraps them in `{"settings": {...}}`.
+  **Accept both forms** so neither breaks. Assuming only one means that when the other arrives,
+  every field is silently ignored — no error — and settings sync quietly breaks.
 - **`GET /api/v1/timeline`** — `start_at` / `end_at` required, **range capped at 31 days**.
   Response is `{days: [...]}`.
 
@@ -292,25 +293,10 @@ app needs and the community client does not, and it is the input to Milestone F'
 
 ## Milestone F — The app's remaining screens
 
-Steps 13 and 14 are independent and can run in parallel. Step 15 needs 13 and 14.
+Step 13 is done. Step 14 is independent and can run on its own; Step 15 needs it.
 
-**But all three now depend on Milestone J**, which owns the assembly they project: they need its
-Step 44 (the `internal/timeline` package) and Step 46 (the assembly itself), and Step 13
-additionally needs the gap detection deferred there.
-
-### Step 13: Tracks
-
-- [ ] Track-splitting logic (split on `tracking.track_break_minutes` of inactivity).
-      **Not `track_break` from `settings/mobile`** (see "Data Model")
-- [ ] `GET /api/v1/tracks` (GeoJSON FeatureCollection)
-- [ ] `GET /api/v1/tracks/{id}`, `GET /api/v1/tracks/{track_id}/points`
-
-**These endpoints are a projection, not a second implementation.** The splitting belongs to the
-one assembly in `internal/timeline` (see Milestone J), and these routes render its move entries
-in upstream's shape at the DTO boundary. Upstream materialises its own equivalent — a `tracks`
-table holding `original_path` as a LineString plus `distance`, `duration`, `avg_speed` and
-elevation — which is where this goes if reading the points per request turns out to be too slow,
-not where it starts.
+**Both still depend on Milestone J**, which owns the assembly they project: they need its
+Step 44 (the `internal/timeline` package) and Step 46 (the assembly itself).
 
 ### Step 14: Visits
 
@@ -323,11 +309,11 @@ not where it starts.
       shape at the DTO boundary — not a second reader of the table. **It reports every stay,
       `declined` included**, because upstream's response requires `status` and a client filters
       on it itself; hiding one is a screen's policy and belongs above the assembly, never inside
-      it (see "Deferred: gap and stay" in Milestone J)
+      it (see "Deferred: stay" in Milestone J)
 
 `visits` is upstream's own concept and keeps upstream's shape, `status` included. travelmap gets
 no stay table beside it: when Milestone J takes up stay detection it reads these rows rather
-than deriving its own — see "Deferred: gap and stay" there.
+than deriving its own — see "Deferred: stay" there.
 
 **Upstream's `visits` carries more than `status`, and this step needs the same two mechanisms.**
 `confidence`, with a `confidence_breakdown` beside it, records how sure the detector was;
@@ -600,20 +586,22 @@ assembled on read from the two tables that already exist. That is what keeps thi
 one new table, with no change to `internal/ingest`, `internal/checkin` or `daily_stats`, and no
 re-derivation to trigger, invalidate or rebuild.
 
-**There is one timeline model, and the compatibility endpoints are projections of it.**
+**There is one timeline model, and the remaining compatibility endpoint is a projection of it.**
 `internal/timeline` owns the entry type and one assembly over a set of sources; what a surface
 returns is decided at the DTO boundary, where every response shape in this project already
 stops. So the browser reads entries directly, `GET /api/v1/timeline` groups the same entries by
-day, and `/api/v1/visits` and `/api/v1/tracks` render the stay and move entries in upstream's
-shape. Their fixed response formats constrain the DTOs, never the model — writing two nearly
-identical models because one surface cannot change its JSON is the mistake this paragraph
-exists to prevent.
+day, and `/api/v1/visits` renders the stay entries in upstream's shape. Their fixed response
+formats constrain the DTOs, never the model — writing two nearly identical models because one
+surface cannot change its JSON is the mistake this paragraph exists to prevent. `/api/v1/tracks`
+is not part of this: Step 13 built it as its own precomputed table (see "Background workers" in
+`docs/architecture.md`), independently of `internal/timeline`, before this milestone was planned.
 
-It also accepts a known inaccuracy, and the accepting is the point: with gap detection deferred
-(see below), an untracked stretch is drawn on the map as a straight line and its straight-line
-distance lands in the timeline's own totals. So the timeline's distances read higher than
-`daily_stats`, which excludes exactly those intervals. Nothing else reads these numbers, and
-the fix is a step rather than a redesign.
+It also accepts a known inaccuracy, and the accepting is the point: since this assembly does not
+itself read `internal/track`'s output, an untracked stretch is drawn on the map as a straight
+line and its straight-line distance lands in the timeline's own totals. So the timeline's
+distances read higher than `daily_stats`, which excludes exactly those intervals. Nothing else
+reads these numbers, and the fix — whether that means reading `internal/track`'s tracks here too,
+or something else — is a step rather than a redesign.
 
 Take them in order. Steps 44 and 46 (the table and the assembly) depend on nothing in Milestone
 H. **Steps 45, 47 and 48 do**, now that Milestone H's Step 37 settles the frontend as a React +
@@ -726,23 +714,7 @@ row supplies; and a day with check-ins but no points still renders.
 **Done when**: opening a trip draws its route, the initial view fits the whole trip, and
 deployment is still one binary plus one SQLite file.
 
-### Deferred: gap and stay
-
-Both are real and both are left out on purpose. Each has its own trigger, so neither is a
-prerequisite for the other.
-
-**gap — splitting on `tracking.track_break_minutes`.** Take it when the straight lines drawn
-across untracked stretches start to mislead on the map, or when the timeline's distances
-disagreeing with `daily_stats` becomes a problem rather than a footnote. It cuts the polyline at
-the break, excludes those intervals from the distance the way `daily_stats` already does, and
-lets a row say "not recorded" instead of a number that is not one. **Step 13's
-`GET /api/v1/tracks` is the same computation**, so that endpoint arrives with it — and note that
-the splitting is computed on read, so it needs no job to run it. That matters beyond Step 13:
-the "Background work" row above still plans a job table, and
-`docs/architecture.md` has since settled that periodic work is a ticker goroutine with no job
-table. Track splitting was the one per-item consumer that would have justified one, and
-computing it on read removes it, so whichever step lands first has to say whether that row
-survives at all.
+### Deferred: stay
 
 **stay — dwell detection.** Take it when a duration is wanted (a check-in is an instant, so the
 MVP can say "arrived at 11:27" but never "stayed 43 minutes"), or when places nobody checked
@@ -777,7 +749,7 @@ consequence of the current scope, not a position: implementing `POST /api/v1/vis
 is the answer the moment a wrong stay in a travel log is worth removing, and nothing here argues
 against doing it.
 
-Neither is blocked by the MVP's shape. `trips` does not change, annotations carry their own
+This is not blocked by the MVP's shape. `trips` does not change, annotations carry their own
 timestamp rather than pointing at anything derived, and the assembly moving from
 computed-on-read to read-from-a-table stays inside `internal/timeline`.
 

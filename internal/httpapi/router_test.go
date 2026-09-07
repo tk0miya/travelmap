@@ -177,7 +177,7 @@ func TestErrorResponses(t *testing.T) {
 	}{
 		"unimplemented endpoint": {
 			method:     http.MethodGet,
-			path:       "/api/v1/tracks",
+			path:       "/api/v1/visits",
 			wantStatus: http.StatusNotFound,
 			wantGolden: "not_found.json",
 		},
@@ -228,7 +228,7 @@ func TestDawarichHeadersOnEveryAPIResponse(t *testing.T) {
 	t.Parallel()
 
 	srv := newTestServer(t)
-	resp := do(t, srv, http.MethodGet, "/api/v1/tracks")
+	resp := do(t, srv, http.MethodGet, "/api/v1/visits")
 
 	want := map[string]string{
 		"X-Dawarich-Response": aliveResponse,
