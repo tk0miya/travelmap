@@ -6,11 +6,10 @@ import { defineConfig } from 'vitest/config'
 // this directory's own default dist/.
 const embedOutDir = '../internal/httpapi/frontend/dist'
 
-// The dev server serves the frontend's own module graph itself; everything
-// else is still a page built from html/template (see TODO.md's Milestone
-// H), so it is proxied to `go run ./cmd/travelmap serve` instead of 404ing.
-// Each step that converts one of these pages to React removes its own entry
-// here.
+// The dev server serves the frontend's own module graph itself; a page
+// still built from html/template is proxied to
+// `go run ./cmd/travelmap serve` instead of 404ing. Converting a page to
+// React removes its own entry here — /login is gone already.
 const backend = 'http://localhost:3000'
 
 export default defineConfig({
@@ -23,7 +22,6 @@ export default defineConfig({
     proxy: {
       '/api': backend,
       '/webhooks': backend,
-      '/login': backend,
       '/signup': backend,
       '/settings': backend,
     },

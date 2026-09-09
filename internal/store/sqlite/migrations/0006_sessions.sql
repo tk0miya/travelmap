@@ -1,9 +1,9 @@
 -- +goose Up
 
 -- It holds the browser sessions scs hands out, which are a different
--- credential from users.api_key: a session expires, POST /logout destroys
--- it, and one account may hold several at once while the API key is one per
--- user and never expires.
+-- credential from users.api_key: a session expires, DELETE /api/session
+-- destroys it, and one account may hold several at once while the API key
+-- is one per user and never expires.
 --
 -- What lands in token is a digest, not the token the browser holds — scs is
 -- configured with HashTokenInStore, so a copy of the database file hands out

@@ -9,9 +9,11 @@ headers, status codes for the endpoints actually implemented. Read it first; wha
 is whatever does not fit there: upstream's quirks, why travelmap's behaviour deliberately
 differs, and the client evidence behind each choice.
 
-travelmap also serves a browser surface at routes outside `/api/v1` — `GET /`, the login form, the
-Swarm OAuth flow, and so on. `docs/openapi.yaml`'s contract is for the JSON API above; a
-browser-facing route is not part of it, and this document does not cover those either.
+travelmap also serves a browser surface at routes outside `/api/v1`. Most of it renders HTML —
+`GET /`, the Swarm OAuth flow, and so on — and none of that is part of `docs/openapi.yaml`'s
+contract or this document. `POST`/`DELETE /api/session`, the browser's own sign-in and sign-out
+actions, are the exception: they answer JSON like `/api/v1` does, just under the unversioned
+`/api` instead — see "The browser's own actions" below.
 
 ## Keeping the two parts apart
 
@@ -317,3 +319,21 @@ authenticates the push against forgery, which an address-based filter would not 
 
 The secret is compared in constant time, so a request cannot learn anything about it from how
 long the comparison takes.
+
+## The browser's own actions
+
+Distinct from both parts above: the browser's own actions — signing in and out — answer JSON
+under `/api`, unversioned, rather than `/api/v1`. A resource-shaped name (`session`, not a verb)
+matches the `sessions` table and the `scs` terminology already in place, and `/api` without a
+version number marks the surface as travelmap's own rather than something a Dawarich client would
+ever call — nothing here answers the Dawarich headers, and nothing here accepts `api_key`; the
+session cookie is the only credential.
+
+### `POST /api/session` and `DELETE /api/session`
+
+Replace the old form-posted `POST /login` and `POST /logout`. A refused sign-in answers the same
+message `POST /api/v1/auth/login` does, through the same `auth.CheckAbsentPassword` an unknown
+address spends on a digest that matches nothing — see that endpoint's own note above for why.
+
+Signing out never fails on having no session to end: deleting a session that does not exist is
+not an error, the same way the old `POST /logout` never checked for one either.

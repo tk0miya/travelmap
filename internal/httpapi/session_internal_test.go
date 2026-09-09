@@ -190,7 +190,7 @@ func TestIndexNamesSessionUser(t *testing.T) {
 		t.Errorf("body = %q, want it to name %s", body, created.Email)
 	}
 
-	if !bytes.Contains(body, []byte(`action="/logout"`)) {
+	if !bytes.Contains(body, []byte(`fetch('/api/session', { method: 'DELETE' }`)) {
 		t.Errorf("body = %q, want a way to log out with a session", body)
 	}
 }
