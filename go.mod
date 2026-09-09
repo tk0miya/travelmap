@@ -13,7 +13,7 @@ require (
 	github.com/go-chi/chi/v5 v5.3.2
 	github.com/google/go-cmp v0.7.0
 	github.com/pelletier/go-toml/v2 v2.4.3
-	github.com/pressly/goose/v3 v3.27.3
+	github.com/pressly/goose/v3 v3.28.0
 	golang.org/x/crypto v0.55.0
 	modernc.org/sqlite v1.58.0
 )
@@ -160,7 +160,7 @@ require (
 	github.com/prometheus/client_golang v1.24.1 // indirect
 	github.com/prometheus/client_model v0.6.2 // indirect
 	github.com/prometheus/common v0.70.1 // indirect
-	github.com/prometheus/procfs v0.21.1 // indirect
+	github.com/prometheus/procfs v0.22.0 // indirect
 	github.com/quasilyte/go-ruleguard v0.4.5 // indirect
 	github.com/quasilyte/go-ruleguard/dsl v0.3.23 // indirect
 	github.com/quasilyte/gogrep v0.5.0 // indirect
