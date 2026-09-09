@@ -76,8 +76,9 @@ There is no tagged release yet. The
 binaries for Linux and macOS (Apple Silicon), rebuilt from `main` on every merge — pick one of
 those to skip building from source, or build it yourself:
 
-A checkout and a Go toolchain are all it takes. The Go version comes from `go.mod`, so nothing
-else has to be installed.
+A checkout, a Go toolchain and Node are all it takes — the Go version comes from `go.mod`, and
+`make build` builds the frontend (`frontend/`) before the binary, so nothing else has to be
+installed or run by hand.
 
 ```sh
 git clone https://github.com/tk0miya/travelmap
@@ -139,23 +140,35 @@ than the routine window:
 
 ## Contributing
 
-Every development tool is pinned in `go.mod` and invoked through `go tool`, so a fresh checkout
-needs nothing installed either:
+Every Go development tool is pinned in `go.mod` and invoked through `go tool`, and every frontend
+one is pinned in `frontend/package-lock.json` and invoked through `npm`, so a fresh checkout needs
+nothing installed beyond Go and Node — see `docs/toolchain.md` for both:
 
 ```sh
 make test               # go test ./... -race -cover -shuffle=on
 make lint               # golangci-lint, gofumpt, and a tidiness check on go.mod
-make fmt                # gofumpt -w .
-make check              # lint and test together, which is what a commit has to pass
+make fmt                # gofumpt -w ., plus Biome's own fixes over frontend/
+make check              # the above, plus the frontend's own lint and test — what a commit has to pass
 make vulncheck          # govulncheck over the dependencies
 make run                # go run ./cmd/travelmap serve
 make migrate            # go run ./cmd/travelmap migrate
+make frontend           # builds frontend/, embedded into the binary by internal/httpapi
+make frontend-lint      # biome ci . over frontend/ — formatting, import order and lint together
+make frontend-test      # vitest over frontend/
 ```
 
-CI runs `build`, `test`, `lint` and `vulncheck` on every pull request and on pushes to `main`, and
-raises the development tools in a pull request of its own once a week. A push to `main` also
-rebuilds the binaries and republishes them as the `nightly` release.
-Unformatted code fails `lint` rather than a target of its own, so `make fmt` before pushing.
+`make build`, `make test`, `make lint` and `make vulncheck` all build the frontend first: the Go
+server embeds its output, so the package does not compile without it.
+
+For frontend-only work, `cd frontend && npm run dev` starts Vite's own dev server, which proxies
+anything it does not serve itself to `go run ./cmd/travelmap serve` — see `docs/toolchain.md`'s
+"Frontend toolchain" for what that covers today.
+
+CI runs `build`, `test`, `lint` and `vulncheck` on every pull request and on pushes to `main` —
+`test` and `lint` include the frontend's own — and raises the development tools in a pull request
+of its own once a week. A push to `main` also rebuilds the binaries and republishes them as the
+`nightly` release. Unformatted code fails `lint` rather than a target of its own, so `make fmt`
+before pushing.
 
 [CLAUDE.md](CLAUDE.md) holds the project conventions: English as the project language, the
 layering rules, the testing approach and the commit style. [TODO.md](TODO.md) holds the

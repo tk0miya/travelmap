@@ -18,3 +18,11 @@ updates:
       timezone: "Asia/Tokyo"
     cooldown:
       default-days: 7
+
+  - package-ecosystem: "npm"
+    directory: "/frontend"
+    schedule:
+      interval: "weekly"
+      timezone: "Asia/Tokyo"
+    cooldown:
+      default-days: 7

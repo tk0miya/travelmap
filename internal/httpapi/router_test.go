@@ -164,7 +164,9 @@ func TestHeadIsAnsweredLikeGet(t *testing.T) {
 
 // TestErrorResponses covers the two ways a request can miss: an endpoint this
 // server does not implement, and a method a known route does not serve. What
-// rides on the 404 in particular is in the notFound handler.
+// rides on the 404 in particular is in the notFound handler. A path outside
+// /api/v1 that no route claims is not an error any more — see
+// TestFrontendServesUnclaimedPaths.
 func TestErrorResponses(t *testing.T) {
 	t.Parallel()
 
@@ -181,18 +183,23 @@ func TestErrorResponses(t *testing.T) {
 			wantStatus: http.StatusNotFound,
 			wantGolden: "not_found.json",
 		},
-		"unknown path outside the API": {
-			method:     http.MethodGet,
-			path:       "/nope",
-			wantStatus: http.StatusNotFound,
-			wantGolden: "not_found.json",
-		},
 		"method the route does not serve": {
 			method:     http.MethodPost,
 			path:       "/api/v1/health",
 			wantStatus: http.StatusMethodNotAllowed,
 			wantGolden: "method_not_allowed.json",
 			wantAllow:  "GET, HEAD",
+		},
+		// Regression: the frontend catch-all (frontend.go) has to be wired
+		// as a NotFoundHandler rather than a wildcard GET route, precisely
+		// so a wrong method on one of this server's own POST-only routes
+		// still 405s instead of matching the catch-all's GET.
+		"wrong method on a POST-only top-level route": {
+			method:     http.MethodGet,
+			path:       "/webhooks/foursquare",
+			wantStatus: http.StatusMethodNotAllowed,
+			wantGolden: "method_not_allowed.json",
+			wantAllow:  "POST",
 		},
 	}
 
