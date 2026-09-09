@@ -64,3 +64,40 @@ Three caveats:
   request.
 - **`govulncheck` cannot run in the development container**: the egress proxy blocks
   `vuln.go.dev` (`Forbidden`). Treat it as a CI-only check.
+
+## Frontend toolchain
+
+`frontend/` is a Vite + React + TypeScript project, built with `npm` rather than `go tool`: it is
+not Go code, so it needs its own toolchain, pinned the same way — `frontend/.nvmrc` names the
+exact Node version (`actions/setup-node`'s `node-version-file` reads it, matching how
+`go-version-file: go.mod` pins Go), and `frontend/package-lock.json` pins every npm dependency.
+
+**`vite.config.ts`'s `build.outDir` points at `internal/httpapi/frontend/dist`**, not the
+frontend's own default `frontend/dist`: `go:embed` (`internal/httpapi/frontend.go`) can only reach
+inside its own package directory, so the build has to land there directly. That directory is not
+committed — `make build`, `make test`, `make lint` and `make vulncheck` all depend on the
+`frontend` Makefile target, which runs `npm ci && npm run build` first, because the Go package
+does not compile without it: an empty or missing `go:embed` pattern is a build error, not a test
+failure. **This is what changes "a fresh checkout needs nothing but Go"** (CLAUDE.md's "Working on
+a change") — a checkout also needs Node now, `make`'s own targets are how that stays invisible
+day to day.
+
+**`biome` and `vitest` stand in for `golangci-lint`/`gofumpt` and `go test`** — `make lint` also
+runs `frontend-lint` (`biome ci .`, which checks formatting, import order and lint rules in one
+pass) and `make test`'s sibling `frontend-test` runs `npm test` (`vitest run`), both folded into
+`make check`. `make fmt` writes Biome's own fixes too (`biome check --write`), the same way it
+writes gofumpt's. Biome was chosen over separate ESLint and Prettier installs for the same reason
+`go tool` is preferred over a separately installed binary: one fast binary covering both lint and
+format instead of two plugin trees to keep current. `biome.json` excludes `public/`: Vite copies
+that directory into the build verbatim, so nothing in it is source for Biome to format or lint.
+React Testing Library (`@testing-library/react`, `@testing-library/jest-dom`) renders components
+under `vitest`'s `jsdom` environment for the component tests CLAUDE.md's "Testing" section
+describes.
+
+**The dev server proxies every path it does not itself serve to `go run ./cmd/travelmap serve`**
+(`vite.config.ts`'s `server.proxy`) — `/api`, `/webhooks`, and each page still built from
+`html/template` (`/login` and `/signup`, gated behind nothing, and `/settings`, gated behind a
+session). `/` is not proxied even though it is also still `html/template` today: Vite always
+serves its own `index.html` there, and there is nothing behind it yet worth reaching by proxy
+instead. A frontend change is visible without a Go rebuild, and a not-yet-converted page still
+renders through the proxy.

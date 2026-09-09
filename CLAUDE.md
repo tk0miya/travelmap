@@ -164,8 +164,11 @@ The rules that matter, stated directly:
   decision worth reviewing; splitting or merging them defeats that sizing.
 - **`make check` before committing** (a pre-commit hook runs it too). See the `Makefile` for
   what each target runs.
-- **Development tools go in `go.mod` as `tool` directives**, invoked via `go tool`. Do not add
-  a step that requires installing a binary — a fresh checkout needs nothing but Go.
+- **Go development tools go in `go.mod` as `tool` directives**, invoked via `go tool`; frontend
+  ones go in `frontend/package.json`, invoked via `npm`. Do not add a step that requires
+  installing anything beyond what a package manager already declared this way can fetch — a
+  fresh checkout needs nothing but Go and Node (see `docs/toolchain.md`'s "Frontend toolchain"
+  for why the latter is unavoidable).
 - **Workflow conventions**, when touching `.github/workflows/`: a `permissions:` block on every
   workflow, third-party actions pinned to a full commit SHA with a `# vX.Y.Z` comment, and
   `persist-credentials: false` on `actions/checkout`.

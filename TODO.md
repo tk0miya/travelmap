@@ -405,35 +405,6 @@ Milestone J's Steps 44 to 48 even though Milestone J was planned first** — a d
 to "a step's number says when it was planned, not when to take it" above, made so that handing
 off the next step to work on is as simple as naming the lowest open number.
 
-### Step 37: Frontend toolchain and build pipeline
-
-- [ ] Scaffold `frontend/` with Vite, React and TypeScript, plus Vitest and React Testing Library
-      for component tests
-- [ ] Wire the `Makefile` to build the frontend and embed its output into `embed.FS`, replacing
-      `internal/httpapi/static` and `internal/httpapi/templates` once later steps stop needing
-      them. Carry `style.css` over unchanged, imported once from the frontend's entry point —
-      this step does not redesign anything, only relocates it
-- [ ] Add a catch-all route that serves the built `index.html` for any browser-facing `GET` that
-      no other route claims. It has no effect until each page's own step below removes that
-      page's explicit `GET` handler — chi matches the explicit route first — so this only starts
-      serving `/login` once Step 38 removes `r.Get("/login", a.loginPage)`, and so on for the rest
-- [ ] A local dev workflow: the Vite dev server proxies everything it does not itself serve to
-      `go run`, so a frontend change does not need a Go rebuild to see
-- [ ] `docs/toolchain.md` gets a "Frontend toolchain" section, `README.md`'s build instructions
-      are updated, and CI installs Node and runs the frontend's build, lint and test alongside
-      `make check`
-- [ ] Update CLAUDE.md's "Working on a change": "a fresh checkout needs nothing but Go" no
-      longer holds once this step lands, so the rule that follows from it ("do not add a step
-      that requires installing a binary") needs restating for what actually stays true — the
-      backend's own tools still need nothing beyond `go tool`, only the frontend build needs Node
-
-**Settles**: that a fresh checkout no longer needs only Go — the frontend build needs Node — and
-what replaces `make check`'s Go-only guarantee. No page is converted here; this step only proves
-the pipeline a page's own step can then build on.
-
-**Done when**: `make check` also runs the frontend's own checks, and a Go test confirms the
-embedded build output is what the server serves.
-
 ### Step 38: Sign in and out
 
 - [ ] `POST /login` becomes `POST /api/session` (`201` + the session cookie on success, `401` +

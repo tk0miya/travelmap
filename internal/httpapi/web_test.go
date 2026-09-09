@@ -23,8 +23,9 @@ func TestIndexRedirectsAnonymous(t *testing.T) {
 	}
 }
 
-// TestStaticStylesheet covers that the stylesheet is served out of the same
-// embed.FS as the templates, at the URL the base layout links.
+// TestStaticStylesheet covers that the stylesheet is still served at the URL
+// base.html links, now out of the frontend build's own embed.FS — see
+// frontend_test.go for the rest of what that embed serves.
 func TestStaticStylesheet(t *testing.T) {
 	t.Parallel()
 

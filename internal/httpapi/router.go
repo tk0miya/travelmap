@@ -213,8 +213,6 @@ func (a *api) newRouter() http.Handler {
 		r.Get(foursquareOAuthCallbackPath, a.foursquareOAuthCallback)
 	})
 
-	r.Handle("/static/*", http.StripPrefix("/static/", http.FileServerFS(staticFiles)))
-
 	r.Route("/api/v1", func(r chi.Router) {
 		// authenticate first, for the reason on dawarichHeaders.
 		r.Use(a.authenticate)
@@ -246,6 +244,20 @@ func (a *api) newRouter() http.Handler {
 			get(r, "/stats", a.stats)
 		})
 	})
+
+	// After /api/v1 is mounted, not before: chi.Mux.Mount copies the
+	// router's current NotFoundHandler into a mounted subrouter as a
+	// one-time snapshot, so /api/v1's own unmatched paths keep the JSON 404
+	// above (a.notFound) regardless of what this reassigns it to here.
+	//
+	// A route registered as a wildcard GET here instead — r.Get("/*", ...)
+	// — matches every path for that method, POST-only ones included: chi
+	// tries every sibling pattern that matches the request's method before
+	// giving up on a path it has a different-method handler for, so a GET
+	// to /webhooks/foursquare would hit that wildcard rather than the 405
+	// it should get. A NotFoundHandler is reached only when nothing
+	// matched at all, which is what keeps that 405 intact.
+	r.NotFound(a.browserNotFound)
 
 	return r
 }

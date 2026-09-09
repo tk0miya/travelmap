@@ -8,5 +8,7 @@
 /.claude/settings.local.json
 /.claude/worktrees/
 /bin/
+/frontend/node_modules/
+/internal/httpapi/frontend/dist/
 /travelmap
 /travelmap.toml
