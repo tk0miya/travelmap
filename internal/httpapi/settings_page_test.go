@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"testing"
 	"time"
 
@@ -52,12 +51,11 @@ func otherUser(t *testing.T) model.User {
 }
 
 // loginCookie signs in as email/password against srv and returns the session
-// cookie value, the same login the browser's own form performs.
+// cookie value, the same sign-in the browser's own SPA performs.
 func loginCookie(t *testing.T, srv *httptest.Server, email string) string {
 	t.Helper()
 
-	resp := doNoRedirect(t, srv, http.MethodPost, "/login",
-		withForm(url.Values{"email": {email}, "password": {testPassword}}))
+	resp := do(t, srv, http.MethodPost, "/api/session", withBody(sessionBody(email, testPassword)))
 
 	token := sessionCookie(t, resp)
 	if token == "" {
@@ -308,7 +306,10 @@ func TestHeaderLinksToSettingsWhenSignedIn(t *testing.T) {
 		t.Errorf("body = %q, want a header link to /settings for a signed-in visitor", signedInResp.body)
 	}
 
-	signedOutResp := do(t, srv, http.MethodGet, "/login")
+	// /login itself is the frontend's own SPA shell now, not a page
+	// base.html renders — /signup is the base.html page still reachable
+	// signed out.
+	signedOutResp := do(t, srv, http.MethodGet, "/signup")
 	if bytes.Contains(signedOutResp.body, []byte(`href="/settings"`)) {
 		t.Errorf("body = %q, want no header link to /settings for a signed-out visitor", signedOutResp.body)
 	}

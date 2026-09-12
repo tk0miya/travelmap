@@ -391,27 +391,6 @@ Milestone J's Steps 44 to 48 even though Milestone J was planned first** — a d
 to "a step's number says when it was planned, not when to take it" above, made so that handing
 off the next step to work on is as simple as naming the lowest open number.
 
-### Step 38: Sign in and out
-
-- [ ] `POST /login` becomes `POST /api/session` (`201` + the session cookie on success, `401` +
-      a JSON error on failure) and `POST /logout` becomes `DELETE /api/session` (`204`)
-- [ ] Remove `r.Get("/login", a.loginPage)`, so Step 37's catch-all serves `/login` instead
-- [ ] Build the shared `Layout`/`Header` component every page renders inside (brand link, and the
-      "Settings" link once Step 40 gives it a real signed-in state to branch on — hard-coded
-      signed-out until then, since this step's own pages are only ever reached signed-out)
-- [ ] React `LoginPage`: the form, the error message, redirect to `/` on success
-- [ ] Rewrite `login_page_test.go`/`login_page_internal_test.go` (and the session tests that
-      asserted logout) against the JSON contract; add `LoginPage.test.tsx` for the rendered states
-
-**Settles**: that a browser action gets a resource-shaped name under `/api` — the unversioned
-surface for travelmap's own browser actions, distinct from the Dawarich-compatible `/api/v1` —
-rather than a verb. `session` reads naturally here since a browser holds one at a time, and it
-matches the `sessions` table and `scs` terminology already in place. Every later step's own
-action follows this same naming.
-
-**Done when**: a wrong password shows the same message it does today, pinned by a Go test on the
-JSON body and a frontend test on the rendered error.
-
 ### Step 39: Sign up
 
 - [ ] `POST /signup` becomes `POST /api/users` — a new resource, matching Step 38's naming

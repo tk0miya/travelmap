@@ -3,7 +3,6 @@ package httpapi
 import (
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -14,58 +13,47 @@ import (
 	"github.com/tk0miya/travelmap/internal/store/storetest"
 )
 
-// postLogin submits the login form against srv, carrying cookie as the
-// session cookie if it is not empty, and returns the response with
-// redirects left unfollowed — the default client would otherwise read back
-// whatever GET / answers instead of the login response itself.
-func postLogin(t *testing.T, srv *httptest.Server, cookie string) *http.Response {
+// postSession submits a sign-in against srv, carrying cookie as the session
+// cookie if it is not empty, and returns the response.
+func postSession(t *testing.T, srv *httptest.Server, cookie string) *http.Response {
 	t.Helper()
 
-	body := url.Values{"email": {testLoginEmail}, "password": {testLoginPassword}}.Encode()
+	body := `{"email":"` + testLoginEmail + `","password":"` + testLoginPassword + `"}`
 
-	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, srv.URL+"/login", strings.NewReader(body))
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, srv.URL+"/api/session", strings.NewReader(body))
 	if err != nil {
 		t.Fatalf("building the request: %v", err)
 	}
 
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Content-Type", "application/json")
 
 	if cookie != "" {
 		req.AddCookie(&http.Cookie{Name: "session", Value: cookie}) //nolint:gosec
 	}
 
-	client := *srv.Client()
-	client.CheckRedirect = func(*http.Request, []*http.Request) error {
-		return http.ErrUseLastResponse
-	}
-
-	resp, err := client.Do(req)
+	resp, err := srv.Client().Do(req)
 	if err != nil {
-		t.Fatalf("POST /login: %v", err)
+		t.Fatalf("POST /api/session: %v", err)
 	}
 
 	return resp
 }
 
-// postLogout is [postLogin] for POST /logout, which takes no body.
-func postLogout(t *testing.T, srv *httptest.Server, cookie string) *http.Response {
+// deleteSessionRequest is [postSession] for DELETE /api/session, which takes
+// no body.
+func deleteSessionRequest(t *testing.T, srv *httptest.Server, cookie string) *http.Response {
 	t.Helper()
 
-	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, srv.URL+"/logout", nil)
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodDelete, srv.URL+"/api/session", nil)
 	if err != nil {
 		t.Fatalf("building the request: %v", err)
 	}
 
 	req.AddCookie(&http.Cookie{Name: "session", Value: cookie}) //nolint:gosec
 
-	client := *srv.Client()
-	client.CheckRedirect = func(*http.Request, []*http.Request) error {
-		return http.ErrUseLastResponse
-	}
-
-	resp, err := client.Do(req)
+	resp, err := srv.Client().Do(req)
 	if err != nil {
-		t.Fatalf("POST /logout: %v", err)
+		t.Fatalf("DELETE /api/session: %v", err)
 	}
 
 	return resp
@@ -89,7 +77,7 @@ const (
 )
 
 // newLoginTestStore returns a store holding one account testLoginEmail /
-// testLoginPassword can log into.
+// testLoginPassword can sign into.
 func newLoginTestStore(t *testing.T) store.Store {
 	t.Helper()
 
@@ -106,11 +94,11 @@ func newLoginTestStore(t *testing.T) store.Store {
 	})
 }
 
-// TestLoginRenewsSessionToken pins that a successful login calls RenewToken
-// before the user id goes into the session: an anonymous session planted
-// before the login must not still be the one the response cookie carries
+// TestCreateSessionRenewsSessionToken pins that a successful sign-in calls
+// RenewToken before the user id goes into the session: an anonymous session
+// planted beforehand must not still be the one the response cookie carries
 // afterwards.
-func TestLoginRenewsSessionToken(t *testing.T) {
+func TestCreateSessionRenewsSessionToken(t *testing.T) {
 	t.Parallel()
 
 	st := newLoginTestStore(t)
@@ -130,11 +118,11 @@ func TestLoginRenewsSessionToken(t *testing.T) {
 		t.Fatalf("Commit returned %v", err)
 	}
 
-	resp := postLogin(t, srv, before)
+	resp := postSession(t, srv, before)
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusSeeOther {
-		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusSeeOther)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusCreated)
 	}
 
 	after := responseSessionCookie(resp)
@@ -143,33 +131,33 @@ func TestLoginRenewsSessionToken(t *testing.T) {
 	}
 
 	if after == before {
-		t.Errorf("the session token did not change across login: %q", after)
+		t.Errorf("the session token did not change across sign-in: %q", after)
 	}
 }
 
-// TestLogoutDeletesSessionRow pins that logout removes the row from the
-// store, not just the cookie: read back through the same SessionManager
-// shape production commits through, since HashTokenInStore means the row is
-// keyed by a digest of the token, not the token itself.
-func TestLogoutDeletesSessionRow(t *testing.T) {
+// TestDeleteSessionDeletesSessionRow pins that signing out removes the row
+// from the store, not just the cookie: read back through the same
+// SessionManager shape production commits through, since HashTokenInStore
+// means the row is keyed by a digest of the token, not the token itself.
+func TestDeleteSessionDeletesSessionRow(t *testing.T) {
 	t.Parallel()
 
 	st := newLoginTestStore(t)
 	srv := newSessionTestServer(t, st)
 
-	loginResp := postLogin(t, srv, "")
+	loginResp := postSession(t, srv, "")
 	defer loginResp.Body.Close()
 
 	token := responseSessionCookie(loginResp)
 	if token == "" {
-		t.Fatal("no session cookie was set by login")
+		t.Fatal("no session cookie was set by sign-in")
 	}
 
-	logoutResp := postLogout(t, srv, token)
+	logoutResp := deleteSessionRequest(t, srv, token)
 	defer logoutResp.Body.Close()
 
-	if logoutResp.StatusCode != http.StatusSeeOther {
-		t.Fatalf("status = %d, want %d", logoutResp.StatusCode, http.StatusSeeOther)
+	if logoutResp.StatusCode != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d", logoutResp.StatusCode, http.StatusNoContent)
 	}
 
 	sm := newSessionManager(st, time.Hour, false)
@@ -180,6 +168,6 @@ func TestLogoutDeletesSessionRow(t *testing.T) {
 	}
 
 	if got := sm.GetInt64(ctx, sessionUserIDKey); got != 0 {
-		t.Errorf("after logout, the session still resolves a user id (%d) — the row was not deleted", got)
+		t.Errorf("after sign-out, the session still resolves a user id (%d) — the row was not deleted", got)
 	}
 }

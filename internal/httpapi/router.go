@@ -189,9 +189,8 @@ func (a *api) newRouter() http.Handler {
 		r.Use(a.loadSessionUser)
 		r.Use(a.csrf.Handler)
 
-		r.Get("/login", a.loginPage)
-		r.Post("/login", a.loginSubmit)
-		r.Post("/logout", a.logout)
+		r.Post("/api/session", a.createSession)
+		r.Delete("/api/session", a.deleteSession)
 		r.Get("/signup", a.signupPage)
 		r.Post("/signup", a.signupSubmit)
 

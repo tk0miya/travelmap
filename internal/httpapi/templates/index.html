@@ -1,8 +1,11 @@
 {{define "content"}}
     <div class="status">
         <p>Signed in as {{.Email}}.</p>
-        <form method="post" action="/logout">
-            <button type="submit" class="link-button">Log out</button>
-        </form>
+        <button type="button" id="logout" class="link-button">Log out</button>
     </div>
+    <script>
+      document.getElementById('logout').addEventListener('click', () => {
+        fetch('/api/session', { method: 'DELETE' }).then(() => { location.href = '/login' })
+      })
+    </script>
 {{end}}

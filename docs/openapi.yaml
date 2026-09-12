@@ -537,6 +537,73 @@ paths:
         "500":
           $ref: "#/components/responses/InternalServerError"
 
+  /api/session:
+    post:
+      summary: Sign in as a browser
+      description: >
+        The browser's own sign-in action, distinct from POST
+        /api/v1/auth/login: this hands back a session cookie rather than
+        an api_key. A refused attempt answers the same message that
+        endpoint does.
+      operationId: createSession
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateSessionRequest"
+      responses:
+        "201":
+          description: >
+            The credentials matched. The session cookie is set via
+            Set-Cookie; the body is empty.
+        "400":
+          description: The request body could not be read as the shape this endpoint expects.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: invalid request body
+        "401":
+          description: >
+            The credentials were refused — wrong password, unknown
+            address, or a malformed one. Every way of failing gets this
+            same body.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: Invalid email or password
+        "500":
+          description: The server could not do what was asked.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: internal server error
+    delete:
+      summary: Sign out
+      description: >
+        Deletes the session row and clears the cookie. Replaces the old
+        POST /logout.
+      operationId: deleteSession
+      security: []
+      responses:
+        "204":
+          description: Signed out. The body is empty.
+        "500":
+          description: The server could not do what was asked.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: internal server error
+
   /webhooks/foursquare:
     post:
       summary: Swarm (Foursquare) User Push notification
@@ -1102,6 +1169,15 @@ components:
 
     LoginRequest:
       type: object
+      properties:
+        email:
+          type: string
+        password:
+          type: string
+
+    CreateSessionRequest:
+      type: object
+      description: The body of POST /api/session — the same shape as LoginRequest, kept as its own schema since the two endpoints' contracts are documented separately.
       properties:
         email:
           type: string

@@ -75,7 +75,8 @@ checked for. Its bundled `sqlite3store` is **not** usable — that module requir
 `github.com/mattn/go-sqlite3` — so the store is written here against `internal/store` instead.
 Chosen over a JWT, which has no defensible default for its signing key (one generated at startup
 logs every user out on restart, so it becomes a required setting) and which cannot be revoked,
-leaving `POST /logout` able only to clear the cookie while the token stays valid until it expires.
+leaving `DELETE /api/session` able only to clear the cookie while the token stays valid until it
+expires.
 That is not a cost saved but a part of the feature missing.
 
 ### Browser CSRF

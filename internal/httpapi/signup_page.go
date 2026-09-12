@@ -84,7 +84,7 @@ func (a *api) signupSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Before the user id goes into the session, matching loginSubmit: a
+	// Before the user id goes into the session, matching createSession: a
 	// token minted before the browser authenticated must not still be the
 	// one it holds afterwards.
 	if err := a.sessions.RenewToken(r.Context()); err != nil {

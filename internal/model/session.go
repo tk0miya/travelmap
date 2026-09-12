@@ -3,8 +3,8 @@ package model
 import "time"
 
 // Session is a browser session scs hands out, a different credential from a
-// [User]'s APIKey: it expires, POST /logout destroys it, and one account may
-// hold several at once.
+// [User]'s APIKey: it expires, DELETE /api/session destroys it, and one
+// account may hold several at once.
 type Session struct {
 	// Token is what scs keys the session by, hashed before it reaches here —
 	// see internal/store/sqlite/migrations/0006_sessions.sql for why.
