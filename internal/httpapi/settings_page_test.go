@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"testing"
 	"time"
 
@@ -52,12 +51,11 @@ func otherUser(t *testing.T) model.User {
 }
 
 // loginCookie signs in as email/password against srv and returns the session
-// cookie value, the same login the browser's own form performs.
+// cookie value, the same sign-in the browser's own SPA performs.
 func loginCookie(t *testing.T, srv *httptest.Server, email string) string {
 	t.Helper()
 
-	resp := doNoRedirect(t, srv, http.MethodPost, "/login",
-		withForm(url.Values{"email": {email}, "password": {testPassword}}))
+	resp := do(t, srv, http.MethodPost, "/travelmap/web/session", withBody(sessionBody(email, testPassword)))
 
 	token := sessionCookie(t, resp)
 	if token == "" {
@@ -84,13 +82,32 @@ func TestSettingsPageRequiresASession(t *testing.T) {
 		t.Errorf("status = %d, want %d", resp.status, http.StatusFound)
 	}
 
-	if got := resp.header.Get("Location"); got != "/login" {
-		t.Errorf("Location = %q, want /login", got)
+	if got, want := resp.header.Get("Location"), "/login?next=%2Fsettings"; got != want {
+		t.Errorf("Location = %q, want %q", got, want)
+	}
+}
+
+// TestSettingsPageRequiresASessionKeepsTheQuery pins that next carries the
+// request's own query string too, not just its path.
+func TestSettingsPageRequiresASessionKeepsTheQuery(t *testing.T) {
+	t.Parallel()
+
+	srv := newTestServerWithOptions(t, settingsPageOptions(newTestStore(t)))
+
+	resp := doNoRedirect(t, srv, http.MethodGet, "/settings?tab=foursquare")
+
+	if resp.status != http.StatusFound {
+		t.Errorf("status = %d, want %d", resp.status, http.StatusFound)
+	}
+
+	if got, want := resp.header.Get("Location"), "/login?next=%2Fsettings%3Ftab%3Dfoursquare"; got != want {
+		t.Errorf("Location = %q, want %q", got, want)
 	}
 }
 
 // TestFoursquareDisconnectRequiresASession covers the same guard on the POST
-// route.
+// route, which carries no next: the redirect's own sign-in is a GET, and a
+// POST-only route would be nowhere valid to send it back to.
 func TestFoursquareDisconnectRequiresASession(t *testing.T) {
 	t.Parallel()
 
@@ -101,8 +118,8 @@ func TestFoursquareDisconnectRequiresASession(t *testing.T) {
 		t.Errorf("status = %d, want %d", resp.status, http.StatusFound)
 	}
 
-	if got := resp.header.Get("Location"); got != "/login" {
-		t.Errorf("Location = %q, want /login", got)
+	if got, want := resp.header.Get("Location"), "/login"; got != want {
+		t.Errorf("Location = %q, want %q", got, want)
 	}
 }
 
@@ -308,7 +325,10 @@ func TestHeaderLinksToSettingsWhenSignedIn(t *testing.T) {
 		t.Errorf("body = %q, want a header link to /settings for a signed-in visitor", signedInResp.body)
 	}
 
-	signedOutResp := do(t, srv, http.MethodGet, "/login")
+	// /login itself is the frontend's own SPA shell now, not a page
+	// base.html renders — /signup is the base.html page still reachable
+	// signed out.
+	signedOutResp := do(t, srv, http.MethodGet, "/signup")
 	if bytes.Contains(signedOutResp.body, []byte(`href="/settings"`)) {
 		t.Errorf("body = %q, want no header link to /settings for a signed-out visitor", signedOutResp.body)
 	}

@@ -1,29 +1,35 @@
 # API
 
-This explains travelmap's API. It has two parts: a subset compatible with
-[Dawarich](https://github.com/Freika/dawarich)'s own API, for any client built for the Dawarich
-mobile app; and travelmap's own extensions, for functionality Dawarich has no equivalent of.
+This explains travelmap's API, served across namespaces distinguished by client and credential:
+
+- **`/api/v1`** — a subset compatible with [Dawarich](https://github.com/Freika/dawarich)'s own
+  API, for any client built for the Dawarich mobile app, authenticated with `api_key`. This path
+  mirrors Dawarich's own, not a version travelmap chose, so it — and any `/api/v2` upstream itself
+  might ship one day — is reserved for upstream's own version sequence, never a travelmap-own
+  resource: Dawarich has no version negotiation, so a client reads a 404 under `/api/v1` as
+  "feature unsupported" (see "An endpoint this server does not implement answers 404" below), and
+  a travelmap-own path there would make that signal meaningless. See "Dawarich compatibility"
+  below.
+- **`/travelmap/web`** — travelmap's own, for the browser's own JSON actions (signing in and out
+  today), authenticated by the session cookie rather than `api_key`. See "The browser's own Web
+  API" below.
+- **`/travelmap/api`** — reserved, not yet built, for a future token-authenticated API of
+  travelmap's own, for a client that is not a browser (a native app, say). It would reuse the
+  `api_key`/Bearer mechanism `/api/v1` already has rather than inventing a second one, and it is
+  kept out of `/api/v2` deliberately: that name would read as the next version of the
+  Dawarich-compatible contract, when it would share nothing with it beyond the credential, and
+  would collide the day upstream ships a real one.
+- **`/webhooks/*`** — a third party's own push (Foursquare's, today), authenticated by a shared
+  secret rather than either credential above. See "travelmap's own extensions" below.
 
 `docs/openapi.yaml` is the accompanying source for the API's contract itself — paths, schemas,
 headers, status codes for the endpoints actually implemented. Read it first; what follows here
 is whatever does not fit there: upstream's quirks, why travelmap's behaviour deliberately
 differs, and the client evidence behind each choice.
 
-travelmap also serves a browser surface at routes outside `/api/v1` — `GET /`, the login form, the
-Swarm OAuth flow, and so on. `docs/openapi.yaml`'s contract is for the JSON API above; a
-browser-facing route is not part of it, and this document does not cover those either.
-
-## Keeping the two parts apart
-
-Not everything travelmap stores has to come from upstream. Swarm (Foursquare) check-in
-collection is the first feature that is travelmap's own: explicitly recorded landmark data,
-collected to enrich the automatically recorded GPS trace.
-
-Such a feature gets **its own tables and its own routes at the top level, never a path under
-`/api/v1`**. Dawarich has no version negotiation, so clients read a 404 under `/api/v1` as
-"feature unsupported" (see "An endpoint this server does not implement answers 404" below);
-inventing paths in that namespace would make that signal meaningless. Keeping the compatibility
-surface exactly upstream's is what keeps the 404 rule true.
+travelmap also serves a browser surface outside all of the above. Most of it renders HTML —
+`GET /`, the Swarm OAuth flow, and so on — and none of that is part of `docs/openapi.yaml`'s
+contract or this document.
 
 ## Dawarich compatibility
 
@@ -282,10 +288,12 @@ Verified in the community Android client.
 
 ## travelmap's own extensions
 
-Functionality with no Dawarich equivalent, at routes outside `/api/v1` — see "Keeping the two
-parts apart" above for why. None of the rules above apply to this part: no Dawarich headers, no
-`api_key`, and none of it answers a bare `{"error": "..."}`, since there is no Dawarich client
-reading these responses to keep the shape of.
+Functionality with no Dawarich equivalent, at routes outside `/api/v1` — see the overview above
+for why. It splits by caller: a shared secret authenticates Foursquare's webhook push below,
+whose responses never answer a bare `{"error": "..."}` — there is no Dawarich client reading them
+to keep the shape of; the session cookie instead authenticates the browser's own Web API below,
+which does answer that shape, deliberately — see that section for why. Neither half answers the
+Dawarich headers or accepts `api_key`.
 
 ### `POST /webhooks/foursquare`
 
@@ -317,3 +325,22 @@ authenticates the push against forgery, which an address-based filter would not 
 
 The secret is compared in constant time, so a request cannot learn anything about it from how
 long the comparison takes.
+
+## The browser's own Web API
+
+Calling `POST /travelmap/web/session` from the browser's own JS is what issues the session cookie
+`DELETE /travelmap/web/session` authenticates with. Every endpoint here answers JSON under
+`/travelmap/web` rather than `/api/v1`; see the overview above for why that path rather than bare
+`/api`.
+
+### `POST /travelmap/web/session` and `DELETE /travelmap/web/session`
+
+A resource-shaped name (`session`, not a verb) matches the `sessions` table and the `scs`
+terminology already in place.
+
+A refused sign-in answers the same message `POST /api/v1/auth/login` does, through the same
+`auth.CheckAbsentPassword` an unknown address spends on a digest that matches nothing — see that
+endpoint's own note above for why.
+
+Signing out never fails on having no session to end: deleting a session that does not exist is
+not an error.

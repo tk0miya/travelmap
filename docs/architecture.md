@@ -75,8 +75,19 @@ checked for. Its bundled `sqlite3store` is **not** usable — that module requir
 `github.com/mattn/go-sqlite3` — so the store is written here against `internal/store` instead.
 Chosen over a JWT, which has no defensible default for its signing key (one generated at startup
 logs every user out on restart, so it becomes a required setting) and which cannot be revoked,
-leaving `POST /logout` able only to clear the cookie while the token stays valid until it expires.
+leaving `DELETE /travelmap/web/session` able only to clear the cookie while the token stays valid
+until it expires.
 That is not a cost saved but a part of the feature missing.
+
+A signed-out visit to a GET route behind `requireSessionUser` redirects to `/login?next=<path>`,
+`next` being the request's own path and query, so a successful sign-in can send the browser back
+to what it originally asked for. A non-GET route (a settings form action) redirects to a bare
+`/login`: the sign-in that follows is itself a GET, and a `next` naming a POST-only route would
+have nowhere valid to land on. `LoginPage` resolves `next` against the page's own origin and
+falls back to `/` unless the two origins match, rather than pattern-matching `next`'s prefix: a
+leading `//`, a leading `/\`, and a `next` hiding either behind a tab or newline the URL parser
+strips before resolving it all resolve to the same scheme-relative reference to another host, and
+only resolving `next` the way a navigation would catches all of them at once.
 
 ### Browser CSRF
 

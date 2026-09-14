@@ -19,8 +19,8 @@ maps / fog of war, and areas, places, notes, tags, digests and insights. See "No
 ## Foursquare developer setup
 
 travelmap can collect your Swarm check-ins alongside the GPS trace the Dawarich app records, as
-its own extension to the Dawarich API — see "Keeping the two parts apart" in
-[docs/api-notes.md](docs/api-notes.md). This is set up once per travelmap instance, and has to
+its own extension to the Dawarich API — see [docs/api-notes.md](docs/api-notes.md)'s own
+overview. This is set up once per travelmap instance, and has to
 happen **before** travelmap itself can be configured: the next section's settings are filled in
 from what this one produces.
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/alexedwards/scs/v2"
@@ -13,7 +14,7 @@ import (
 )
 
 // sessionUserIDKey is the scs session key the signed-in user's id is stored
-// under. loginSubmit is what writes it.
+// under. createSession is what writes it.
 const sessionUserIDKey = "user_id"
 
 // newSessionManager builds the scs.SessionManager the browser group loads and
@@ -84,10 +85,21 @@ func (a *api) loadSessionUser(next http.Handler) http.Handler {
 // none of this middleware's routes are converting a POST into a GET. Every
 // handler behind it can read its user with userFrom's ok discarded, since
 // this is what guarantees one is on the context.
+//
+// A GET request's redirect carries its own path and query as next, so a
+// successful sign-in can send the browser back to what it originally asked
+// for instead of always to /. A non-GET request (a settings form action, so
+// far) gets no next: the sign-in that follows is itself a GET, and a next
+// naming a POST-only route would have nowhere valid to land on.
 func requireSessionUser(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if _, ok := userFrom(r.Context()); !ok {
-			http.Redirect(w, r, "/login", http.StatusFound)
+			loginURL := "/login"
+			if r.Method == http.MethodGet {
+				loginURL += "?" + url.Values{"next": {r.URL.RequestURI()}}.Encode()
+			}
+
+			http.Redirect(w, r, loginURL, http.StatusFound)
 
 			return
 		}
