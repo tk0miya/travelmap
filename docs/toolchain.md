@@ -96,8 +96,8 @@ describes.
 
 **The dev server proxies every path it does not itself serve to `go run ./cmd/travelmap serve`**
 (`vite.config.ts`'s `server.proxy`) — `/api`, `/webhooks`, and each page still built from
-`html/template` (`/login` and `/signup`, gated behind nothing, and `/settings`, gated behind a
-session). `/` is not proxied even though it is also still `html/template` today: Vite always
-serves its own `index.html` there, and there is nothing behind it yet worth reaching by proxy
-instead. A frontend change is visible without a Go rebuild, and a not-yet-converted page still
-renders through the proxy.
+`html/template` (`/signup`, gated behind nothing, and `/settings`, gated behind a session). `/` is
+not proxied even though it is also still `html/template` today: Vite always serves its own
+`index.html` there, and there is nothing behind it yet worth reaching by proxy instead. A frontend
+change is visible without a Go rebuild, and a not-yet-converted page still renders through the
+proxy.

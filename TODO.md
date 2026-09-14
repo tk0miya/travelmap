@@ -202,8 +202,10 @@ its own decision, not a side effect of Milestone H's.
 **Decided: how the browser authenticates against `/api/v1`**
 
 **The policy is to reuse the existing `/api/v1` rather than add UI-only data endpoints**
-(browser-specific actions such as signing in and out are their own resources under `/api`
-instead — see Milestone H), so the browser will also call `/api/v1/points` and friends directly.
+(browser-specific actions such as signing in and out are their own resources under
+`/travelmap/web` instead — see Milestone H, and `docs/api-notes.md`'s own overview for why that
+path rather than bare `/api`), so the browser will also call `/api/v1/points` and friends
+directly.
 `/api/v1` accepts only Bearer / `api_key` today; the browser instead authenticates with **(a)**:
 
 - **(a) The `/api/v1` middleware also accepts the session cookie** — lets the SPA simply fetch.
@@ -391,30 +393,10 @@ Milestone J's Steps 44 to 48 even though Milestone J was planned first** — a d
 to "a step's number says when it was planned, not when to take it" above, made so that handing
 off the next step to work on is as simple as naming the lowest open number.
 
-### Step 38: Sign in and out
-
-- [ ] `POST /login` becomes `POST /api/session` (`201` + the session cookie on success, `401` +
-      a JSON error on failure) and `POST /logout` becomes `DELETE /api/session` (`204`)
-- [ ] Remove `r.Get("/login", a.loginPage)`, so Step 37's catch-all serves `/login` instead
-- [ ] Build the shared `Layout`/`Header` component every page renders inside (brand link, and the
-      "Settings" link once Step 40 gives it a real signed-in state to branch on — hard-coded
-      signed-out until then, since this step's own pages are only ever reached signed-out)
-- [ ] React `LoginPage`: the form, the error message, redirect to `/` on success
-- [ ] Rewrite `login_page_test.go`/`login_page_internal_test.go` (and the session tests that
-      asserted logout) against the JSON contract; add `LoginPage.test.tsx` for the rendered states
-
-**Settles**: that a browser action gets a resource-shaped name under `/api` — the unversioned
-surface for travelmap's own browser actions, distinct from the Dawarich-compatible `/api/v1` —
-rather than a verb. `session` reads naturally here since a browser holds one at a time, and it
-matches the `sessions` table and `scs` terminology already in place. Every later step's own
-action follows this same naming.
-
-**Done when**: a wrong password shows the same message it does today, pinned by a Go test on the
-JSON body and a frontend test on the rendered error.
-
 ### Step 39: Sign up
 
-- [ ] `POST /signup` becomes `POST /api/users` — a new resource, matching Step 38's naming
+- [ ] `POST /signup` becomes `POST /travelmap/web/users` — a new resource, matching Step 38's
+      naming
 - [ ] Remove `r.Get("/signup", a.signupPage)`, so Step 37's catch-all serves `/signup` instead
 - [ ] React `SignupPage`: the form, the three field-level errors (`EmailError`/`PasswordError`/
       `ConfirmError`), and the API-key confirmation screen after `Done`
@@ -457,8 +439,8 @@ and a signed-out visit to `/` redirects to `/login` client-side.
 
 ### Step 42: Settings page
 
-- [ ] `POST /settings/foursquare/disconnect` becomes `DELETE /api/foursquare_account`, matching
-      Step 38/39's resource naming
+- [ ] `POST /settings/foursquare/disconnect` becomes `DELETE /travelmap/web/foursquare_account`,
+      matching Step 38/39's resource naming
 - [ ] Remove `r.Get("/settings", a.settingsPage)`, so Step 37's catch-all serves `/settings`
       instead, behind Step 41's route wrapper
 - [ ] React `SettingsPage`: linked/unlinked states, the disconnect button. "Connect" stays a
@@ -549,8 +531,7 @@ matches on the five columns or has them recorded as excluded from refresh.
 
 travelmap's own feature, not upstream's: the trip a traveller actually looks at, assembled from
 the GPS trace and the Swarm check-ins already being collected. It gets its own table and its own
-routes at the top level, never a path under `/api/v1` — see "Keeping the two parts apart" in
-`docs/api-notes.md`.
+routes at the top level, never a path under `/api/v1` — see `docs/api-notes.md`'s own overview.
 
 **The MVP deliberately derives nothing.** A trip is a range the user declares; the timeline is
 assembled on read from the two tables that already exist. That is what keeps this milestone to
@@ -675,8 +656,8 @@ row supplies; and a day with check-ins but no points still renders.
       page a static SPA shell. Once Steps 45 and 47's own routes are reconciled with that shell
       (see "Library Choices for the Web UI"), pick how this screen fetches its route — through
       `/api/v1/points` (Milestone H's Step 40 covers authenticating a browser against it) or a
-      travelmap-own resource under `/api` — as this step's own decision, not inherited from
-      Milestone H
+      travelmap-own resource under `/travelmap/web` — as this step's own decision, not inherited
+      from Milestone H
 - [ ] Pick the map library from "Library Choices for the Web UI" and vendor it into `embed.FS`,
       for Milestone H's own map screen as well as this one
 - [ ] Build the map as a React component, using the toolchain Milestone H's Step 37 sets up —

@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -112,6 +113,52 @@ func do(t *testing.T, srv *httptest.Server, method, path string, opts ...request
 	}
 
 	return response{status: resp.StatusCode, header: resp.Header, body: body}
+}
+
+// doNoRedirect is [do] for a request whose own redirect response is what the
+// test wants to inspect, on a client with no cookie jar to carry a
+// Set-Cookie across that hop.
+func doNoRedirect(t *testing.T, srv *httptest.Server, method, path string, opts ...requestOption) response {
+	t.Helper()
+
+	req, err := http.NewRequestWithContext(t.Context(), method, srv.URL+path, nil)
+	if err != nil {
+		t.Fatalf("building the request: %v", err)
+	}
+
+	for _, opt := range opts {
+		opt(req)
+	}
+
+	client := *srv.Client()
+	client.CheckRedirect = func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("%s %s: %v", method, path, err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("reading the response body: %v", err)
+	}
+
+	return response{status: resp.StatusCode, header: resp.Header, body: body}
+}
+
+// withForm sends values as an application/x-www-form-urlencoded request
+// body, the way the signup form itself submits.
+func withForm(values url.Values) requestOption {
+	body := values.Encode()
+
+	return func(r *http.Request) {
+		r.Body = io.NopCloser(strings.NewReader(body))
+		r.ContentLength = int64(len(body))
+		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	}
 }
 
 func TestHealth(t *testing.T) {
