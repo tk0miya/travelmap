@@ -1,9 +1,35 @@
 import { type FormEvent, useState } from 'react'
 
+// nextPath reads the `next` query parameter a redirect to /login carries
+// (see requireSessionUser) and returns it only if it resolves to travelmap's
+// own origin — resolving it, rather than pattern-matching its prefix, is
+// what a leading `//` and a leading `/\` have in common with a next hidden
+// behind a tab or newline the URL parser strips before resolving: all of
+// them turn into a scheme-relative reference to another host once actually
+// navigated to, and only resolving `next` the same way a navigation would
+// catches all of them at once. Falls back to / otherwise, including when
+// there is no `next` at all.
+function nextPath(): string {
+  const next = new URLSearchParams(window.location.search).get('next')
+  if (!next?.startsWith('/')) {
+    return '/'
+  }
+
+  try {
+    return new URL(next, window.location.origin).origin ===
+      window.location.origin
+      ? next
+      : '/'
+  } catch {
+    return '/'
+  }
+}
+
 // LoginPage is the sign-in form, matching the old login.html's markup and
-// classes. A successful POST /travelmap/web/session sets the cookie itself; this only
-// has to send the browser on to / afterwards, which is still a full
-// navigation since that page is not React yet.
+// classes. A successful POST /travelmap/web/session sets the cookie itself;
+// this only has to send the browser on afterwards — to `next` if the
+// redirect here carried one, back to / otherwise — which is still a full
+// navigation since neither page is React yet.
 function LoginPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -20,7 +46,7 @@ function LoginPage() {
     })
 
     if (res.ok) {
-      window.location.href = '/'
+      window.location.href = nextPath()
       return
     }
 

@@ -18,7 +18,7 @@ func TestIndexRedirectsAnonymous(t *testing.T) {
 		t.Errorf("status = %d, want %d", resp.status, http.StatusFound)
 	}
 
-	if got, want := resp.header.Get("Location"), "/login"; got != want {
+	if got, want := resp.header.Get("Location"), "/login?next=%2F"; got != want {
 		t.Errorf("Location = %q, want %q", got, want)
 	}
 }

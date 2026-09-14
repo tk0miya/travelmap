@@ -82,13 +82,32 @@ func TestSettingsPageRequiresASession(t *testing.T) {
 		t.Errorf("status = %d, want %d", resp.status, http.StatusFound)
 	}
 
-	if got := resp.header.Get("Location"); got != "/login" {
-		t.Errorf("Location = %q, want /login", got)
+	if got, want := resp.header.Get("Location"), "/login?next=%2Fsettings"; got != want {
+		t.Errorf("Location = %q, want %q", got, want)
+	}
+}
+
+// TestSettingsPageRequiresASessionKeepsTheQuery pins that next carries the
+// request's own query string too, not just its path.
+func TestSettingsPageRequiresASessionKeepsTheQuery(t *testing.T) {
+	t.Parallel()
+
+	srv := newTestServerWithOptions(t, settingsPageOptions(newTestStore(t)))
+
+	resp := doNoRedirect(t, srv, http.MethodGet, "/settings?tab=foursquare")
+
+	if resp.status != http.StatusFound {
+		t.Errorf("status = %d, want %d", resp.status, http.StatusFound)
+	}
+
+	if got, want := resp.header.Get("Location"), "/login?next=%2Fsettings%3Ftab%3Dfoursquare"; got != want {
+		t.Errorf("Location = %q, want %q", got, want)
 	}
 }
 
 // TestFoursquareDisconnectRequiresASession covers the same guard on the POST
-// route.
+// route, which carries no next: the redirect's own sign-in is a GET, and a
+// POST-only route would be nowhere valid to send it back to.
 func TestFoursquareDisconnectRequiresASession(t *testing.T) {
 	t.Parallel()
 
@@ -99,8 +118,8 @@ func TestFoursquareDisconnectRequiresASession(t *testing.T) {
 		t.Errorf("status = %d, want %d", resp.status, http.StatusFound)
 	}
 
-	if got := resp.header.Get("Location"); got != "/login" {
-		t.Errorf("Location = %q, want /login", got)
+	if got, want := resp.header.Get("Location"), "/login"; got != want {
+		t.Errorf("Location = %q, want %q", got, want)
 	}
 }
 

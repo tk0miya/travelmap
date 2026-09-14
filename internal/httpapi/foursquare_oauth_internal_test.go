@@ -146,8 +146,8 @@ func TestFoursquareOAuthStartRequiresASession(t *testing.T) {
 		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusFound)
 	}
 
-	if got := resp.Header.Get("Location"); got != "/login" {
-		t.Errorf("Location = %q, want /login", got)
+	if got, want := resp.Header.Get("Location"), "/login?next=%2Fsettings%2Ffoursquare%2Fconnect"; got != want {
+		t.Errorf("Location = %q, want %q", got, want)
 	}
 }
 

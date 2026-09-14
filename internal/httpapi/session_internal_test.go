@@ -240,7 +240,7 @@ func TestIndexIgnoresExpiredSession(t *testing.T) {
 		t.Errorf("status = %d, want %d — an expired session treated as none", resp.StatusCode, http.StatusFound)
 	}
 
-	if got, want := resp.Header.Get("Location"), "/login"; got != want {
+	if got, want := resp.Header.Get("Location"), "/login?next=%2F"; got != want {
 		t.Errorf("Location = %q, want %q", got, want)
 	}
 }

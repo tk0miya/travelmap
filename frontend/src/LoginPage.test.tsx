@@ -50,6 +50,82 @@ test('redirects to / on a successful sign-in', async () => {
   )
 })
 
+test('redirects to next after a successful sign-in when the redirect here carried one', async () => {
+  vi.mocked(fetch).mockResolvedValue(new Response(null, { status: 201 }))
+  Object.defineProperty(window, 'location', {
+    writable: true,
+    value: {
+      href: '',
+      origin: 'https://travelmap.example',
+      search: '?next=%2Fsettings',
+    },
+  })
+
+  render(<LoginPage />)
+
+  fireEvent.change(screen.getByLabelText('Email'), {
+    target: { value: 'alice@example.com' },
+  })
+  fireEvent.change(screen.getByLabelText('Password'), {
+    target: { value: 'secret' },
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Log in' }))
+
+  await vi.waitFor(() => expect(window.location.href).toBe('/settings'))
+})
+
+test('falls back to / when next does not point to a same-origin path', async () => {
+  vi.mocked(fetch).mockResolvedValue(new Response(null, { status: 201 }))
+  Object.defineProperty(window, 'location', {
+    writable: true,
+    value: {
+      href: '',
+      origin: 'https://travelmap.example',
+      search: '?next=%2F%2Fevil.example',
+    },
+  })
+
+  render(<LoginPage />)
+
+  fireEvent.change(screen.getByLabelText('Email'), {
+    target: { value: 'alice@example.com' },
+  })
+  fireEvent.change(screen.getByLabelText('Password'), {
+    target: { value: 'secret' },
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Log in' }))
+
+  await vi.waitFor(() => expect(window.location.href).toBe('/'))
+})
+
+// A tab between the leading slashes is not itself `//`, but the URL parser
+// strips ASCII tab/newline/CR before resolving a reference, so a prefix
+// check alone would have let this one through as `//evil.example` once
+// navigated to.
+test('falls back to / when next hides a scheme-relative reference behind a stripped tab', async () => {
+  vi.mocked(fetch).mockResolvedValue(new Response(null, { status: 201 }))
+  Object.defineProperty(window, 'location', {
+    writable: true,
+    value: {
+      href: '',
+      origin: 'https://travelmap.example',
+      search: '?next=%2F%09%2Fevil.example',
+    },
+  })
+
+  render(<LoginPage />)
+
+  fireEvent.change(screen.getByLabelText('Email'), {
+    target: { value: 'alice@example.com' },
+  })
+  fireEvent.change(screen.getByLabelText('Password'), {
+    target: { value: 'secret' },
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Log in' }))
+
+  await vi.waitFor(() => expect(window.location.href).toBe('/'))
+})
+
 test('shows the error message on a refused sign-in', async () => {
   vi.mocked(fetch).mockResolvedValue(
     new Response(JSON.stringify({ error: 'Invalid email or password' }), {

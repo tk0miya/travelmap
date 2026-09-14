@@ -139,7 +139,7 @@ func TestDeleteSession(t *testing.T) {
 			http.StatusFound)
 	}
 
-	if got, want := indexResp.header.Get("Location"), "/login"; got != want {
+	if got, want := indexResp.header.Get("Location"), "/login?next=%2F"; got != want {
 		t.Errorf("GET / with the old cookie: Location = %q, want %q", got, want)
 	}
 }
