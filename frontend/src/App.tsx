@@ -1,31 +1,24 @@
+import { BrowserRouter, Route, Routes } from 'react-router'
 import Layout from './Layout.tsx'
 import LoginPage from './LoginPage.tsx'
 import SignupPage from './SignupPage.tsx'
 
-// App picks a page by the browser's current path. There is no router yet:
-// the server only serves this shell for a path no explicit route claims,
-// and /login and /signup are the pages converted so far.
+// App routes the paths the server hands this shell, which are the ones no
+// explicit Go route claims: a page Go still renders itself never reaches here,
+// so it has no Route below and "*" is what an unclaimed path renders as. The
+// routes listed here are therefore also the answer to whether a link may be a
+// Link — a path with no Route is reached by leaving this app.
 function App() {
-  if (window.location.pathname === '/login') {
-    return (
-      <Layout>
-        <LoginPage />
-      </Layout>
-    )
-  }
-
-  if (window.location.pathname === '/signup') {
-    return (
-      <Layout>
-        <SignupPage />
-      </Layout>
-    )
-  }
-
   return (
-    <Layout>
-      <p>Coming soon</p>
-    </Layout>
+    <BrowserRouter>
+      <Layout>
+        <Routes>
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="/signup" element={<SignupPage />} />
+          <Route path="*" element={<p>Coming soon</p>} />
+        </Routes>
+      </Layout>
+    </BrowserRouter>
   )
 }
 

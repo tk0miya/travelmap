@@ -1,4 +1,5 @@
 import { fireEvent, render, screen } from '@testing-library/react'
+import { MemoryRouter } from 'react-router'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import SignupPage from './SignupPage.tsx'
 
@@ -22,7 +23,7 @@ function fillForm(email: string, password: string, confirmation: string) {
 }
 
 test('renders the form', () => {
-  render(<SignupPage />)
+  render(<SignupPage />, { wrapper: MemoryRouter })
 
   expect(screen.getByLabelText('Email')).toBeInTheDocument()
   expect(screen.getByLabelText('Password')).toBeInTheDocument()
@@ -39,7 +40,7 @@ test('shows the API key on a successful sign-up', async () => {
     new Response(JSON.stringify({ api_key: 'abc123' }), { status: 201 }),
   )
 
-  render(<SignupPage />)
+  render(<SignupPage />, { wrapper: MemoryRouter })
   fillForm(
     'alice@example.com',
     'correct horse battery',
@@ -69,7 +70,7 @@ test('shows the duplicate-email error under the email field', async () => {
     }),
   )
 
-  render(<SignupPage />)
+  render(<SignupPage />, { wrapper: MemoryRouter })
   fillForm(
     'alice@example.com',
     'correct horse battery',
@@ -88,7 +89,7 @@ test('shows the too-short-password error under the password field', async () => 
     ),
   )
 
-  render(<SignupPage />)
+  render(<SignupPage />, { wrapper: MemoryRouter })
   fillForm('alice@example.com', 'short', 'short')
 
   expect(
@@ -104,7 +105,7 @@ test('shows the mismatched-confirmation error under the confirmation field', asy
     ),
   )
 
-  render(<SignupPage />)
+  render(<SignupPage />, { wrapper: MemoryRouter })
   fillForm('alice@example.com', 'correct horse battery', 'something else')
 
   expect(
@@ -119,7 +120,7 @@ test('falls back to a generic message for a refusal naming none of the three fie
     }),
   )
 
-  render(<SignupPage />)
+  render(<SignupPage />, { wrapper: MemoryRouter })
   fillForm(
     'alice@example.com',
     'correct horse battery',

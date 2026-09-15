@@ -1,4 +1,5 @@
 import { type FormEvent, useState } from 'react'
+import { Link } from 'react-router'
 
 // stringField reads field out of a POST /travelmap/web/users response body —
 // api_key on success, or one of email_error/password_error/confirm_error on
@@ -127,7 +128,7 @@ function SignupPage() {
         <button type="submit">Sign up</button>
       </form>
       <p className="auth-links">
-        Already have an account? <a href="/login">Log in</a>
+        Already have an account? <Link to="/login">Log in</Link>
       </p>
     </div>
   )
