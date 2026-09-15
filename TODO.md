@@ -179,11 +179,12 @@ those columns from what a repeat write refreshes, leaving the first writer's ren
 
 ## Library Choices for the Web UI
 
-Sessions and CSRF are settled and already implemented; their rows moved to
-`docs/architecture.md`, which also covers the router and HTML rendering, for the reasoning that
-applies here as well. HTML rendering is implemented but not closed: the engine itself is being
-replaced by a React + TypeScript SPA, for the reason in "Technical Decisions" above — see
-Milestone H below for the conversion itself.
+Sessions and CSRF are settled and already implemented, and so is how the browser authenticates
+against `/api/v1`; the first two moved to `docs/architecture.md`, which also covers the router
+and HTML rendering for the reasoning that applies here as well, and the third to
+"Authentication" in `docs/api-notes.md`. HTML rendering is implemented but not
+closed: the engine itself is being replaced by a React + TypeScript SPA, for the reason in
+"Technical Decisions" above — see Milestone H below for the conversion itself.
 
 **Still open, for Milestone H's remaining screens**
 
@@ -198,27 +199,6 @@ Step 48 (and Milestone J's Steps 45 and 47, whose routes return server-rendered 
 today) need to be revisited as React pages fetching JSON — not done here, since this file's
 Milestone J section was authored by a different planning pass and reconciling its own routes is
 its own decision, not a side effect of Milestone H's.
-
-**Decided: how the browser authenticates against `/api/v1`**
-
-**The policy is to reuse the existing `/api/v1` rather than add UI-only data endpoints**
-(browser-specific actions such as signing in and out are their own resources under
-`/travelmap/web` instead — see Milestone H, and `docs/api-notes.md`'s own overview for why that
-path rather than bare `/api`), so the browser will also call `/api/v1/points` and friends
-directly.
-`/api/v1` accepts only Bearer / `api_key` today; the browser instead authenticates with **(a)**:
-
-- **(a) The `/api/v1` middleware also accepts the session cookie** — lets the SPA simply fetch.
-  Accepting cookies means `/api/v1` needs CSRF protection too, but Go 1.25's
-  `CrossOriginProtection` can be applied server-wide, so the added cost is small. Chosen over:
-  - (b) The UI calls handlers/store directly in-process — rejected, since it would change "reuse
-    the API" from reusing the HTTP API to reusing the implementation.
-  - (c) Hand the api_key to the UI at login and call with Bearer — rejected, since XSS would leak
-    the API key.
-
-**Milestone H's Step 40 implements this.** The session middleware already in place is what makes
-(a) cheap: accepting the cookie there is one more branch in `authenticate`, and
-`CrossOriginProtection` moves from the browser group up to the whole server in that same step.
 
 ## Distribution
 
@@ -376,11 +356,6 @@ sections below, which are not planned yet. It does not apply to Steps 37 to 43: 
 the four pages that already exist (`/`, `/login`, `/signup`, `/settings`) are built, and none of
 them depends on an API endpoint that is not already implemented.
 
-The Swarm link itself is done: its own section on the settings page, built directly against the
-browser session rather than `api_key` — see "Swarm OAuth linking" in `docs/architecture.md`. It
-added no data endpoint, which is what left "how the browser authenticates against `/api/v1`" open
-until Step 40 settles it (see "Library Choices for the Web UI").
-
 The map, statistics and settings screens keep their bullet form below. They are not planned yet,
 and writing a checklist for a screen whose rendering approach is undecided would be inventing the
 plan rather than recording it.
@@ -393,33 +368,13 @@ Milestone J's Steps 44 to 48 even though Milestone J was planned first** — a d
 to "a step's number says when it was planned, not when to take it" above, made so that handing
 off the next step to work on is as simple as naming the lowest open number.
 
-### Step 40: Session-cookie authentication for `/api/v1`
-
-- [ ] `/api/v1`'s `authenticate` middleware also accepts the session cookie, per "Library Choices
-      for the Web UI"'s decision (a)
-- [ ] Move `CrossOriginProtection` from the browser-only group to the whole server
-- [ ] `Header` calls the existing `GET /api/v1/users/me` to learn whether the browser is signed
-      in and as whom, replacing the hard-coded value from Step 38
-- [ ] Move "Library Choices for the Web UI"'s "Decided: how the browser authenticates against
-      `/api/v1`" write-up into `docs/architecture.md`, now that this step implements it
-
-**Settles**: the open question in "Library Choices for the Web UI" — this is the step that
-implements it, for every future screen that reads `/api/v1` data, not only the ones below. The
-first page to actually gate itself on this is Step 41, since no page converted so far needs to
-tell a signed-in browser from a signed-out one.
-
-**Done when**: the `Header` shows the "Settings" link once `/api/v1/users/me` reports a
-signed-in user, and an existing `/api/v1/points` test passes with the session cookie standing in
-for `api_key`.
-
 ### Step 41: Home page
 
 - [ ] Remove `r.Get("/", a.index)`, so Step 37's catch-all serves `/` instead
 - [ ] A shared "requires a signed-in browser" route wrapper, redirecting to `/login` client-side
-      when Step 40's auth state reports signed-out — the first protected page needs this, and
-      Step 42 reuses it rather than each page writing its own check
-- [ ] React `HomePage`: "Signed in as {email}", using Step 40's auth state rather than rendering
-      it server-side
+      when `useAuth` reports signed-out — the first protected page needs this, and Step 42
+      reuses it rather than each page writing its own check
+- [ ] React `HomePage`: "Signed in as {email}", from `useAuth` rather than rendered server-side
 
 **Done when**: the page shows the signed-in address without a dedicated data endpoint for it,
 and a signed-out visit to `/` redirects to `/login` client-side.
@@ -455,8 +410,8 @@ green with the React test suite as the only thing covering page-state branches.
 ### Still to plan
 
 - [ ] Map screen (render points / tracks for a selected time range), reusing the existing
-      `GET /api/v1/points` and `/tracks` without adding UI-only APIs — Step 40 has already
-      settled how it authenticates those calls. The map library itself is picked and vendored
+      `GET /api/v1/points` and `/tracks` without adding UI-only APIs, which the session cookie
+      those endpoints accept already allows. The map library itself is picked and vendored
       into `embed.FS` by Milestone J's Step 48; if this screen is taken first, it does that
       instead
 - [ ] Statistics screen (using `daily_stats`)
@@ -577,7 +532,7 @@ the failure path return 500.
 
 - [ ] `GET /trips`, `GET /trips/new`, `POST /trips`, `GET /trips/{id}`,
       `GET /trips/{id}/edit`, `POST /trips/{id}` and `POST /trips/{id}/delete`, in the browser
-      group so they carry the session and CSRF middleware. The form gets its own two GETs
+      group so they carry the session middleware. The form gets its own two GETs
       rather than being embedded: `GET /trips/{id}` is the timeline screen from Step 47, and
       putting an edit form on it would make that screen mean two things
 - [ ] The pages those routes render: the trip list, and the form that creates and edits one.
@@ -643,9 +598,9 @@ row supplies; and a day with check-ins but no points still renders.
       server-rendered page, which no longer fits once Milestone H's Step 37 makes the served
       page a static SPA shell. Once Steps 45 and 47's own routes are reconciled with that shell
       (see "Library Choices for the Web UI"), pick how this screen fetches its route — through
-      `/api/v1/points` (Milestone H's Step 40 covers authenticating a browser against it) or a
-      travelmap-own resource under `/travelmap/web` — as this step's own decision, not inherited
-      from Milestone H
+      `/api/v1/points`, which a browser can already authenticate against with its session
+      cookie, or a travelmap-own resource under `/travelmap/web` — as this step's own decision,
+      not inherited from Milestone H
 - [ ] Pick the map library from "Library Choices for the Web UI" and vendor it into `embed.FS`,
       for Milestone H's own map screen as well as this one
 - [ ] Build the map as a React component, using the toolchain Milestone H's Step 37 sets up —

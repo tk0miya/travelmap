@@ -1,7 +1,7 @@
 # Architecture
 
 Why travelmap is built the way it is: the technical decisions already implemented, and why chi is
-the router even before a web UI exists to need it.
+the router.
 
 A subsection here is one decision and the part of its rationale that has no other home. Where the
 same ground is already covered by a schema.sql/migration comment, a package's own comment, or
@@ -91,10 +91,12 @@ only resolving `next` the way a navigation would catches all of them at once.
 
 ### Browser CSRF
 
-Standard `net/http.CrossOriginProtection`, on the browser routes only. Present in the toolchain
-`go.mod` already names (`go 1.26.6`), and its `Handler` is a plain
-`func(http.Handler) http.Handler`, so this costs no dependency, which is what needed confirming
-before it could be chosen. `/api/v1` keeps Bearer / `api_key` only and needs none.
+Standard `net/http.CrossOriginProtection`, over the whole server rather than the browser routes
+alone, since a route that accepts a cookie is a route a cross-origin form can drive — why that
+costs the routes taking no cookie nothing is commented where it is installed, in
+`internal/httpapi/router.go`. Present in the toolchain `go.mod` already names (`go 1.26.6`), and
+its `Handler` is a plain `func(http.Handler) http.Handler`, so this costs no dependency, which
+is what needed confirming before it could be chosen.
 
 ### Swarm check-ins
 
@@ -160,11 +162,13 @@ statistics precomputation) are in `internal/store/sqlite/schema.sql`'s own comme
 ## Router
 
 Since Go 1.22 `ServeMux` supports methods and wildcards, so the standard library would be enough
-for an API server on its own. But a web UI is planned, and once it exists there are **two
-authentication schemes**:
+for an API server on its own. But the web UI beside it means **two middleware chains**, one per
+prefix:
 
-- `/api/v1/*` — `api_key` query / Bearer token (mobile app)
-- `/*` — Cookie session + CSRF (browser)
+- `/api/v1/*` — a credential resolved from the request (`api_key` query, Bearer token, or the
+  browser's session cookie), and Dawarich's own response headers
+- the browser's own routes — the session, and a redirect to `/login` rather than a refusal on
+  the ones a signed-out visitor cannot use
 
 `ServeMux` has **no mechanism for attaching a different middleware chain per prefix**, so that
 would have to be hand-written. chi's `Route` / `Group` exist for exactly this, and since
@@ -173,13 +177,14 @@ everything is a plain `http.Handler`, nothing breaks when more is added later. c
 
 ```go
 r := chi.NewRouter()
+r.Use(csrf.Protect)         // server-wide, see "Browser CSRF" above
 r.Route("/api/v1", func(r chi.Router) {
-    r.Use(auth.APIKey)      // Bearer / api_key
+    r.Use(session.Load, auth.Credential)
     ...
 })
 r.Group(func(r chi.Router) {
-    r.Use(session.Load, csrf.Protect)  // browser
-    r.Handle("/*", webui.Handler())
+    r.Use(session.Load, session.User)   // browser
+    r.Get("/settings", ...)
 })
 ```
 

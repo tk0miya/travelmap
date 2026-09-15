@@ -16,12 +16,22 @@ info:
     is the compatibility source of truth for the Dawarich-compatible
     part.
 
+
+    Every unsafe request — anything but GET, HEAD or OPTIONS, on any path
+    below — is additionally answered `403` when it arrives as a
+    cross-origin browser request, meaning its `Sec-Fetch-Site` says so or
+    its `Origin` disagrees with `Host`. A request carrying neither header
+    is taken for a non-browser one and allowed, so no device client is
+    affected. It is stated once here rather than on each operation,
+    because it is a property of the server rather than of any endpoint.
+
 servers:
   - url: /
 
 security:
   - ApiKeyQuery: []
   - BearerAuth: []
+  - SessionCookie: []
 
 paths:
   /api/v1/health:
@@ -705,6 +715,16 @@ components:
       description: >
         `Authorization: Bearer <api_key>`. Accepted on every endpoint here,
         regardless of which one upstream's own spec documents it for.
+    SessionCookie:
+      type: apiKey
+      in: cookie
+      name: session
+      description: >
+        The session cookie a browser already holds, so that travelmap's own
+        web UI reads this API without being handed an `api_key` that an XSS
+        could then steal. travelmap's own, not part of the Dawarich
+        contract. A request carrying a key as well is that key's user; a key
+        naming nobody falls back to this.
 
   parameters:
     StartAt:
