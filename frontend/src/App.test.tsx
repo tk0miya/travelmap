@@ -19,3 +19,11 @@ test('renders the login page at /login', () => {
 
   expect(screen.getByRole('heading', { name: 'Log in' })).toBeInTheDocument()
 })
+
+test('renders the signup page at /signup', () => {
+  window.history.pushState({}, '', '/signup')
+
+  render(<App />)
+
+  expect(screen.getByRole('heading', { name: 'Sign up' })).toBeInTheDocument()
+})

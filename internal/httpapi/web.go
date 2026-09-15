@@ -22,7 +22,6 @@ func pageTemplate(name string) *template.Template {
 
 var (
 	indexTemplate    = pageTemplate("index.html")
-	signupTemplate   = pageTemplate("signup.html")
 	settingsTemplate = pageTemplate("settings.html")
 )
 

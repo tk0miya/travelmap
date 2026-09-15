@@ -9,7 +9,7 @@ const embedOutDir = '../internal/httpapi/frontend/dist'
 // The dev server serves the frontend's own module graph itself; a page
 // still built from html/template is proxied to
 // `go run ./cmd/travelmap serve` instead of 404ing. Converting a page to
-// React removes its own entry here — /login is gone already.
+// React removes its own entry here — /login and /signup are gone already.
 const backend = 'http://localhost:3000'
 
 export default defineConfig({
@@ -23,7 +23,6 @@ export default defineConfig({
       '/api': backend,
       '/travelmap': backend,
       '/webhooks': backend,
-      '/signup': backend,
       '/settings': backend,
     },
   },

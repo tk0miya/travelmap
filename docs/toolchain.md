@@ -95,9 +95,8 @@ under `vitest`'s `jsdom` environment for the component tests CLAUDE.md's "Testin
 describes.
 
 **The dev server proxies every path it does not itself serve to `go run ./cmd/travelmap serve`**
-(`vite.config.ts`'s `server.proxy`) — `/api`, `/webhooks`, and each page still built from
-`html/template` (`/signup`, gated behind nothing, and `/settings`, gated behind a session). `/` is
-not proxied even though it is also still `html/template` today: Vite always serves its own
-`index.html` there, and there is nothing behind it yet worth reaching by proxy instead. A frontend
-change is visible without a Go rebuild, and a not-yet-converted page still renders through the
-proxy.
+(`vite.config.ts`'s `server.proxy`) — `/api`, `/travelmap`, `/webhooks`, and `/settings`, the one
+remaining page still built from `html/template`, gated behind a session. `/` is not proxied even
+though it is also still `html/template` today: Vite always serves its own `index.html` there, and
+there is nothing behind it yet worth reaching by proxy instead. A frontend change is visible
+without a Go rebuild, and a not-yet-converted page still renders through the proxy.

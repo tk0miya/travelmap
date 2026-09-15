@@ -191,8 +191,7 @@ func (a *api) newRouter() http.Handler {
 
 		r.Post("/travelmap/web/session", a.createSession)
 		r.Delete("/travelmap/web/session", a.deleteSession)
-		r.Get("/signup", a.signupPage)
-		r.Post("/signup", a.signupSubmit)
+		r.Post("/travelmap/web/users", a.createUser)
 
 		// Every route a signed-out visitor cannot use at all, gated behind
 		// one shared redirect-to-login rather than each handler checking for

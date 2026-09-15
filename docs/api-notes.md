@@ -10,9 +10,8 @@ This explains travelmap's API, served across namespaces distinguished by client 
   "feature unsupported" (see "An endpoint this server does not implement answers 404" below), and
   a travelmap-own path there would make that signal meaningless. See "Dawarich compatibility"
   below.
-- **`/travelmap/web`** — travelmap's own, for the browser's own JSON actions (signing in and out
-  today), authenticated by the session cookie rather than `api_key`. See "The browser's own Web
-  API" below.
+- **`/travelmap/web`** — travelmap's own, for the browser's own JSON actions, authenticated by the
+  session cookie rather than `api_key`. See "The browser's own Web API" below.
 - **`/travelmap/api`** — reserved, not yet built, for a future token-authenticated API of
   travelmap's own, for a client that is not a browser (a native app, say). It would reuse the
   `api_key`/Bearer mechanism `/api/v1` already has rather than inventing a second one, and it is

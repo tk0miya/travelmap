@@ -603,6 +603,58 @@ paths:
               example:
                 error: internal server error
 
+  /travelmap/web/users:
+    post:
+      summary: Sign up as a browser
+      description: >
+        Creates an account and signs the browser in: a session cookie is set,
+        matching POST /travelmap/web/session, and the new account's api_key
+        is returned in the body.
+      operationId: createUser
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateUserRequest"
+      responses:
+        "201":
+          description: >
+            The account was created. The session cookie is set via
+            Set-Cookie.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateUserResponse"
+        "400":
+          description: The request body could not be read as the shape this endpoint expects.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: invalid request body
+        "422":
+          description: >
+            The submission was refused: an invalid email address, a password
+            outside bounds, a confirmation that does not match the password,
+            or an email already registered. At most one field is ever set.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateUserError"
+              example:
+                email_error: already registered
+        "500":
+          description: The server could not do what was asked.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: internal server error
+
   /webhooks/foursquare:
     post:
       summary: Swarm (Foursquare) User Push notification
@@ -1183,6 +1235,39 @@ components:
         email:
           type: string
         password:
+          type: string
+
+    CreateUserRequest:
+      type: object
+      description: The body of POST /travelmap/web/users.
+      properties:
+        email:
+          type: string
+        password:
+          type: string
+        password_confirmation:
+          type: string
+
+    CreateUserResponse:
+      type: object
+      description: The 201 body of POST /travelmap/web/users.
+      required:
+        - api_key
+      properties:
+        api_key:
+          type: string
+
+    CreateUserError:
+      type: object
+      description: >
+        The 422 body of POST /travelmap/web/users. At most one field is ever set, since
+        validation stops at the first failure.
+      properties:
+        email_error:
+          type: string
+        password_error:
+          type: string
+        confirm_error:
           type: string
 
     Login:
