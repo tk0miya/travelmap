@@ -1,4 +1,5 @@
 import { BrowserRouter, Route, Routes } from 'react-router'
+import AuthProvider from './auth.tsx'
 import Layout from './Layout.tsx'
 import LoginPage from './LoginPage.tsx'
 import SignupPage from './SignupPage.tsx'
@@ -11,13 +12,15 @@ import SignupPage from './SignupPage.tsx'
 function App() {
   return (
     <BrowserRouter>
-      <Layout>
-        <Routes>
-          <Route path="/login" element={<LoginPage />} />
-          <Route path="/signup" element={<SignupPage />} />
-          <Route path="*" element={<p>Coming soon</p>} />
-        </Routes>
-      </Layout>
+      <AuthProvider>
+        <Layout>
+          <Routes>
+            <Route path="/login" element={<LoginPage />} />
+            <Route path="/signup" element={<SignupPage />} />
+            <Route path="*" element={<p>Coming soon</p>} />
+          </Routes>
+        </Layout>
+      </AuthProvider>
     </BrowserRouter>
   )
 }

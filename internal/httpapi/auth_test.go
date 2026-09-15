@@ -1,6 +1,7 @@
 package httpapi_test
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"strings"
@@ -9,6 +10,8 @@ import (
 	"github.com/google/go-cmp/cmp"
 
 	"github.com/tk0miya/travelmap/internal/httpapi"
+	"github.com/tk0miya/travelmap/internal/model"
+	"github.com/tk0miya/travelmap/internal/store/storetest"
 )
 
 // bearer is the Authorization header value carrying key.
@@ -372,5 +375,125 @@ func TestAStoreFailureIsNotA401(t *testing.T) {
 				t.Errorf("headers differ (-want +got):\n%s", diff)
 			}
 		})
+	}
+}
+
+// TestAPIAcceptsASessionCookie covers the browser reading /api/v1 with the
+// cookie it already holds, rather than being handed an api_key to call with:
+// a key in the page is a key an XSS can take, while the cookie is HttpOnly.
+func TestAPIAcceptsASessionCookie(t *testing.T) {
+	t.Parallel()
+
+	srv := newTestServer(t)
+	token := loginCookie(t, srv, testEmail)
+
+	resp := do(t, srv, http.MethodGet, "/api/v1/users/me", withSession(token))
+
+	if resp.status != http.StatusOK {
+		t.Fatalf("status = %d, want %d (body %q)", resp.status, http.StatusOK, resp.body)
+	}
+
+	if !bytes.Contains(resp.body, []byte(testEmail)) {
+		t.Errorf("body = %q, want it to name %s", resp.body, testEmail)
+	}
+}
+
+// TestAPIPointsAcceptsASessionCookie is the same for a data route rather than
+// the account one, since reusing /api/v1 for the SPA's own reads is the whole
+// point of accepting the cookie.
+func TestAPIPointsAcceptsASessionCookie(t *testing.T) {
+	t.Parallel()
+
+	st := storetest.NewWithPoints(t, []model.User{testUser(t)}, twoTestPoints(testUser(t).ID))
+	srv := newTestServerWith(t, st)
+	token := loginCookie(t, srv, testEmail)
+
+	resp := do(t, srv, http.MethodGet, "/api/v1/points", withSession(token))
+
+	if resp.status != http.StatusOK {
+		t.Fatalf("status = %d, want %d (body %q)", resp.status, http.StatusOK, resp.body)
+	}
+
+	assertGolden(t, "points_listed.json", resp.body)
+}
+
+// TestAPIKeyWinsOverASessionCookie pins which credential answers when a
+// request carries both, which is what a browser calling with an explicit key
+// would do.
+func TestAPIKeyWinsOverASessionCookie(t *testing.T) {
+	t.Parallel()
+
+	st := storetest.New(t, testUser(t), otherUser(t))
+	srv := newTestServerWith(t, st)
+	token := loginCookie(t, srv, testEmail)
+
+	resp := do(t, srv, http.MethodGet, "/api/v1/users/me",
+		withSession(token),
+		bearer(otherUserAPIKey))
+
+	if resp.status != http.StatusOK {
+		t.Fatalf("status = %d, want %d (body %q)", resp.status, http.StatusOK, resp.body)
+	}
+
+	if !bytes.Contains(resp.body, []byte(otherUser(t).Email)) {
+		t.Errorf("body = %q, want the key's own account (%s)", resp.body, otherUser(t).Email)
+	}
+}
+
+// TestSessionCookieAnswersWhenTheKeyNamesNobody pins the other half of that
+// order: a key resolving to no account leaves the request to the cookie,
+// rather than making a signed-in browser anonymous.
+func TestSessionCookieAnswersWhenTheKeyNamesNobody(t *testing.T) {
+	t.Parallel()
+
+	srv := newTestServer(t)
+	token := loginCookie(t, srv, testEmail)
+
+	resp := do(t, srv, http.MethodGet, "/api/v1/users/me",
+		withSession(token),
+		bearer("no-such-key"))
+
+	if resp.status != http.StatusOK {
+		t.Fatalf("status = %d, want %d (body %q)", resp.status, http.StatusOK, resp.body)
+	}
+
+	if !bytes.Contains(resp.body, []byte(testEmail)) {
+		t.Errorf("body = %q, want it to name %s", resp.body, testEmail)
+	}
+}
+
+// TestAPIRejectsACrossSiteWrite pins that CrossOriginProtection reaches
+// /api/v1 now that a cookie authenticates it: without this, any page on the
+// internet could drive a write against a signed-in browser's own account.
+func TestAPIRejectsACrossSiteWrite(t *testing.T) {
+	t.Parallel()
+
+	srv := newTestServer(t)
+	token := loginCookie(t, srv, testEmail)
+
+	resp := do(t, srv, http.MethodPost, "/api/v1/points",
+		withSession(token),
+		withBody(`{"locations":[]}`),
+		withHeader("Sec-Fetch-Site", "cross-site"))
+
+	if resp.status != http.StatusForbidden {
+		t.Errorf("status = %d, want %d", resp.status, http.StatusForbidden)
+	}
+}
+
+// TestAPIKeyWriteIsNotCrossSite pins the cost of that protection on the
+// clients it is not for: a Dawarich app sends neither Sec-Fetch-Site nor
+// Origin, which CrossOriginProtection takes for a non-browser request and
+// allows.
+func TestAPIKeyWriteIsNotCrossSite(t *testing.T) {
+	t.Parallel()
+
+	srv := newTestServer(t)
+
+	resp := do(t, srv, http.MethodPost, "/api/v1/points?api_key="+testAPIKey,
+		withBody(`{"locations":[]}`))
+
+	if resp.status != http.StatusOK {
+		t.Errorf("status = %d, want %d", resp.status, http.StatusOK)
 	}
 }

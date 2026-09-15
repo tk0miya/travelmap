@@ -58,27 +58,40 @@ func (a *api) startSession(w http.ResponseWriter, r *http.Request, user model.Us
 	return true
 }
 
-// loadSessionUser resolves the user id a session carries, if any, and puts
-// the user it names on the request context, the way authenticate does for
-// /api/v1. A handler reads it back with userFrom regardless of which chain it
-// sits behind.
+// sessionUser returns the user the request's session names, and whether it
+// named one at all. A session carrying no user id, and one naming a user that
+// no longer exists, are both simply nobody: only a store that could not be
+// read is an error, and it is this server's fault rather than the request's.
+//
+// Both chains that accept a cookie read the session through here — this one
+// for the browser's own pages, [api.authenticate] for /api/v1 — so that what
+// a cookie resolves to cannot come to differ between them. What they do with
+// the error differs, which is why it is returned rather than answered here.
+func (a *api) sessionUser(r *http.Request) (model.User, bool, error) {
+	id := a.sessions.GetInt64(r.Context(), sessionUserIDKey)
+	if id == 0 {
+		return model.User{}, false, nil
+	}
+
+	user, err := a.store.Users().ByID(r.Context(), id)
+
+	switch {
+	case errors.Is(err, store.ErrNotFound):
+		return model.User{}, false, nil
+	case err != nil:
+		return model.User{}, false, err
+	}
+
+	return user, true, nil
+}
+
+// loadSessionUser resolves the user a session carries, if any, and puts it on
+// the request context, the way authenticate does for /api/v1. A handler reads
+// it back with userFrom regardless of which chain it sits behind.
 func (a *api) loadSessionUser(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		id := a.sessions.GetInt64(r.Context(), sessionUserIDKey)
-		if id == 0 {
-			next.ServeHTTP(w, r)
-
-			return
-		}
-
-		user, err := a.store.Users().ByID(r.Context(), id)
-
-		switch {
-		case errors.Is(err, store.ErrNotFound):
-			next.ServeHTTP(w, r)
-
-			return
-		case err != nil:
+		user, ok, err := a.sessionUser(r)
+		if err != nil {
 			// A database that cannot be read is not a session that failed to
 			// resolve: answering as signed out would send someone looking for
 			// a session that expired while the actual fault is here.
@@ -88,6 +101,12 @@ func (a *api) loadSessionUser(next http.Handler) http.Handler {
 				"error", err,
 			)
 			a.writeError(w, r, http.StatusInternalServerError, "internal server error")
+
+			return
+		}
+
+		if !ok {
+			next.ServeHTTP(w, r)
 
 			return
 		}
