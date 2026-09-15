@@ -1,8 +1,18 @@
 import { fireEvent, render, screen } from '@testing-library/react'
-import { afterEach, expect, test } from 'vitest'
+import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import App from './App.tsx'
 
+// The shell asks who the browser is as soon as it mounts; these tests are
+// about routing, so every one of them answers nobody.
+beforeEach(() => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn().mockResolvedValue(new Response('', { status: 401 })),
+  )
+})
+
 afterEach(() => {
+  vi.unstubAllGlobals()
   window.history.pushState({}, '', '/')
 })
 

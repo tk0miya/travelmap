@@ -3,13 +3,13 @@
 This explains travelmap's API, served across namespaces distinguished by client and credential:
 
 - **`/api/v1`** — a subset compatible with [Dawarich](https://github.com/Freika/dawarich)'s own
-  API, for any client built for the Dawarich mobile app, authenticated with `api_key`. This path
-  mirrors Dawarich's own, not a version travelmap chose, so it — and any `/api/v2` upstream itself
-  might ship one day — is reserved for upstream's own version sequence, never a travelmap-own
-  resource: Dawarich has no version negotiation, so a client reads a 404 under `/api/v1` as
-  "feature unsupported" (see "An endpoint this server does not implement answers 404" below), and
-  a travelmap-own path there would make that signal meaningless. See "Dawarich compatibility"
-  below.
+  API, for any client built for the Dawarich mobile app, authenticated with `api_key` — or, for
+  travelmap's own web UI, with the session cookie instead. This path mirrors Dawarich's own, not
+  a version travelmap chose, so it — and any `/api/v2` upstream itself might ship one day — is
+  reserved for upstream's own version sequence, never a travelmap-own resource: Dawarich has no
+  version negotiation, so a client reads a 404 under `/api/v1` as "feature unsupported" (see
+  "An endpoint this server does not implement answers 404" below), and a travelmap-own path
+  there would make that signal meaningless. See "Dawarich compatibility" below.
 - **`/travelmap/web`** — travelmap's own, for the browser's own JSON actions, authenticated by the
   session cookie rather than `api_key`. See "The browser's own Web API" below.
 - **`/travelmap/api`** — reserved, not yet built, for a future token-authenticated API of
@@ -49,6 +49,22 @@ on every endpoint. Upstream's own spec documents only one of the two per endpoin
 community Android client sends `Authorization: Bearer` on everything, including
 `/api/v1/points`, which the spec documents as query-only — so the spec's per-endpoint split does
 not reflect what clients actually do.
+
+travelmap accepts a third credential upstream has no equivalent for: the browser's own session
+cookie. The web UI reads this API with the cookie it already holds, so it reuses the endpoints a
+Dawarich client calls rather than growing a second, UI-only set beside them — which is why
+`/travelmap/web` holds only the actions no Dawarich endpoint can stand in for, signing in
+included since `POST /api/v1/auth/login` hands back an `api_key` rather than a cookie, and no
+data endpoint at all. What the UI is deliberately not handed is a key to authenticate with: an
+`api_key` that reaches JavaScript is one an XSS can read and keep, where an `HttpOnly` cookie is
+confined to the browser holding it. Which of the two wins where a request carries both is
+commented on `authenticate` in `internal/httpapi/auth.go`.
+
+Accepting a cookie is also what puts a CSRF check on `/api/v1`, which upstream has none of: an
+unsafe request presenting itself as a cross-origin browser one is refused `403`, under the terms
+`docs/openapi.yaml`'s own overview states. A caller sending neither `Origin` nor
+`Sec-Fetch-Site` — every device client — is answered exactly as before; one that sets `Origin`
+itself is not, which is the one way this is a difference rather than an addition.
 
 ### `GET /api/v1/health`
 

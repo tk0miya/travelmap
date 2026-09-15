@@ -33,19 +33,27 @@ func userFrom(ctx context.Context) (model.User, bool) {
 // authenticate resolves the credentials a request carries, if any, and puts
 // the user it names on the request context.
 //
+// Two credentials reach here. A Dawarich client sends an api_key; the browser
+// sends the session cookie instead, so that the SPA can read /api/v1 without
+// being handed a key an XSS could then steal. The key is preferred where a
+// request somehow carries both, since it is the one naming this API's own
+// caller — but a key that resolves to nobody falls through to the cookie
+// rather than overriding it, because a request that carries a valid session is
+// signed in whatever else it carries.
+//
 // It refuses no request for failing to authenticate: /api/v1/health answers
 // either way and says which in its X-Dawarich-Response header, POST
 // /api/v1/auth/login is how a client gets a key in the first place, and every
-// other route is behind [requireUser]. A key that names no user is therefore
-// not an error here — it simply leaves the request unauthenticated. The one
-// request this does answer itself is the one whose key could not be looked up
-// at all, which is the server's fault rather than the client's and is answered
-// as one on every route.
+// other route is behind [requireUser]. A credential that names no user is
+// therefore not an error here — it simply leaves the request unauthenticated.
+// The one request this does answer itself is the one whose credential could
+// not be looked up at all, which is the server's fault rather than the
+// client's and is answered as one on every route.
 func (a *api) authenticate(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		key := apiKeyFrom(r)
 		if key == "" {
-			next.ServeHTTP(w, r)
+			a.authenticateBySession(w, r, next)
 
 			return
 		}
@@ -54,7 +62,7 @@ func (a *api) authenticate(next http.Handler) http.Handler {
 
 		switch {
 		case errors.Is(err, store.ErrNotFound):
-			next.ServeHTTP(w, r)
+			a.authenticateBySession(w, r, next)
 
 			return
 		case err != nil:
@@ -77,6 +85,35 @@ func (a *api) authenticate(next http.Handler) http.Handler {
 
 		next.ServeHTTP(w, r.WithContext(withUser(r.Context(), user)))
 	})
+}
+
+// authenticateBySession is [api.authenticate]'s second credential: the session
+// cookie the browser already holds. It answers the request itself only when
+// the store could not be read, which it reports the way authenticate does —
+// Dawarich headers included, since the middleware that sets them sits behind
+// this one and never runs on that path.
+func (a *api) authenticateBySession(w http.ResponseWriter, r *http.Request, next http.Handler) {
+	user, ok, err := a.sessionUser(r)
+	if err != nil {
+		a.logger.Error("looking up the session's user failed",
+			"method", r.Method,
+			"path", r.URL.Path,
+			"error", err,
+		)
+
+		setDawarichHeaders(w, false)
+		a.writeError(w, r, http.StatusInternalServerError, "internal server error")
+
+		return
+	}
+
+	if !ok {
+		next.ServeHTTP(w, r)
+
+		return
+	}
+
+	next.ServeHTTP(w, r.WithContext(withUser(r.Context(), user)))
 }
 
 // requireUser answers a request that did not authenticate, so that the
