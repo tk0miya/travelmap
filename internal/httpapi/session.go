@@ -14,7 +14,7 @@ import (
 )
 
 // sessionUserIDKey is the scs session key the signed-in user's id is stored
-// under. createSession is what writes it.
+// under. [api.startSession] is what writes it.
 const sessionUserIDKey = "user_id"
 
 // newSessionManager builds the scs.SessionManager the browser group loads and
@@ -37,6 +37,25 @@ func newSessionManager(st store.Store, lifetime time.Duration, cookieSecure bool
 	sm.Cookie.Secure = cookieSecure
 
 	return sm
+}
+
+// startSession signs the browser in as user, writing an error response and
+// reporting false if that fails.
+//
+// The token is renewed before the user id goes into the session: one minted
+// before the browser authenticated must not still be the one it holds
+// afterwards.
+func (a *api) startSession(w http.ResponseWriter, r *http.Request, user model.User) bool {
+	if err := a.sessions.RenewToken(r.Context()); err != nil {
+		a.logger.Error("renewing the session token failed", "user_id", user.ID, "error", err)
+		a.writeError(w, r, http.StatusInternalServerError, "internal server error")
+
+		return false
+	}
+
+	a.sessions.Put(r.Context(), sessionUserIDKey, user.ID)
+
+	return true
 }
 
 // loadSessionUser resolves the user id a session carries, if any, and puts

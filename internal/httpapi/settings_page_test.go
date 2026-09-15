@@ -312,8 +312,10 @@ func TestFoursquareDisconnectStoreFailure(t *testing.T) {
 // TestHeaderLinksToSettingsWhenSignedIn covers that a signed-in visitor is
 // shown the way to the settings page from anywhere — settingsPage itself
 // decides what a visitor sees there, so the header link no longer depends on
-// whether Foursquare is configured. A signed-out visitor is not shown it at
-// all, since /settings would just send them on to /login.
+// whether Foursquare is configured. There is no longer a signed-out half to
+// this test: every remaining html/template page (/ and /settings) is behind
+// requireSessionUser, so pageHeader.SignedIn is never false for a page this
+// server still renders that way.
 func TestHeaderLinksToSettingsWhenSignedIn(t *testing.T) {
 	t.Parallel()
 
@@ -323,13 +325,5 @@ func TestHeaderLinksToSettingsWhenSignedIn(t *testing.T) {
 	signedInResp := do(t, srv, http.MethodGet, "/", withSession(token))
 	if !bytes.Contains(signedInResp.body, []byte(`href="/settings"`)) {
 		t.Errorf("body = %q, want a header link to /settings for a signed-in visitor", signedInResp.body)
-	}
-
-	// /login itself is the frontend's own SPA shell now, not a page
-	// base.html renders — /signup is the base.html page still reachable
-	// signed out.
-	signedOutResp := do(t, srv, http.MethodGet, "/signup")
-	if bytes.Contains(signedOutResp.body, []byte(`href="/settings"`)) {
-		t.Errorf("body = %q, want no header link to /settings for a signed-out visitor", signedOutResp.body)
 	}
 }

@@ -64,16 +64,9 @@ func (a *api) createSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Before the user id goes into the session: a token minted before the
-	// browser authenticated must not still be the one it holds afterwards.
-	if err := a.sessions.RenewToken(r.Context()); err != nil {
-		a.logger.Error("renewing the session token failed", "user_id", user.ID, "error", err)
-		a.writeError(w, r, http.StatusInternalServerError, "internal server error")
-
+	if !a.startSession(w, r, user) {
 		return
 	}
-
-	a.sessions.Put(r.Context(), sessionUserIDKey, user.ID)
 
 	w.WriteHeader(http.StatusCreated)
 }

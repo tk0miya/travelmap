@@ -393,19 +393,6 @@ Milestone J's Steps 44 to 48 even though Milestone J was planned first** — a d
 to "a step's number says when it was planned, not when to take it" above, made so that handing
 off the next step to work on is as simple as naming the lowest open number.
 
-### Step 39: Sign up
-
-- [ ] `POST /signup` becomes `POST /travelmap/web/users` — a new resource, matching Step 38's
-      naming
-- [ ] Remove `r.Get("/signup", a.signupPage)`, so Step 37's catch-all serves `/signup` instead
-- [ ] React `SignupPage`: the form, the three field-level errors (`EmailError`/`PasswordError`/
-      `ConfirmError`), and the API-key confirmation screen after `Done`
-- [ ] Rewrite `signup_page_test.go`/`signup_page_internal_test.go` against the JSON contract; add
-      `SignupPage.test.tsx` covering all four terminal states
-
-**Done when**: each of the four states (success, duplicate email, short password, mismatched
-confirmation) is independently testable and matches today's message text.
-
 ### Step 40: Session-cookie authentication for `/api/v1`
 
 - [ ] `/api/v1`'s `authenticate` middleware also accepts the session cookie, per "Library Choices
@@ -440,7 +427,8 @@ and a signed-out visit to `/` redirects to `/login` client-side.
 ### Step 42: Settings page
 
 - [ ] `POST /settings/foursquare/disconnect` becomes `DELETE /travelmap/web/foursquare_account`,
-      matching Step 38/39's resource naming
+      matching the resource naming `/travelmap/web/session` and `/travelmap/web/users` already
+      established
 - [ ] Remove `r.Get("/settings", a.settingsPage)`, so Step 37's catch-all serves `/settings`
       instead, behind Step 41's route wrapper
 - [ ] React `SettingsPage`: linked/unlinked states, the disconnect button. "Connect" stays a
@@ -790,12 +778,13 @@ on a map, and deployment is still one binary plus one SQLite file.
   `foursquare_user_id`'s job. Deriving a user from the secret would break the moment a second
   person connects.
 - **No rate limiting anywhere a request computes bcrypt: `POST /api/v1/auth/login`, the browser's
-  own `/login`, and `/signup` all let a caller ask as many times as they like.** Each spends one
-  bcrypt hash per request and refuses a wrong password (or an email already taken) at the same
-  cost as a right one, which narrows the attack to throughput rather than timing, but nothing here
-  bounds that throughput itself — a caller can simply keep asking. `auth.Register` hashes the
-  password before checking whether the email is taken, so a `/signup` repeated against an existing
-  address still pays the full cost every time. None of this bites on a LAN or behind a reverse
+  own `POST /travelmap/web/session`, and `POST /travelmap/web/users` all let a caller ask as many
+  times as they like.** Each spends one bcrypt hash per request and refuses a wrong password (or
+  an email already taken) at the same cost as a right one, which narrows the attack to throughput
+  rather than timing, but nothing here bounds that throughput itself — a caller can simply keep
+  asking. `auth.Register` hashes the password before checking whether the email is taken, so a
+  sign-up repeated against an existing address still pays the full cost every time. None of this
+  bites on a LAN or behind a reverse
   proxy that authenticates first, which is how a personal instance is normally run; it bites on
   one published to the internet, which the Swarm push webhook — already shipped — is a reason to
   do. Unmitigated today; adding a per-address or per-account attempt limiter is new work with no

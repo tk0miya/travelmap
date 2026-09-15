@@ -5,7 +5,6 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"strings"
 	"testing"
 
@@ -147,18 +146,6 @@ func doNoRedirect(t *testing.T, srv *httptest.Server, method, path string, opts 
 	}
 
 	return response{status: resp.StatusCode, header: resp.Header, body: body}
-}
-
-// withForm sends values as an application/x-www-form-urlencoded request
-// body, the way the signup form itself submits.
-func withForm(values url.Values) requestOption {
-	body := values.Encode()
-
-	return func(r *http.Request) {
-		r.Body = io.NopCloser(strings.NewReader(body))
-		r.ContentLength = int64(len(body))
-		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	}
 }
 
 func TestHealth(t *testing.T) {
