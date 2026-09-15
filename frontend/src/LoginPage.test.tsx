@@ -1,4 +1,5 @@
 import { fireEvent, render, screen } from '@testing-library/react'
+import { MemoryRouter } from 'react-router'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import LoginPage from './LoginPage.tsx'
 
@@ -15,7 +16,7 @@ afterEach(() => {
 })
 
 test('renders the form', () => {
-  render(<LoginPage />)
+  render(<LoginPage />, { wrapper: MemoryRouter })
 
   expect(screen.getByLabelText('Email')).toBeInTheDocument()
   expect(screen.getByLabelText('Password')).toBeInTheDocument()
@@ -29,7 +30,7 @@ test('renders the form', () => {
 test('redirects to / on a successful sign-in', async () => {
   vi.mocked(fetch).mockResolvedValue(new Response(null, { status: 201 }))
 
-  render(<LoginPage />)
+  render(<LoginPage />, { wrapper: MemoryRouter })
 
   fireEvent.change(screen.getByLabelText('Email'), {
     target: { value: 'alice@example.com' },
@@ -61,7 +62,7 @@ test('redirects to next after a successful sign-in when the redirect here carrie
     },
   })
 
-  render(<LoginPage />)
+  render(<LoginPage />, { wrapper: MemoryRouter })
 
   fireEvent.change(screen.getByLabelText('Email'), {
     target: { value: 'alice@example.com' },
@@ -85,7 +86,7 @@ test('falls back to / when next does not point to a same-origin path', async () 
     },
   })
 
-  render(<LoginPage />)
+  render(<LoginPage />, { wrapper: MemoryRouter })
 
   fireEvent.change(screen.getByLabelText('Email'), {
     target: { value: 'alice@example.com' },
@@ -113,7 +114,7 @@ test('falls back to / when next hides a scheme-relative reference behind a strip
     },
   })
 
-  render(<LoginPage />)
+  render(<LoginPage />, { wrapper: MemoryRouter })
 
   fireEvent.change(screen.getByLabelText('Email'), {
     target: { value: 'alice@example.com' },
@@ -133,7 +134,7 @@ test('shows the error message on a refused sign-in', async () => {
     }),
   )
 
-  render(<LoginPage />)
+  render(<LoginPage />, { wrapper: MemoryRouter })
 
   fireEvent.change(screen.getByLabelText('Email'), {
     target: { value: 'alice@example.com' },

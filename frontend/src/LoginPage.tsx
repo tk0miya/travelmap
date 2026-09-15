@@ -1,4 +1,5 @@
 import { type FormEvent, useState } from 'react'
+import { Link } from 'react-router'
 
 // nextPath reads the `next` query parameter a redirect to /login carries
 // (see requireSessionUser) and returns it only if it resolves to travelmap's
@@ -28,8 +29,8 @@ function nextPath(): string {
 // LoginPage is the sign-in form, matching the old login.html's markup and
 // classes. A successful POST /travelmap/web/session sets the cookie itself;
 // this only has to send the browser on afterwards — to `next` if the
-// redirect here carried one, back to / otherwise — which is still a full
-// navigation since neither page is React yet.
+// redirect here carried one, back to / otherwise — as a full navigation,
+// since neither destination is a route this app owns.
 function LoginPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -94,7 +95,7 @@ function LoginPage() {
         <button type="submit">Log in</button>
       </form>
       <p className="auth-links">
-        Don't have an account? <a href="/signup">Sign up</a>
+        Don't have an account? <Link to="/signup">Sign up</Link>
       </p>
     </div>
   )
