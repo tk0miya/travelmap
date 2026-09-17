@@ -171,6 +171,14 @@ func (a *api) newRouter() http.Handler {
 	// so they stay on the group they describe.
 	r.Use(a.recoverer)
 
+	// Server-wide rather than on the browser group alone, now that a session
+	// cookie authenticates /api/v1 too: a route that accepts a cookie is a
+	// route a cross-origin form can drive. It costs the routes that accept no
+	// cookie nothing — a request carrying neither Sec-Fetch-Site nor Origin is
+	// taken for a non-browser one and allowed, which is every Dawarich client
+	// and Foursquare's own push.
+	r.Use(a.csrf.Handler)
+
 	r.NotFound(a.notFound)
 	r.MethodNotAllowed(a.methodNotAllowed(r))
 
@@ -180,14 +188,10 @@ func (a *api) newRouter() http.Handler {
 	// authenticates the caller with its own shared secret instead.
 	r.Post("/webhooks/foursquare", a.foursquareWebhook)
 
-	// The browser's own group, beside /api/v1 rather than under it: CSRF
-	// protection is attached here and only here — /api/v1 is Bearer /
-	// api_key only, so nothing it serves can be driven by a cross-origin
-	// form.
+	// The browser's own group, beside /api/v1 rather than under it.
 	r.Group(func(r chi.Router) {
 		r.Use(a.sessions.LoadAndSave)
 		r.Use(a.loadSessionUser)
-		r.Use(a.csrf.Handler)
 
 		r.Post("/travelmap/web/session", a.createSession)
 		r.Delete("/travelmap/web/session", a.deleteSession)
@@ -212,6 +216,10 @@ func (a *api) newRouter() http.Handler {
 	})
 
 	r.Route("/api/v1", func(r chi.Router) {
+		// So that authenticate can read the session a browser carries; a
+		// request without the cookie loads nothing.
+		r.Use(a.sessions.LoadAndSave)
+
 		// authenticate first, for the reason on dawarichHeaders.
 		r.Use(a.authenticate)
 		r.Use(dawarichHeaders)
