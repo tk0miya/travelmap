@@ -1,7 +1,6 @@
 package httpapi
 
 import (
-	"bytes"
 	"io"
 	"log/slog"
 	"net/http"
@@ -82,22 +81,6 @@ func doGetWithCookie(t *testing.T, srv *httptest.Server, path, token string) *ht
 	return resp
 }
 
-// getWithCookie is [doGetWithCookie] for a caller that only wants the
-// response body.
-func getWithCookie(t *testing.T, srv *httptest.Server, path, token string) []byte {
-	t.Helper()
-
-	resp := doGetWithCookie(t, srv, path, token)
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		t.Fatalf("reading the response body: %v", err)
-	}
-
-	return body
-}
-
 // TestSessionManagerCookieAttributes covers the cookie newSessionManager
 // configures, and that a session it commits actually lands in the store:
 // read back through a fresh Load rather than by peeking at the row directly,
@@ -162,43 +145,12 @@ func TestSessionManagerCookieAttributes(t *testing.T) {
 	}
 }
 
-// TestIndexNamesSessionUser covers that GET / reads the user a session
-// carries and has the page name them.
-func TestIndexNamesSessionUser(t *testing.T) {
-	t.Parallel()
-
-	user := model.User{
-		// Not 0: loadSessionUser reads a zero user id as no session at all.
-		ID:           1,
-		Email:        "session@example.com",
-		PasswordHash: "$2a$10$notarealbcryptdigestnotarealbcryptdigestnotarealbcryptdig",
-		APIKey:       "session-test-key",
-	}
-
-	st := storetest.New(t, user)
-
-	created, err := st.Users().ByEmail(t.Context(), user.Email)
-	if err != nil {
-		t.Fatalf("looking up the seeded user: %v", err)
-	}
-
-	token := plantSession(t, st, created.ID)
-
-	body := getWithCookie(t, newSessionTestServer(t, st), "/", token)
-
-	if !bytes.Contains(body, []byte("Signed in as "+created.Email)) {
-		t.Errorf("body = %q, want it to name %s", body, created.Email)
-	}
-
-	if !bytes.Contains(body, []byte(`fetch('/travelmap/web/session', { method: 'DELETE' }`)) {
-		t.Errorf("body = %q, want a way to log out with a session", body)
-	}
-}
-
-// TestIndexIgnoresExpiredSession pins that an expired row is no session:
-// filtered out by SessionRepository.ByToken itself rather than left for the
-// periodic sweep to catch up with.
-func TestIndexIgnoresExpiredSession(t *testing.T) {
+// TestSettingsPageIgnoresExpiredSession pins that an expired row is no
+// session: filtered out by SessionRepository.ByToken itself rather than left
+// for the periodic sweep to catch up with. /settings is the route this
+// exercises it through — the last one still behind requireSessionUser on the
+// server, now that "/" answers every visitor with the frontend shell.
+func TestSettingsPageIgnoresExpiredSession(t *testing.T) {
 	t.Parallel()
 
 	user := model.User{
@@ -233,14 +185,14 @@ func TestIndexIgnoresExpiredSession(t *testing.T) {
 		t.Fatalf("expiring the session: %v", err)
 	}
 
-	resp := doGetWithCookie(t, newSessionTestServer(t, st), "/", token)
+	resp := doGetWithCookie(t, newSessionTestServer(t, st), "/settings", token)
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusFound {
 		t.Errorf("status = %d, want %d — an expired session treated as none", resp.StatusCode, http.StatusFound)
 	}
 
-	if got, want := resp.Header.Get("Location"), "/login?next=%2F"; got != want {
+	if got, want := resp.Header.Get("Location"), "/login?next=%2Fsettings"; got != want {
 		t.Errorf("Location = %q, want %q", got, want)
 	}
 }

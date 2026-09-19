@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { Link } from 'react-router'
 import { useAuth } from './auth.tsx'
 
 interface LayoutProps {
@@ -16,9 +17,9 @@ function Layout({ children }: LayoutProps) {
   return (
     <>
       <header className="site-header">
-        <a href="/" className="brand">
+        <Link to="/" className="brand">
           travelmap
-        </a>
+        </Link>
         {auth.status === 'signedIn' && (
           <a href="/settings" className="header-link">
             Settings

@@ -6,20 +6,23 @@ import (
 	"testing"
 )
 
-// TestIndexRedirectsAnonymous covers that a first-time visitor with no
-// session lands on the login form rather than a status page pointing at it.
-func TestIndexRedirectsAnonymous(t *testing.T) {
+// TestIndexServesTheFrontendShell covers that GET / falls through to the
+// frontend build's catch-all like any other unclaimed path, now that
+// requireSessionUser no longer guards it: the redirect an anonymous visitor
+// used to get from this route itself is React's own to answer now — see
+// RequireAuth.test.tsx and App.test.tsx.
+func TestIndexServesTheFrontendShell(t *testing.T) {
 	t.Parallel()
 
 	srv := newTestServer(t)
-	resp := doNoRedirect(t, srv, http.MethodGet, "/")
+	resp := do(t, srv, http.MethodGet, "/")
 
-	if resp.status != http.StatusFound {
-		t.Errorf("status = %d, want %d", resp.status, http.StatusFound)
+	if resp.status != http.StatusOK {
+		t.Errorf("status = %d, want %d", resp.status, http.StatusOK)
 	}
 
-	if got, want := resp.header.Get("Location"), "/login?next=%2F"; got != want {
-		t.Errorf("Location = %q, want %q", got, want)
+	if !strings.Contains(string(resp.body), `<div id="root">`) {
+		t.Errorf("body = %q, want it to contain the frontend build's root element", resp.body)
 	}
 }
 

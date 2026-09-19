@@ -17,9 +17,32 @@ afterEach(() => {
 })
 
 test('renders the placeholder shell for a path with no page yet', () => {
+  window.history.pushState({}, '', '/not-a-real-page')
+
   render(<App />)
 
   expect(screen.getByText('Coming soon')).toBeInTheDocument()
+})
+
+test('renders the home page at / when signed in', async () => {
+  vi.mocked(fetch).mockResolvedValue(
+    new Response(JSON.stringify({ user: { email: 'alice@example.com' } })),
+  )
+
+  render(<App />)
+
+  expect(
+    await screen.findByText('Signed in as alice@example.com.'),
+  ).toBeInTheDocument()
+})
+
+test('redirects a signed-out visit to / to the login form', async () => {
+  render(<App />)
+
+  expect(
+    await screen.findByRole('heading', { name: 'Log in' }),
+  ).toBeInTheDocument()
+  expect(window.location.pathname).toBe('/login')
 })
 
 test('renders the login page at /login', () => {
@@ -57,14 +80,19 @@ test('swaps the page in place when a link between two of them is followed', asyn
 })
 
 // The other half of that rule, which otherwise fails silently: a path with no
-// Route is Go's to serve, so its link has to stay an anchor. jsdom navigates
-// for neither kind, so the path standing still is what says this one is an
-// anchor — as a Link it would move and render the no-Route placeholder.
-test('leaves the app for a link to a path it has no route for', () => {
+// Route is Go's to serve, so its link has to stay an anchor — the header's
+// own Settings link, until Step 42 gives /settings a Route here too. jsdom
+// navigates for neither kind, so the path standing still is what says this
+// one is an anchor — as a Link it would move and render the no-Route
+// placeholder.
+test('leaves the app for a link to a path it has no route for', async () => {
+  vi.mocked(fetch).mockResolvedValue(
+    new Response(JSON.stringify({ user: { email: 'alice@example.com' } })),
+  )
   window.history.pushState({}, '', '/login')
 
   render(<App />)
-  fireEvent.click(screen.getByRole('link', { name: 'travelmap' }))
+  fireEvent.click(await screen.findByRole('link', { name: 'Settings' }))
 
   expect(window.location.pathname).toBe('/login')
   expect(screen.queryByText('Coming soon')).not.toBeInTheDocument()

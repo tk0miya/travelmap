@@ -20,10 +20,7 @@ func pageTemplate(name string) *template.Template {
 	return template.Must(template.ParseFS(templatesFS, "templates/base.html", "templates/"+name))
 }
 
-var (
-	indexTemplate    = pageTemplate("index.html")
-	settingsTemplate = pageTemplate("settings.html")
-)
+var settingsTemplate = pageTemplate("settings.html")
 
 // pageHeader is what base.html's own header renders, built the same way
 // regardless of which page is rendering: every page shares one header, so
@@ -66,20 +63,4 @@ func (a *api) renderPage(w http.ResponseWriter, r *http.Request, tmpl *template.
 			"error", err,
 		)
 	}
-}
-
-// indexData is what the index page's template renders.
-type indexData struct {
-	// Email is the signed-in account's address. [requireSessionUser]
-	// guarantees a user is on the context before index ever renders, so
-	// this is never "".
-	Email string
-}
-
-// index answers GET /, travelmap's own browser entry point.
-// [requireSessionUser] guarantees a user is on the context.
-func (a *api) index(w http.ResponseWriter, r *http.Request) {
-	user, _ := userFrom(r.Context())
-
-	a.renderPage(w, r, indexTemplate, indexData{Email: user.Email})
 }
