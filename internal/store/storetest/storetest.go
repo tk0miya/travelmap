@@ -90,6 +90,21 @@ func UnavailableDailyStats(t *testing.T, users ...model.User) store.Store {
 	return open(t, path)
 }
 
+// UnavailableCheckins returns a store holding users whose checkins table has
+// been dropped, so that authenticating still works but a check-in read or
+// write fails, for the same reason [UnavailablePoints] exists.
+func UnavailableCheckins(t *testing.T, users ...model.User) store.Store {
+	t.Helper()
+
+	path := prepare(t, users)
+
+	// Dropped before the store is opened, for the same reason as
+	// UnavailablePoints.
+	exec(t, path, `DROP TABLE checkins`)
+
+	return open(t, path)
+}
+
 // UnavailableFoursquareAccounts returns a store holding users whose
 // foursquare_accounts table has been dropped, so that authenticating and
 // reading a session's user still work but linking a Swarm account fails.

@@ -384,6 +384,48 @@ func TestPointsList(t *testing.T) {
 	}
 }
 
+// TestPointsInRange pins the range InRange serves: no earlier than from,
+// strictly before to, scoped to userID and ordered by timestamp ascending —
+// internal/timeline's own read of a whole interval, unlike List's paginated
+// one.
+func TestPointsInRange(t *testing.T) {
+	t.Parallel()
+
+	db := newTestDB(t)
+
+	user, err := db.Users().Create(t.Context(), testUser("in-range@example.com"))
+	if err != nil {
+		t.Fatalf("creating the user: %v", err)
+	}
+
+	other, err := db.Users().Create(t.Context(), testUser("other-in-range@example.com"))
+	if err != nil {
+		t.Fatalf("creating the other user: %v", err)
+	}
+
+	base := time.Date(2026, time.February, 3, 4, 5, 6, 0, time.UTC)
+
+	if _, err := db.Points().Create(t.Context(), []model.Point{
+		testPoint(user.ID, base.Add(-time.Hour)),
+		testPoint(user.ID, base),
+		testPoint(user.ID, base.Add(time.Hour)),
+		testPoint(user.ID, base.Add(2*time.Hour)),
+		testPoint(other.ID, base),
+	}); err != nil {
+		t.Fatalf("inserting points: %v", err)
+	}
+
+	got, err := db.Points().InRange(t.Context(), user.ID, base, base.Add(2*time.Hour))
+	if err != nil {
+		t.Fatalf("InRange returned %v", err)
+	}
+
+	want := []time.Time{base, base.Add(time.Hour)}
+	if diff := cmp.Diff(want, pointTimestamps(got)); diff != "" {
+		t.Errorf("timestamps differ (-want +got):\n%s", diff)
+	}
+}
+
 // TestPointsListAscending pins that ascending reverses the default
 // newest-first order.
 func TestPointsListAscending(t *testing.T) {

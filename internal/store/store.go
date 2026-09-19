@@ -159,6 +159,12 @@ type PointRepository interface {
 	// it is for a single Delete. It returns the Timestamp of each row
 	// actually deleted.
 	DeleteBulk(ctx context.Context, userID int64, ids []int64) ([]time.Time, error)
+
+	// InRange returns userID's points timestamped no earlier than from and
+	// strictly before to, ordered by timestamp ascending —
+	// internal/timeline's own read of a whole interval, unlike List's
+	// paginated one.
+	InRange(ctx context.Context, userID int64, from, to time.Time) ([]model.Point, error)
 }
 
 // DailyStatsRepository stores the daily_stats table: one precomputed per-day
@@ -196,10 +202,11 @@ type DailyStatsRepository interface {
 // CheckinRepository stores Swarm check-ins — travelmap's own extension, not a
 // Dawarich concept.
 //
-// internal/checkin is the only caller: the push webhook and the periodic
-// fetch both have to agree on how a duplicate is recognised and on which
-// fields a repeat write overwrites, and a second writer would settle that
-// twice.
+// Every write goes through internal/checkin: the push webhook and the
+// periodic fetch both have to agree on how a duplicate is recognised and on
+// which fields a repeat write overwrites, and a second writer would settle
+// that twice. internal/timeline reads through here directly, since a read
+// carries none of that risk.
 type CheckinRepository interface {
 	// Upsert stores checkin, matched against an existing row by
 	// FoursquareCheckinID. On a repeat write, Source and CreatedAt keep the
@@ -207,6 +214,12 @@ type CheckinRepository interface {
 	// with checkin's. It returns the row as stored, with ID, CreatedAt and
 	// UpdatedAt filled in.
 	Upsert(ctx context.Context, checkin model.Checkin) (model.Checkin, error)
+
+	// List returns userID's check-ins with CheckedInAt no earlier than from
+	// and strictly before to, ordered by CheckedInAt ascending —
+	// internal/timeline's own read of a whole interval, for assembling a
+	// timeline.
+	List(ctx context.Context, userID int64, from, to time.Time) ([]model.Checkin, error)
 }
 
 // FoursquareAccountRepository stores the link between a travelmap account and

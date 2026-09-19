@@ -117,6 +117,20 @@ Foursquare uses to freeze response shape, so it is a constant raised deliberatel
 behaviour, never "today". The request this client makes is under "Fetching Swarm check-ins"
 below.
 
+### The timeline
+
+Assembled on read from `checkins` and `points`, in `internal/timeline.Entries`. No derived table:
+with stay and gap detection deferred there is nothing to derive, so no re-derivation, no
+`travelmap recalculate` pass, and no coupling to `internal/ingest`.
+
+One entry per check-in, carrying the elapsed time and the distance to the next one, summed from
+the points recorded in between; a point before the first check-in or after the last has no
+interval to belong to and contributes to nothing. Every entry carries a kind, `EntryKindMove`
+being the only one this produces today — a second kind arrives once stay detection folds `visits`
+into the same assembly, rather than the assembly itself changing shape. An entry's own local time
+comes from its check-in's `TimezoneOffset` where the check-in has one, and from
+`tracking.timezone` otherwise.
+
 ### Background workers
 
 travelmap runs two kinds of background worker: **ticker-based** and **job-table-based**.

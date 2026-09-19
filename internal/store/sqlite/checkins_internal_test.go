@@ -1,6 +1,7 @@
 package sqlite
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -193,5 +194,62 @@ func TestCheckinUpsertOnConflictKeepsSourceAndCreatedAt(t *testing.T) {
 
 	if count != 1 {
 		t.Errorf("checkins holds %d rows for the repeated check-in, want 1", count)
+	}
+}
+
+// checkinTimes returns each checkin's CheckedInAt, for comparing List's
+// result against a wanted order without every column in the way.
+func checkinTimes(checkins []model.Checkin) []time.Time {
+	times := make([]time.Time, len(checkins))
+	for i, c := range checkins {
+		times[i] = c.CheckedInAt
+	}
+
+	return times
+}
+
+// TestCheckinsList pins List's range: no earlier than from, strictly before
+// to, scoped to userID and ordered by CheckedInAt ascending.
+func TestCheckinsList(t *testing.T) {
+	t.Parallel()
+
+	db := newTestDB(t)
+
+	user, err := db.Users().Create(t.Context(), testUser("checkins-list@example.com"))
+	if err != nil {
+		t.Fatalf("creating the user: %v", err)
+	}
+
+	other, err := db.Users().Create(t.Context(), testUser("other-checkins-list@example.com"))
+	if err != nil {
+		t.Fatalf("creating the other user: %v", err)
+	}
+
+	base := time.Date(2026, time.February, 3, 0, 0, 0, 0, time.UTC)
+
+	for i, checkedInAt := range []time.Time{base, base.Add(time.Hour), base.Add(2 * time.Hour)} {
+		c := testCheckin(user.ID, fmt.Sprintf("list-%d", i))
+		c.CheckedInAt = checkedInAt
+
+		if _, err := db.Checkins().Upsert(t.Context(), c); err != nil {
+			t.Fatalf("upserting a check-in: %v", err)
+		}
+	}
+
+	outside := testCheckin(other.ID, "list-other")
+	outside.CheckedInAt = base.Add(time.Hour)
+
+	if _, err := db.Checkins().Upsert(t.Context(), outside); err != nil {
+		t.Fatalf("upserting the other user's check-in: %v", err)
+	}
+
+	got, err := db.Checkins().List(t.Context(), user.ID, base, base.Add(2*time.Hour))
+	if err != nil {
+		t.Fatalf("List returned %v", err)
+	}
+
+	want := []time.Time{base, base.Add(time.Hour)}
+	if diff := cmp.Diff(want, checkinTimes(got)); diff != "" {
+		t.Errorf("CheckedInAt values differ (-want +got):\n%s", diff)
 	}
 }

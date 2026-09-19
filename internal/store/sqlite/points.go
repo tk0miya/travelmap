@@ -266,6 +266,26 @@ func (r pointRepository) DeleteBulk(ctx context.Context, userID int64, ids []int
 	return timestamps, nil
 }
 
+// InRange implements [store.PointRepository].
+func (r pointRepository) InRange(ctx context.Context, userID int64, from, to time.Time) ([]model.Point, error) {
+	rows, err := r.q.QueryContext(ctx,
+		`SELECT `+pointColumns+` FROM points
+		 WHERE user_id = ? AND timestamp >= ? AND timestamp < ?
+		 ORDER BY timestamp`,
+		userID, unixTime(from), unixTime(to),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("sqlite: listing points in range for user %d: %w", userID, err)
+	}
+
+	points, err := collect(rows, scanPoint)
+	if err != nil {
+		return nil, fmt.Errorf("sqlite: listing points in range for user %d: %w", userID, err)
+	}
+
+	return points, nil
+}
+
 // scanPoint reads one row of [pointColumns].
 func scanPoint(rows *sql.Rows) (model.Point, error) {
 	var (

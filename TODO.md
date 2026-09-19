@@ -17,7 +17,6 @@ it lands.
 | Reverse geocoding | Off by default; optionally point at a Nominatim/Photon URL | Does not make an external service mandatory |
 | Frontend | Replace `html/template` with a React + TypeScript SPA, built with Vite and embedded into `embed.FS` | `html/template` has no component model and no type checking. `internal/httpapi/web.go` already works around the first: its `pageTemplate` builds a separate `*template.Template` per page, because every page defines a `"content"` block and one set would collide on the name. Four pages exist today, and page count is about to grow quickly — Milestone J's own trip and timeline screens among them — which favors component reuse and a client-side ecosystem (map and chart libraries with React bindings) over a template engine's or a hand-rolled esbuild pipeline's more modest gains. Chosen over templ/gomponents, and over keeping the client side in Go's own toolchain, because the team is already fluent in React/TypeScript, which removes a Node toolchain's main cost. This trades away "a fresh checkout needs nothing but Go": building the frontend needs Node. The binary itself keeps embedding the build output, so it stays a single binary at runtime — only the build step changes |
 | Trip proposals | Open: **whether a candidate is stored is decided when proposals are built**, not now | Computing candidates on read keeps a mis-tuned threshold from putting rows in the trip list — a bad threshold misorders a list instead of corrupting data. Storing them is what lets a dismissal be remembered, which matters once the list is long enough that the same commute at the top becomes a nuisance. Upstream stores its equivalent for exactly that reason (`visits.status`), so neither side is obviously right until the list exists |
-| The timeline | Assembled on read from `checkins` and `points`. **No derived table** | With stay and gap detection deferred there is nothing to derive, so no re-derivation, no `travelmap recalculate` pass, and no coupling to `internal/ingest` |
 | Annotations (`notes`, later `photos`) | Always carry **their own timestamp**, and may *also* point at a trip. Never at the id of a derived row | The timestamp is what stops user-written text from being orphaned: a derived table such as `visits` is rebuilt id and all, so a note pointing into one loses its anchor. A trip is not derived, so pointing at one is safe, and it is what expresses "this note is about that trip" rather than "about that instant". Upstream's `notes` does both — `noted_at` (nullable as a column but required by the model), a polymorphic `attachable`, and a `lonlat` — but it allows that attachable to be a `Visit`, i.e. a derived row, which is the half not to copy. **travelmap narrows the target to a trip deliberately.** Worth settling before the table exists, since it cannot be changed cheaply afterwards |
 
 These are the defaults as of planning. If any turns out to be wrong during implementation,
@@ -247,8 +246,8 @@ app needs and the community client does not, and it is the input to Milestone F'
 
 Step 13 is done. Step 14 is independent and can run on its own; Step 15 needs it.
 
-**Both still depend on Milestone J**, which owns the assembly they project: `internal/timeline`
-now exists (Milestone J's Step 44), but they still need Step 46 (the assembly itself).
+**Both project `internal/timeline`'s own assembly** (Milestone J's Steps 44 and 46, both done),
+rather than reading `checkins` and `points` a second way of their own.
 
 ### Step 14: Visits
 
@@ -468,16 +467,16 @@ distances read higher than `daily_stats`, which excludes exactly those intervals
 reads these numbers, and the fix — whether that means reading `internal/track`'s tracks here too,
 or something else — is a step rather than a redesign.
 
-Step 44 is done. Take the rest in order. Step 46 (the assembly) depends on nothing in Milestone
-H. **Steps 45, 47 and 48 do**, now that Milestone H's Step 37 settles the frontend as a React +
-TypeScript SPA: those three add three more pages — the trip list, the trip form and the timeline
-screen — and all three were written against the superseded esbuild-as-a-Go-library decision (see
-"Library Choices for the Web UI"). Steps 45 and 47 define the server-rendered HTML routes those
-pages return today, and Step 48's own "hand the browser its GeoJSON inline" approach assumes
-that; all of it needs reconciling with a static SPA shell before any of them is taken. Taking
-Milestone H's conversion first is what stops these pages being written twice either way. Numbered
-44 to 48 even though this milestone was planned before Milestone H's Steps 37 to 43 — see that
-milestone's own note on why its numbers run ahead of these.
+Steps 44 and 46 are done. Take the rest in order. **Steps 45, 47 and 48 depend on Milestone H**,
+now that its Step 37 settles the frontend as a React + TypeScript SPA: those three add three more
+pages — the trip list, the trip form and the timeline screen — and all three were written against
+the superseded esbuild-as-a-Go-library decision (see "Library Choices for the Web UI"). Steps 45
+and 47 define the server-rendered HTML routes those pages return today, and Step 48's own "hand
+the browser its GeoJSON inline" approach assumes that; all of it needs reconciling with a static
+SPA shell before any of them is taken. Taking Milestone H's conversion first is what stops these
+pages being written twice either way. Numbered 44 to 48 even though this milestone was planned
+before Milestone H's Steps 37 to 43 — see that milestone's own note on why its numbers run ahead
+of these.
 
 The steps are small on purpose. One of them settles a convention everything after inherits —
 where the trip packages sit — and a convention argued inside a feature diff is a convention
@@ -501,39 +500,6 @@ decision to settle; see "Technical Decisions" and Milestone H.
       front end, an addition rather than a refactor
 
 **Done when**: a trip can be declared from a browser, edited, deleted, and survives a restart.
-
-### Step 46: Assembling the timeline
-
-- [ ] `CheckinRepository.List(ctx, userID, from, to)`. The repository is write-only today; the
-      `checkins_user_id_checked_in_at_idx` index the query needs already exists. Its doc comment
-      says `internal/checkin` is the only caller, which stops being true here — reword it to say
-      that every *write* goes through `internal/checkin`, which is what the layering rule in
-      CLAUDE.md actually requires, and that `internal/timeline` reads
-- [ ] `PointRepository.InRange(ctx, userID, from, to)`, for the points between one check-in and
-      the next. The existing `List` is paginated and returns a total count for `X-Total-Pages`,
-      which does not fit reading an interval whole. **No new index**: this is a time-range scan
-      on `points_user_id_timestamp_key`, not a bounding-box query, so the note in
-      `0002_points.sql` about adding neither a lat/lon index nor an `R*Tree` still holds
-- [ ] The assembly itself: one entry per check-in, with the elapsed time and the distance to the
-      next one summed from that interval's points
-- [ ] **An entry carries its kind**, even though the MVP produces only one of them. Stay and
-      move are what Steps 13 and 14 project into upstream's shapes, and a type that cannot say
-      which it is would force those steps to invent the distinction separately — the exact
-      duplication this milestone's one-model rule exists to prevent
-- [ ] **Take the sources as a set, not as two fixed reads.** The MVP has two — check-ins and
-      points — and stay detection later adds `visits`. Written so that a source is added rather
-      than the assembly rewritten, "one engine" is a property of the signature instead of a
-      promise a later step has to keep
-- [ ] Local time per entry from the check-in's own `timezone_offset`, falling back to
-      `tracking.timezone` where it is absent. Without this a trip abroad renders entirely in
-      the home zone, which is what makes a travel log unreadable
-
-**Settles**: what a timeline entry is — its fields and its kinds — and that everything reading
-a time range reads it through here, before a template or a compatibility DTO has an opinion
-about it.
-
-**Done when**: table-driven tests cover a check-in with no points around it, points with no
-check-in, an entry crossing midnight, and a check-in carrying no `timezone_offset`.
 
 ### Step 47: The timeline screen
 

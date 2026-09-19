@@ -68,6 +68,26 @@ func (r checkinRepository) Upsert(ctx context.Context, checkin model.Checkin) (m
 	return stored, nil
 }
 
+// List implements [store.CheckinRepository].
+func (r checkinRepository) List(ctx context.Context, userID int64, from, to time.Time) ([]model.Checkin, error) {
+	rows, err := r.q.QueryContext(ctx,
+		`SELECT `+checkinColumns+` FROM checkins
+		 WHERE user_id = ? AND checked_in_at >= ? AND checked_in_at < ?
+		 ORDER BY checked_in_at`,
+		userID, unixTime(from), unixTime(to),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("sqlite: listing check-ins for user %d: %w", userID, err)
+	}
+
+	checkins, err := collect(rows, scanCheckinRows)
+	if err != nil {
+		return nil, fmt.Errorf("sqlite: listing check-ins for user %d: %w", userID, err)
+	}
+
+	return checkins, nil
+}
+
 // scanCheckin reads one row of [checkinColumns].
 func scanCheckin(row *sql.Row) (model.Checkin, error) {
 	var (
@@ -87,6 +107,47 @@ func scanCheckin(row *sql.Row) (model.Checkin, error) {
 	)
 	if err != nil {
 		return model.Checkin{}, translate(err)
+	}
+
+	c.CheckedInAt = time.Time(checkedInAt)
+	c.CreatedAt = time.Time(createdAt)
+	c.UpdatedAt = time.Time(updatedAt)
+	c.TimezoneOffset = nullInt(timezoneOffset)
+	c.VenueID = nullString(venueID)
+	c.VenueName = nullString(venueName)
+	c.Latitude = nullFloat64(latitude)
+	c.Longitude = nullFloat64(longitude)
+	c.CountryCode = nullString(countryCode)
+	c.City = nullString(city)
+	c.State = nullString(state)
+	c.Country = nullString(country)
+	c.CategoryID = nullString(categoryID)
+	c.CategoryName = nullString(categoryName)
+	c.Shout = nullString(shout)
+
+	return c, nil
+}
+
+// scanCheckinRows is [scanCheckin] for the multi-row query List runs: same
+// [checkinColumns] order, but over a *sql.Rows, for [collect].
+func scanCheckinRows(rows *sql.Rows) (model.Checkin, error) {
+	var (
+		c                                 model.Checkin
+		checkedInAt, createdAt, updatedAt unixTime
+		timezoneOffset                    sql.NullInt64
+		venueID, venueName                sql.NullString
+		latitude, longitude               sql.NullFloat64
+		countryCode, city, state, country sql.NullString
+		categoryID, categoryName, shout   sql.NullString
+	)
+
+	err := rows.Scan(
+		&c.ID, &c.UserID, &c.FoursquareCheckinID, &checkedInAt, &timezoneOffset,
+		&venueID, &venueName, &latitude, &longitude, &countryCode, &city, &state, &country,
+		&categoryID, &categoryName, &shout, &c.Source, &c.Raw, &createdAt, &updatedAt,
+	)
+	if err != nil {
+		return model.Checkin{}, err
 	}
 
 	c.CheckedInAt = time.Time(checkedInAt)
