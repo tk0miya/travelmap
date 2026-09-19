@@ -229,3 +229,24 @@ CREATE TABLE track_split_jobs (
     user_id      INTEGER NOT NULL UNIQUE REFERENCES users (id),
     requested_at INTEGER NOT NULL
 ) STRICT;
+
+CREATE TABLE trips (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id      INTEGER NOT NULL REFERENCES users (id),
+
+    title        TEXT NOT NULL,
+
+    started_at   INTEGER NOT NULL, -- Unix seconds UTC, per users.created_at.
+    ended_at     INTEGER NOT NULL, -- Exclusive upper bound, like tracks.end_at.
+
+    -- Free text about the trip as a whole; deliberately not called "note", which is a different, not-yet-built thing carrying its own timestamp.
+    description  TEXT NOT NULL,
+
+    created_at   INTEGER NOT NULL,
+    updated_at   INTEGER NOT NULL
+) STRICT;
+
+CREATE INDEX trips_user_id_started_at_idx ON trips (
+    -- Mirrors points(user_id, timestamp): narrows by user and time range first.
+    user_id, started_at
+);

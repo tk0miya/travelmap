@@ -55,6 +55,9 @@ type Store interface {
 	// Tracks returns the tracks repository.
 	Tracks() TrackRepository
 
+	// Trips returns the trip repository.
+	Trips() TripRepository
+
 	// Tx runs fn inside a transaction, committing when it returns nil and
 	// rolling back when it returns an error, which Tx then returns.
 	//
@@ -329,4 +332,31 @@ type TrackRepository interface {
 	// fresh request rather than being silently absorbed into the one already
 	// running.
 	NextPending(ctx context.Context) (userID int64, ok bool, err error)
+}
+
+// TripRepository stores the trips table: a time range a user declared as one
+// trip. internal/timeline is the only intended caller — a trip is user-owned
+// data, never derived, so nothing else has reason to write one.
+type TripRepository interface {
+	// Create stores trip and returns it as stored, with ID, CreatedAt and
+	// UpdatedAt filled in.
+	Create(ctx context.Context, trip model.Trip) (model.Trip, error)
+
+	// ByID finds one of userID's trips, and reports [ErrNotFound] if there is
+	// none or it belongs to a different user.
+	ByID(ctx context.Context, userID, id int64) (model.Trip, error)
+
+	// List returns every one of userID's trips, ordered by StartedAt
+	// ascending.
+	List(ctx context.Context, userID int64) ([]model.Trip, error)
+
+	// Update overwrites one of userID's trips' Title, StartedAt, EndedAt and
+	// Description, and returns it as stored, with UpdatedAt bumped. It
+	// returns [ErrNotFound] if trip.ID does not exist or belongs to a
+	// different user.
+	Update(ctx context.Context, trip model.Trip) (model.Trip, error)
+
+	// Delete removes one of userID's trips. It returns [ErrNotFound] if id
+	// does not exist or belongs to a different user.
+	Delete(ctx context.Context, userID, id int64) error
 }

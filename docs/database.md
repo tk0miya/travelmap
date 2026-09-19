@@ -222,3 +222,22 @@ first one succeeds. Each fetch computes its own window by looking back a fixed i
 now, rather than resuming from wherever `synced_through` left off, so this column's own purpose
 is only reporting how current an account is, and recognising when an account has gone long
 enough without a successful fetch that a wider one-off catch-up is needed to close the gap.
+
+## `trips`
+
+A trip is a time range the user declared — travelmap's own feature, built on top of the GPS
+trace and Swarm check-ins above rather than a Dawarich concept. `internal/timeline` is the only
+writer, the same single-writer rule `internal/checkin` and `internal/track` already follow for
+the tables they own.
+
+**Detection is left out, not ruled out.** A detector needs a "home" cluster, which needs stay
+detection landing first — before that there is nothing to judge a candidate's accuracy against,
+and accuracy is the bar a detector has to clear before it beats simply typing the title in.
+Upstream agrees on the shape: its own `trips.name` is `NOT NULL`, so a Dawarich trip is
+user-named too.
+
+**Where this goes if reading the range ever gets slow.** Upstream's own `trips` is just a
+`name`, a range, and no join table to its visits or tracks — until it needs to be more: it
+caches `distance`, `path` and `visited_countries` on the row beside a `last_recalculated_at`.
+That is the answer to a performance problem, not the starting point, and it is the one thing
+that would make a trip row hold derived state.
