@@ -203,7 +203,6 @@ func (a *api) newRouter() http.Handler {
 		r.Group(func(r chi.Router) {
 			r.Use(requireSessionUser)
 
-			r.Get("/", a.index)
 			r.Get("/settings", a.settingsPage)
 			r.Get("/settings/foursquare/connect", a.foursquareOAuthStart)
 			r.Post("/settings/foursquare/disconnect", a.foursquareDisconnect)

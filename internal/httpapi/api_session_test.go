@@ -29,7 +29,7 @@ func sessionCookie(t *testing.T, resp response) string {
 }
 
 // TestCreateSession covers the golden path: a session cookie is set, and
-// then names the account on GET /.
+// then names the account through GET /api/v1/users/me.
 func TestCreateSession(t *testing.T) {
 	t.Parallel()
 
@@ -45,9 +45,9 @@ func TestCreateSession(t *testing.T) {
 		t.Fatal("no session cookie was set")
 	}
 
-	indexResp := do(t, srv, http.MethodGet, "/", withHeader("Cookie", "session="+token))
-	if !bytes.Contains(indexResp.body, []byte(testEmail)) {
-		t.Errorf("GET / body = %q, want it to name %s", indexResp.body, testEmail)
+	meResp := do(t, srv, http.MethodGet, "/api/v1/users/me", withHeader("Cookie", "session="+token))
+	if !bytes.Contains(meResp.body, []byte(testEmail)) {
+		t.Errorf("GET /api/v1/users/me body = %q, want it to name %s", meResp.body, testEmail)
 	}
 }
 
@@ -119,7 +119,7 @@ func TestCreateSessionCrossSiteRejected(t *testing.T) {
 }
 
 // TestDeleteSession covers that signing out ends the session: the old
-// cookie no longer reaches GET / as a signed-in account.
+// cookie no longer authenticates GET /api/v1/users/me.
 func TestDeleteSession(t *testing.T) {
 	t.Parallel()
 
@@ -133,13 +133,9 @@ func TestDeleteSession(t *testing.T) {
 		t.Errorf("status = %d, want %d", logoutResp.status, http.StatusNoContent)
 	}
 
-	indexResp := doNoRedirect(t, srv, http.MethodGet, "/", withHeader("Cookie", "session="+token))
-	if indexResp.status != http.StatusFound {
-		t.Errorf("GET / with the old cookie: status = %d, want %d — treated as signed out", indexResp.status,
-			http.StatusFound)
-	}
-
-	if got, want := indexResp.header.Get("Location"), "/login?next=%2F"; got != want {
-		t.Errorf("GET / with the old cookie: Location = %q, want %q", got, want)
+	meResp := do(t, srv, http.MethodGet, "/api/v1/users/me", withHeader("Cookie", "session="+token))
+	if meResp.status != http.StatusUnauthorized {
+		t.Errorf("GET /api/v1/users/me with the old cookie: status = %d, want %d — treated as signed out",
+			meResp.status, http.StatusUnauthorized)
 	}
 }

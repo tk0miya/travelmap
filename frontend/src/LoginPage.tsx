@@ -29,8 +29,11 @@ function nextPath(): string {
 // LoginPage is the sign-in form, matching the old login.html's markup and
 // classes. A successful POST /travelmap/web/session sets the cookie itself;
 // this only has to send the browser on afterwards — to `next` if the
-// redirect here carried one, back to / otherwise — as a full navigation,
-// since neither destination is a route this app owns.
+// redirect here carried one, back to / otherwise — as a full navigation:
+// `next` can name any same-origin path, and most of them (`/settings` until
+// Step 42 converts it, anything else Go still renders) are not a route this
+// app owns, so handing the destination to the client-side router is not
+// safe to assume here even where it happens to be, as it is for /.
 function LoginPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')

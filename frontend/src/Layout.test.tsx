@@ -1,4 +1,5 @@
 import { act, render, screen } from '@testing-library/react'
+import { MemoryRouter } from 'react-router'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import AuthProvider from './auth.tsx'
 import Layout from './Layout.tsx'
@@ -14,9 +15,11 @@ afterEach(() => {
 function renderLayout() {
   render(
     <AuthProvider>
-      <Layout>
-        <p>content</p>
-      </Layout>
+      <MemoryRouter>
+        <Layout>
+          <p>content</p>
+        </Layout>
+      </MemoryRouter>
     </AuthProvider>,
   )
 }

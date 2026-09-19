@@ -368,24 +368,13 @@ Milestone J's Steps 44 to 48 even though Milestone J was planned first** — a d
 to "a step's number says when it was planned, not when to take it" above, made so that handing
 off the next step to work on is as simple as naming the lowest open number.
 
-### Step 41: Home page
-
-- [ ] Remove `r.Get("/", a.index)`, so Step 37's catch-all serves `/` instead
-- [ ] A shared "requires a signed-in browser" route wrapper, redirecting to `/login` client-side
-      when `useAuth` reports signed-out — the first protected page needs this, and Step 42
-      reuses it rather than each page writing its own check
-- [ ] React `HomePage`: "Signed in as {email}", from `useAuth` rather than rendered server-side
-
-**Done when**: the page shows the signed-in address without a dedicated data endpoint for it,
-and a signed-out visit to `/` redirects to `/login` client-side.
-
 ### Step 42: Settings page
 
 - [ ] `POST /settings/foursquare/disconnect` becomes `DELETE /travelmap/web/foursquare_account`,
       matching the resource naming `/travelmap/web/session` and `/travelmap/web/users` already
       established
 - [ ] Remove `r.Get("/settings", a.settingsPage)`, so Step 37's catch-all serves `/settings`
-      instead, behind Step 41's route wrapper
+      instead, behind `RequireAuth` (`frontend/src/RequireAuth.tsx`)
 - [ ] React `SettingsPage`: linked/unlinked states, the disconnect button. "Connect" stays a
       plain link to the existing `/settings/foursquare/connect` redirect — that flow and its
       callback are untouched, since neither is a JSON action
@@ -396,8 +385,9 @@ the browser, and a signed-out visit to `/settings` also redirects to `/login`.
 
 ### Step 43: Retire `html/template`
 
-- [ ] Delete `internal/httpapi/templates/`, `pageTemplate`, `renderPage` and the four
-      `*Template` package vars, and every leftover `bytes.Contains`-style HTML assertion
+- [ ] Delete `internal/httpapi/templates/`, `pageTemplate`, `renderPage` and the one remaining
+      `*Template` package var (`settingsTemplate`), and every leftover `bytes.Contains`-style
+      HTML assertion
 - [ ] Rewrite `docs/architecture.md`'s "HTML rendering" section for the new stack: `embed.FS`
       embeds the frontend's build output rather than templates, and Node is a build-time
       dependency the runtime binary does not carry

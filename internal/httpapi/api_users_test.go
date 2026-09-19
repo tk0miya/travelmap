@@ -61,9 +61,9 @@ func TestCreateUser(t *testing.T) {
 		t.Fatal("no session cookie was set")
 	}
 
-	indexResp := do(t, srv, http.MethodGet, "/", withHeader("Cookie", "session="+token))
-	if !strings.Contains(string(indexResp.body), testEmail) {
-		t.Errorf("GET / body = %q, want it to name %s", indexResp.body, testEmail)
+	meResp := do(t, srv, http.MethodGet, "/api/v1/users/me", withHeader("Cookie", "session="+token))
+	if !strings.Contains(string(meResp.body), testEmail) {
+		t.Errorf("GET /api/v1/users/me body = %q, want it to name %s", meResp.body, testEmail)
 	}
 
 	apiKey := apiKeyFromBody(t, resp.body)
@@ -71,9 +71,9 @@ func TestCreateUser(t *testing.T) {
 		t.Fatal("the response carried no api_key")
 	}
 
-	meResp := do(t, srv, http.MethodGet, "/api/v1/users/me", withHeader("Authorization", "Bearer "+apiKey))
-	if meResp.status != http.StatusOK {
-		t.Errorf("GET /api/v1/users/me with the issued key: status = %d, want %d", meResp.status, http.StatusOK)
+	keyResp := do(t, srv, http.MethodGet, "/api/v1/users/me", withHeader("Authorization", "Bearer "+apiKey))
+	if keyResp.status != http.StatusOK {
+		t.Errorf("GET /api/v1/users/me with the issued key: status = %d, want %d", keyResp.status, http.StatusOK)
 	}
 }
 

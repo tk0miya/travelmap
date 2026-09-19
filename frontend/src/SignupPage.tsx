@@ -75,7 +75,7 @@ function SignupPage() {
         <p>Your API key, for configuring the phone app:</p>
         <p className="api-key">{apiKey}</p>
         <p>
-          <a href="/">Continue</a>
+          <Link to="/">Continue</Link>
         </p>
       </div>
     )
