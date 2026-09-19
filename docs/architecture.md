@@ -89,6 +89,11 @@ leading `//`, a leading `/\`, and a `next` hiding either behind a tab or newline
 strips before resolving it all resolve to the same scheme-relative reference to another host, and
 only resolving `next` the way a navigation would catches all of them at once.
 
+A JSON-only `/travelmap/web` route (`/travelmap/web/foursquare_account`) sits behind
+`requireUser` — the same empty `401` `/api/v1` answers with — rather than `requireSessionUser`:
+a fetch() caller checks the response's status, not a redirected body, so there is nothing for a
+login-form redirect to land on.
+
 ### Browser CSRF
 
 Standard `net/http.CrossOriginProtection`, over the whole server rather than the browser routes

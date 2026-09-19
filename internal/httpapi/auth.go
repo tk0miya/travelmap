@@ -122,7 +122,9 @@ func (a *api) authenticateBySession(w http.ResponseWriter, r *http.Request, next
 // The 401 has an empty body, which is upstream's `head :unauthorized` and not
 // an oversight: a client parsing the body of a 401 gets nothing, so sending
 // the usual error body would be a difference to trip over rather than an
-// improvement.
+// improvement. Reused on the browser's own `/travelmap/web/foursquare_account`
+// for the same reason with a different caller: a fetch() checks the status,
+// never the body of a response it treats as a failure.
 func requireUser(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if _, ok := userFrom(r.Context()); !ok {
