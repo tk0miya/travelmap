@@ -1,0 +1,53 @@
+name: Biome migrate
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "frontend/package-lock.json"
+
+permissions:
+  contents: read
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        id: app-token
+        with:
+          client-id: ${{ vars.REPO_HOUSEKEEPER_CLIENT_ID }}
+          private-key: ${{ secrets.REPO_HOUSEKEEPER_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: frontend/.nvmrc
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Run biome migrate
+        working-directory: frontend
+        run: npx biome migrate --write
+
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          branch: bot/biome-migrate
+          delete-branch: true
+          commit-message: "frontend: Run biome migrate"
+          title: "frontend: Run biome migrate"
+          body: |
+            Diff produced by running `biome migrate --write` in `frontend/` to keep the configuration in sync with the installed `@biomejs/biome` version.
+          labels: auto-merge
