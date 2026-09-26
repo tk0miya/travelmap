@@ -338,34 +338,22 @@ Milestone J's Steps 44 to 48 even though Milestone J was planned first** — a d
 to "a step's number says when it was planned, not when to take it" above, made so that handing
 off the next step to work on is as simple as naming the lowest open number.
 
-### Step 42: Settings page
+### Step 43: Document the retired `html/template` stack
 
-- [ ] `POST /settings/foursquare/disconnect` becomes `DELETE /travelmap/web/foursquare_account`,
-      matching the resource naming `/travelmap/web/session` and `/travelmap/web/users` already
-      established
-- [ ] Remove `r.Get("/settings", a.settingsPage)`, so Step 37's catch-all serves `/settings`
-      instead, behind `RequireAuth` (`frontend/src/RequireAuth.tsx`)
-- [ ] React `SettingsPage`: linked/unlinked states, the disconnect button. "Connect" stays a
-      plain link to the existing `/settings/foursquare/connect` redirect — that flow and its
-      callback are untouched, since neither is a JSON action
-- [ ] Rewrite `settings_page_test.go` against the JSON contract; add `SettingsPage.test.tsx`
+Converting `/settings` to React removed the last route `pageTemplate`, `renderPage` and
+`settingsTemplate` served, which took the whole `html/template` stack out with it in that same
+pull request — `internal/httpapi/templates/` and every leftover `bytes.Contains`-style HTML
+assertion included, since nothing left called any of it and an unused handler fails
+`golangci-lint` the same way an unused variable does. What is left is documentation, not code:
 
-**Done when**: connecting and disconnecting a Swarm account both still work end to end through
-the browser, and a signed-out visit to `/settings` also redirects to `/login`.
-
-### Step 43: Retire `html/template`
-
-- [ ] Delete `internal/httpapi/templates/`, `pageTemplate`, `renderPage` and the one remaining
-      `*Template` package var (`settingsTemplate`), and every leftover `bytes.Contains`-style
-      HTML assertion
 - [ ] Rewrite `docs/architecture.md`'s "HTML rendering" section for the new stack: `embed.FS`
       embeds the frontend's build output rather than templates, and Node is a build-time
       dependency the runtime binary does not carry
 - [ ] Move the "Frontend" row out of this file's "Technical Decisions" table into
       `docs/architecture.md`
 
-**Done when**: no `html/template` import remains in `internal/httpapi`, and `make check` is
-green with the React test suite as the only thing covering page-state branches.
+**Done when**: `docs/architecture.md` describes the React SPA stack in place of `html/template`,
+and the "Frontend" row no longer appears in this file's "Technical Decisions" table.
 
 ### Still to plan
 
