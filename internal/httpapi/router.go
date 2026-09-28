@@ -197,15 +197,24 @@ func (a *api) newRouter() http.Handler {
 		r.Delete("/travelmap/web/session", a.deleteSession)
 		r.Post("/travelmap/web/users", a.createUser)
 
+		// A JSON resource rather than a page: the SPA reads and writes it with
+		// fetch, so a signed-out request is refused the way /api/v1 refuses
+		// one — requireUser's empty 401 — rather than redirected the way a
+		// browser navigation is below.
+		r.Group(func(r chi.Router) {
+			r.Use(requireUser)
+
+			r.Get("/travelmap/web/foursquare_account", a.getFoursquareAccount)
+			r.Delete("/travelmap/web/foursquare_account", a.deleteFoursquareAccount)
+		})
+
 		// Every route a signed-out visitor cannot use at all, gated behind
 		// one shared redirect-to-login rather than each handler checking for
 		// itself.
 		r.Group(func(r chi.Router) {
 			r.Use(requireSessionUser)
 
-			r.Get("/settings", a.settingsPage)
 			r.Get("/settings/foursquare/connect", a.foursquareOAuthStart)
-			r.Post("/settings/foursquare/disconnect", a.foursquareDisconnect)
 		})
 
 		// Not behind requireSessionUser: a missing session is one of the

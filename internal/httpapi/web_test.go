@@ -27,8 +27,8 @@ func TestIndexServesTheFrontendShell(t *testing.T) {
 }
 
 // TestStaticStylesheet covers that the stylesheet is still served at the URL
-// base.html links, now out of the frontend build's own embed.FS — see
-// frontend_test.go for the rest of what that embed serves.
+// the old base.html linked, now out of the frontend build's own embed.FS —
+// see frontend_test.go for the rest of what that embed serves.
 func TestStaticStylesheet(t *testing.T) {
 	t.Parallel()
 

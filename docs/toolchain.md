@@ -95,8 +95,8 @@ under `vitest`'s `jsdom` environment for the component tests CLAUDE.md's "Testin
 describes.
 
 **The dev server proxies every path it does not itself serve to `go run ./cmd/travelmap serve`**
-(`vite.config.ts`'s `server.proxy`) — `/api`, `/travelmap`, `/webhooks`, and `/settings`, the one
-remaining page still built from `html/template`, gated behind a session. `/` is not proxied even
-though it is also still `html/template` today: Vite always serves its own `index.html` there, and
-there is nothing behind it yet worth reaching by proxy instead. A frontend change is visible
-without a Go rebuild, and a not-yet-converted page still renders through the proxy.
+(`vite.config.ts`'s `server.proxy`) — `/api`, `/travelmap`, `/webhooks`, and
+`/settings/foursquare/connect`, the one route Go still owns outright: the Swarm OAuth flow's
+start, a browser redirect rather than a page, gated behind a session. Every page itself (`/`,
+`/login`, `/signup`, `/settings`) is React's now, so Vite serves its own module graph for all of
+them directly — a frontend change is visible without a Go rebuild.

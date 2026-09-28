@@ -665,6 +665,67 @@ paths:
               example:
                 error: internal server error
 
+  /travelmap/web/foursquare_account:
+    get:
+      summary: Whether the browser has a Swarm account linked
+      description: >
+        404 is "not linked" rather than a 200 wrapping a linked boolean:
+        there is nothing else this resource could ever say once a session
+        is required to reach it at all.
+      operationId: getFoursquareAccount
+      security:
+        - SessionCookie: []
+      responses:
+        "200":
+          description: A Swarm account is linked.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FoursquareAccountResponse"
+              example:
+                foursquare_user_id: "1709193"
+                synced_through: "2026-03-04T05:06:07.000Z"
+        "401":
+          description: No signed-in session. The body is empty.
+        "404":
+          description: No Swarm account is linked.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: not found
+        "500":
+          description: The server could not do what was asked.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: internal server error
+    delete:
+      summary: Disconnect the browser's linked Swarm account
+      description: >
+        Removes the link only — the check-ins already collected are
+        untouched, and a different Swarm account can be connected
+        afterward. Not an error when nothing is linked.
+      operationId: deleteFoursquareAccount
+      security:
+        - SessionCookie: []
+      responses:
+        "204":
+          description: Disconnected, or nothing was linked to begin with. The body is empty.
+        "401":
+          description: No signed-in session. The body is empty.
+        "500":
+          description: The server could not do what was asked.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: internal server error
+
   /webhooks/foursquare:
     post:
       summary: Swarm (Foursquare) User Push notification
@@ -1289,6 +1350,21 @@ components:
           type: string
         confirm_error:
           type: string
+
+    FoursquareAccountResponse:
+      type: object
+      description: The 200 body of GET /travelmap/web/foursquare_account.
+      required:
+        - foursquare_user_id
+        - synced_through
+      properties:
+        foursquare_user_id:
+          type: string
+          description: The linked Swarm account's own id.
+        synced_through:
+          type: string
+          nullable: true
+          description: The end of the last successful check-in fetch, null until the first one succeeds.
 
     Login:
       type: object

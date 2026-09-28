@@ -53,9 +53,10 @@ not reflect what clients actually do.
 travelmap accepts a third credential upstream has no equivalent for: the browser's own session
 cookie. The web UI reads this API with the cookie it already holds, so it reuses the endpoints a
 Dawarich client calls rather than growing a second, UI-only set beside them — which is why
-`/travelmap/web` holds only the actions no Dawarich endpoint can stand in for, signing in
-included since `POST /api/v1/auth/login` hands back an `api_key` rather than a cookie, and no
-data endpoint at all. What the UI is deliberately not handed is a key to authenticate with: an
+`/travelmap/web` holds only what no Dawarich endpoint can stand in for: signing in, out and up,
+since `POST /api/v1/auth/login` hands back an `api_key` rather than a cookie, and — its one piece
+of data — whether a Swarm account is linked, a fact no Dawarich endpoint has ever heard of.
+What the UI is deliberately not handed is a key to authenticate with: an
 `api_key` that reaches JavaScript is one an XSS can read and keep, where an `HttpOnly` cookie is
 confined to the browser holding it. Which of the two wins where a request carries both is
 commented on `authenticate` in `internal/httpapi/auth.go`.

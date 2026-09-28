@@ -145,12 +145,13 @@ func TestSessionManagerCookieAttributes(t *testing.T) {
 	}
 }
 
-// TestSettingsPageIgnoresExpiredSession pins that an expired row is no
-// session: filtered out by SessionRepository.ByToken itself rather than left
-// for the periodic sweep to catch up with. /settings is the route this
-// exercises it through — the last one still behind requireSessionUser on the
-// server, now that "/" answers every visitor with the frontend shell.
-func TestSettingsPageIgnoresExpiredSession(t *testing.T) {
+// TestFoursquareOAuthStartIgnoresExpiredSession pins that an expired row is
+// no session: filtered out by SessionRepository.ByToken itself rather than
+// left for the periodic sweep to catch up with.
+// /settings/foursquare/connect is the route this exercises it through — the
+// only one still behind requireSessionUser on the server, now that "/" and
+// "/settings" both answer every visitor with the frontend shell.
+func TestFoursquareOAuthStartIgnoresExpiredSession(t *testing.T) {
 	t.Parallel()
 
 	user := model.User{
@@ -185,14 +186,14 @@ func TestSettingsPageIgnoresExpiredSession(t *testing.T) {
 		t.Fatalf("expiring the session: %v", err)
 	}
 
-	resp := doGetWithCookie(t, newSessionTestServer(t, st), "/settings", token)
+	resp := doGetWithCookie(t, newSessionTestServer(t, st), "/settings/foursquare/connect", token)
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusFound {
 		t.Errorf("status = %d, want %d — an expired session treated as none", resp.StatusCode, http.StatusFound)
 	}
 
-	if got, want := resp.Header.Get("Location"), "/login?next=%2Fsettings"; got != want {
+	if got, want := resp.Header.Get("Location"), "/login?next=%2Fsettings%2Ffoursquare%2Fconnect"; got != want {
 		t.Errorf("Location = %q, want %q", got, want)
 	}
 }
