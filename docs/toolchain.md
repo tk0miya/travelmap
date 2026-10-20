@@ -61,7 +61,11 @@ Three caveats:
   path is written in the workflow; `-u` stops at the latest minor or patch, and a new major, being
   a different module path, is adopted by hand. `.github/dependabot.yml` therefore keeps the
   default scope, which is also what makes a chi or SQLite-driver bump arrive as its own pull
-  request.
+  request. `-u` upgrades the tools' dependencies too, past what the tools themselves require,
+  and a v0 → v1 jump keeps the module path, so it counts as an ordinary upgrade: that is how
+  `github.com/gobwas/glob` v1.0.0, which replaced the `glob.Glob` interface every linter using
+  it still names, broke the golangci-lint build. **An `exclude` in `go.mod` holds such a
+  version back** until the tools that depend on it have moved to it.
 - **`govulncheck` cannot run in the development container**: the egress proxy blocks
   `vuln.go.dev` (`Forbidden`). Treat it as a CI-only check.
 
