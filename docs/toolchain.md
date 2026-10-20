@@ -3,7 +3,7 @@
 Why the Go toolchain and its development tools are set up the way they are, beyond what `go.mod`
 and `Makefile` show by themselves.
 
-**`go.mod` names `go 1.26.6`** (the current stable release; the floor is 1.25, required by
+**`go.mod` names `go 1.26.10`** (the newest 1.26 patch release; the floor is 1.25, required by
 `modernc.org/sqlite` v1.56.0), and it names a patch version, not just `1.26`, deliberately:
 `actions/setup-go` takes the version from `go-version-file: go.mod` and runs with
 `GOTOOLCHAIN=local`, so this line alone decides which toolchain CI builds with, and

@@ -1,6 +1,6 @@
 module github.com/tk0miya/travelmap
 
-go 1.26.6
+go 1.26.10
 
 tool (
 	github.com/golangci/golangci-lint/v2/cmd/golangci-lint
