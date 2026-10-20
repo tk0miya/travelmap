@@ -3,7 +3,7 @@
 Why the Go toolchain and its development tools are set up the way they are, beyond what `go.mod`
 and `Makefile` show by themselves.
 
-**`go.mod` names `go 1.26.6`** (the current stable release; the floor is 1.25, required by
+**`go.mod` names `go 1.26.10`** (the newest 1.26 patch release; the floor is 1.25, required by
 `modernc.org/sqlite` v1.56.0), and it names a patch version, not just `1.26`, deliberately:
 `actions/setup-go` takes the version from `go-version-file: go.mod` and runs with
 `GOTOOLCHAIN=local`, so this line alone decides which toolchain CI builds with, and
@@ -61,7 +61,11 @@ Three caveats:
   path is written in the workflow; `-u` stops at the latest minor or patch, and a new major, being
   a different module path, is adopted by hand. `.github/dependabot.yml` therefore keeps the
   default scope, which is also what makes a chi or SQLite-driver bump arrive as its own pull
-  request.
+  request. `-u` upgrades the tools' dependencies too, past what the tools themselves require,
+  and a v0 → v1 jump keeps the module path, so it counts as an ordinary upgrade: that is how
+  `github.com/gobwas/glob` v1.0.0, which replaced the `glob.Glob` interface every linter using
+  it still names, broke the golangci-lint build. **An `exclude` in `go.mod` holds such a
+  version back** until the tools that depend on it have moved to it.
 - **`govulncheck` cannot run in the development container**: the egress proxy blocks
   `vuln.go.dev` (`Forbidden`). Treat it as a CI-only check.
 

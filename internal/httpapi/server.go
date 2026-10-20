@@ -75,7 +75,9 @@ func serve(ctx context.Context, ln net.Listener, h http.Handler, logger *slog.Lo
 		return fmt.Errorf("shut down: %w", err)
 	}
 
-	<-srvErr
+	if err := <-srvErr; !errors.Is(err, http.ErrServerClosed) {
+		return fmt.Errorf("serve: %w", err)
+	}
 
 	return nil
 }

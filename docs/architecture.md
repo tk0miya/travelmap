@@ -94,7 +94,7 @@ only resolving `next` the way a navigation would catches all of them at once.
 Standard `net/http.CrossOriginProtection`, over the whole server rather than the browser routes
 alone, since a route that accepts a cookie is a route a cross-origin form can drive — why that
 costs the routes taking no cookie nothing is commented where it is installed, in
-`internal/httpapi/router.go`. Present in the toolchain `go.mod` already names (`go 1.26.6`), and
+`internal/httpapi/router.go`. Present in the toolchain `go.mod` already names (`go 1.26.10`), and
 its `Handler` is a plain `func(http.Handler) http.Handler`, so this costs no dependency, which
 is what needed confirming before it could be chosen.
 
