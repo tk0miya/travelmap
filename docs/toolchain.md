@@ -55,17 +55,19 @@ Three caveats:
   scheduled `gomod` updates cover direct dependencies only, so it never offers the tools, and the
   one setting that would reach them, `allow: dependency-type: "all"`, reaches the 211 modules they
   are built from as well. **`.github/workflows/go-tools.yml` does it instead**: a weekly
-  `go get -u tool` and `go mod tidy`, opened as a pull request carrying the `auto-merge` label, so
-  a golangci-lint release that finds something new turns `lint` red and waits for a human rather
-  than merging. The `tool` meta-pattern expands to the tools declared in `go.mod`, so no module
-  path is written in the workflow; `-u` stops at the latest minor or patch, and a new major, being
-  a different module path, is adopted by hand. `.github/dependabot.yml` therefore keeps the
-  default scope, which is also what makes a chi or SQLite-driver bump arrive as its own pull
-  request. `-u` upgrades the tools' dependencies too, past what the tools themselves require,
-  and a v0 → v1 jump keeps the module path, so it counts as an ordinary upgrade: that is how
-  `github.com/gobwas/glob` v1.0.0, which replaced the `glob.Glob` interface every linter using
-  it still names, broke the golangci-lint build. **An `exclude` in `go.mod` holds such a
-  version back** until the tools that depend on it have moved to it.
+  `go get <tool>@upgrade` for each tool and `go mod tidy`, opened as a pull request carrying the
+  `auto-merge` label, so a golangci-lint release that finds something new turns `lint` red and
+  waits for a human rather than merging. `go list tool` names the tools declared in `go.mod`, so
+  no module path is written in the workflow. `@upgrade` rather than `@latest`, so a tool pinned
+  to a pre-release or a commit newer than its latest release is not pulled back down. Either
+  stays within the major version the module path names — a v0 → v1 move included, since it
+  keeps the path — and a v2 or later, being a different module path, is adopted by hand.
+  `.github/dependabot.yml` therefore keeps the default scope, which is also what makes a chi or
+  SQLite-driver bump arrive as its own pull request. **The update deliberately leaves out
+  `-u`**, which would also raise every module the tools are built from past the versions the
+  tools require, a v0 → v1 jump included: that is how `github.com/gobwas/glob` v1.0.0, which
+  replaced the `glob.Glob` interface every linter using it named, once broke the golangci-lint
+  build. Without `-u`, such a module moves only when a tool asks for it.
 - **`govulncheck` cannot run in the development container**: the egress proxy blocks
   `vuln.go.dev` (`Forbidden`). Treat it as a CI-only check.
 

@@ -29,14 +29,12 @@ jobs:
         with:
           go-version-file: go.mod
 
-      # `tool` expands to the tools declared in go.mod, so the module paths live in
-      # one place only. `-u` stops at the latest minor or patch: a new major, which
-      # is a different module path, still has to be adopted by hand. `go get -u`
-      # leaves the module untidy, and `make lint` checks `go mod tidy -diff`, so the
-      # tidy is part of the update rather than a tidiness habit.
+      # `go get` leaves the module untidy, and `make lint` checks
+      # `go mod tidy -diff`, so the tidy is part of the update rather than a
+      # tidiness habit.
       - name: Update the development tools
         run: |
-          go get -u tool
+          go list tool | sed 's/$/@upgrade/' | xargs go get
           go mod tidy
 
       - name: Create a pull request
@@ -48,7 +46,7 @@ jobs:
           delete-branch: true
           title: 'go: Update the development tools'
           body: |
-            Raised the tools declared with `tool` directives in `go.mod` to their latest minor or patch releases with `go get -u tool`.
+            Raised the tools declared with `tool` directives in `go.mod` to their newest releases on the same module path with `go get <tool>@upgrade`, leaving the modules they are built from at the versions the tools require.
 
             Dependabot does not cover them: `go get -tool` records them as `// indirect`, which its default scope leaves alone, and widening that scope would put every module the tools are built from in scope too.
           labels: auto-merge
